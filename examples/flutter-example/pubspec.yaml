@@ -1,0 +1,16 @@
+name: paaq_example
+description: Example Flutter app demonstrating the PAAQ Listening SDK.
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+  flutter: '>=3.10.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  paaq_listening_sdk:
+    path: ../../packages/flutter-sdk
+
+flutter:
+  uses-material-design: true

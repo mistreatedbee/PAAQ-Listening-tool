@@ -1,4 +1,27 @@
-# v0 sandbox internal files
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js
+apps/dashboard/.next/
+apps/dashboard/out/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+build/
+
+# Dart / Flutter
+**/.dart_tool/
+**/build/
+*.g.dart
+
+# v0 sandbox
 __v0_runtime_loader.js
 __v0_devtools.tsx
 __v0_jsx-dev-runtime.ts
@@ -6,10 +29,10 @@ __v0_jsx-dev-runtime.ts
 .v0-trash/
 .vercel/
 
-# Environment variables
-.env*.local
-
-# Common ignores
-node_modules
-.next/
+# OS
 .DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
