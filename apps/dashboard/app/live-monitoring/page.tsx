@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { PageHeader, Card, CardHead, AreaChart } from '@/components/kit'
 import { SystemMap } from '@/components/dashboard/system-map'
@@ -34,10 +34,11 @@ export default function LiveMonitoringPage() {
   const [totalEvents, setTotalEvents] = useState(0)
   const [activeSessions, setActiveSessions] = useState(0)
   const [errorCount, setErrorCount] = useState(0)
-  const supabase = useRef(createClient())
 
   useEffect(() => {
-    const sb = supabase.current
+    // createClient() is called inside useEffect so it only runs on the client,
+    // preventing prerender failures when env vars aren't available at build time.
+    const sb = createClient()
 
     // Load initial data
     sb.from('events')
