@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import { Sparkles, X, ArrowUp, Bot } from 'lucide-react'
+import { createClient } from '@/utils/supabase/client'
 
 type Msg = { role: 'user' | 'ai'; text: string }
 
@@ -14,9 +15,6 @@ const assistantSuggestions = [
   'What caused the latest error spike?',
 ]
 
-const cannedAnswer =
-  'I can see the live data from your platform. Check the Incidents page for active issues, the Errors page for recent error trends, and the Performance page for latency and resource metrics. Once more data flows in from your app\'s SDK, I\'ll be able to give you specific AI-driven recommendations.'
-
 export function AIAssistant({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [messages, setMessages] = useState<Msg[]>([
     { role: 'ai', text: 'Hello. I\'m monitoring your platform in real time. Ask me anything about system health, incidents, errors, users or performance.' },
@@ -24,24 +22,28 @@ export function AIAssistant({ open, onClose }: { open: boolean; onClose: () => v
   const [input, setInput] = useState('')
   const [thinking, setThinking] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
-
-  useEffect(() => () => clearTimeout(timerRef.current), [])
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages, thinking])
 
-  function send(text: string) {
+  async function send(text: string) {
     const q = text.trim()
-    if (!q) return
+    if (!q || thinking) return
     setMessages((m) => [...m, { role: 'user', text: q }])
     setInput('')
     setThinking(true)
-    timerRef.current = setTimeout(() => {
-      setThinking(false)
-      setMessages((m) => [...m, { role: 'ai', text: cannedAnswer }])
-    }, 1100)
+    try {
+      const sb = createClient()
+      const { data, error } = await sb.functions.invoke('ai-search', { body: { question: q } })
+      const answer = error
+        ? 'Could not reach the AI — make sure the ANTHROPIC_API_KEY secret is set in Supabase and run an analysis first.'
+        : (data?.answer ?? 'No response received.')
+      setMessages((m) => [...m, { role: 'ai', text: answer }])
+    } catch {
+      setMessages((m) => [...m, { role: 'ai', text: 'Network error — please try again.' }])
+    }
+    setThinking(false)
   }
 
   return (
