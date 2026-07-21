@@ -9,64 +9,63 @@ import type { Insight, Tone } from '@/lib/data'
 
 type DbInsight = {
   id: string
+  category: string
   title: string
-  summary: string | null
+  description: string | null
   confidence: number | null
-  impact: string | null
-  affected_count: number | null
-  severity: string | null
-  actions: string[] | null
+  recommendation: string | null
+  created_at: string
 }
 
-function severityTone(s: string | null): Tone {
-  if (s === 'fatal' || s === 'error') return 'critical'
-  if (s === 'warning') return 'warning'
-  if (s === 'healthy') return 'healthy'
+function categoryTone(c: string): Tone {
+  if (c === 'error' || c === 'security') return 'critical'
+  if (c === 'warning' || c === 'performance') return 'warning'
+  if (c === 'growth' || c === 'success') return 'healthy'
   return 'intel'
 }
 
 function toInsight(i: DbInsight): Insight {
+  const actions: string[] = i.recommendation ? [i.recommendation, 'Investigate'] : ['Investigate']
   return {
     id: i.id,
     title: i.title,
-    summary: i.summary ?? '',
-    confidence: Math.round(i.confidence ?? 80),
-    impact: i.impact ?? 'Unknown impact',
-    affected: i.affected_count ? `${i.affected_count.toLocaleString()} users` : '—',
-    severity: severityTone(i.severity),
-    actions: i.actions?.length ? i.actions : ['Investigate'],
+    summary: i.description ?? '',
+    confidence: Math.round((i.confidence ?? 0.8) * 100),
+    impact: i.category.charAt(0).toUpperCase() + i.category.slice(1),
+    affected: '—',
+    severity: categoryTone(i.category),
+    actions,
   }
 }
 
 export default function AIInsightsPage() {
   const [insights, setInsights] = useState<Insight[]>([])
-  const [counts, setCounts] = useState({ total: 0, critical: 0, avgConf: 0 })
+  const [raw, setRaw] = useState<DbInsight[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const sb = createClient()
     sb.from('ai_insights')
-      .select('id, title, summary, confidence, impact, affected_count, severity, actions')
-      .eq('status', 'active')
+      .select('id, category, title, description, confidence, recommendation, created_at')
       .order('created_at', { ascending: false })
       .then(({ data }) => {
         const rows = (data ?? []) as DbInsight[]
-        const mapped = rows.map(toInsight)
-        const critical = rows.filter((r) => r.severity === 'fatal' || r.severity === 'error').length
-        const avgConf = rows.length
-          ? Math.round(rows.reduce((a, r) => a + (r.confidence ?? 80), 0) / rows.length)
-          : 0
-        setInsights(mapped)
-        setCounts({ total: rows.length, critical, avgConf })
+        setRaw(rows)
+        setInsights(rows.map(toInsight))
         setLoading(false)
       })
   }, [])
 
+  const critical = raw.filter((r) => r.category === 'error' || r.category === 'security').length
+  const avgConf = raw.length
+    ? Math.round(raw.reduce((a, r) => a + (r.confidence ?? 0.8), 0) / raw.length * 100)
+    : 0
+
   const stats = [
-    { label: 'Active insights', value: String(counts.total) },
-    { label: 'Critical', value: String(counts.critical), tone: 'text-critical' },
-    { label: 'Avg confidence', value: counts.avgConf ? `${counts.avgConf}%` : '—', tone: 'text-ai' },
-    { label: 'Users impacted', value: insights.reduce((a, i) => a + (i.affected === '—' ? 0 : parseInt(i.affected.replace(/\D/g, '')) || 0), 0).toLocaleString() },
+    { label: 'Total insights', value: String(raw.length) },
+    { label: 'Critical', value: String(critical), tone: 'text-critical' },
+    { label: 'Avg confidence', value: raw.length ? `${avgConf}%` : '—', tone: 'text-ai' },
+    { label: 'Categories', value: String(new Set(raw.map((r) => r.category)).size) },
   ]
 
   return (
@@ -96,7 +95,7 @@ export default function AIInsightsPage() {
       ) : insights.length === 0 ? (
         <Card className="p-10 text-center">
           <Sparkles className="mx-auto mb-3 h-8 w-8 text-muted-foreground opacity-20" />
-          <p className="text-sm text-muted-foreground">No AI insights yet. Run database/seed.sql to add demo data.</p>
+          <p className="text-sm text-muted-foreground">No AI insights yet. Run the seed SQL to add demo data.</p>
         </Card>
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">

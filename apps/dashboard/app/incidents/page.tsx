@@ -6,50 +6,50 @@ import { createClient } from '@/utils/supabase/client'
 import { PageHeader, Card, ToneBadge, StatusDot } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import { toneText } from '@/lib/tones'
-import { AlertTriangle, Users, Clock, ArrowRight, Plus } from 'lucide-react'
+import { AlertTriangle, Clock, ArrowRight, Plus } from 'lucide-react'
 import type { Tone } from '@/lib/data'
 
 type DbIncident = {
   id: string
   title: string
+  description: string | null
+  ai_summary: string | null
   severity: string
   status: string
-  priority: string
-  affected_users: number | null
-  description: string | null
-  started_at: string | null
   created_at: string
 }
 
 function severityTone(s: string): Tone {
-  if (s === 'fatal' || s === 'error') return 'critical'
-  if (s === 'warning') return 'warning'
+  if (s === 'critical' || s === 'high') return 'critical'
+  if (s === 'medium') return 'warning'
   return 'intel'
 }
 
 const STATUS_TONE: Record<string, Tone> = {
-  open: 'critical', investigating: 'critical', monitoring: 'intel', resolved: 'healthy',
+  open: 'critical', investigating: 'critical', identified: 'warning',
+  monitoring: 'intel', resolved: 'healthy',
 }
 const STATUS_LABEL: Record<string, string> = {
-  open: 'Open', investigating: 'Investigating', monitoring: 'Monitoring', resolved: 'Resolved',
+  open: 'Open', investigating: 'Investigating', identified: 'Identified',
+  monitoring: 'Monitoring', resolved: 'Resolved',
 }
 
 export default function IncidentsPage() {
   const [incidents, setIncidents] = useState<DbIncident[]>([])
-  const [counts, setCounts] = useState({ open: 0, p1: 0 })
+  const [counts, setCounts] = useState({ open: 0, critical: 0 })
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const sb = createClient()
     Promise.all([
       sb.from('incidents')
-        .select('id, title, severity, status, priority, affected_users, description, started_at, created_at')
+        .select('id, title, description, ai_summary, severity, status, created_at')
         .order('created_at', { ascending: false }),
       sb.from('incidents').select('*', { count: 'exact', head: true }).neq('status', 'resolved'),
-      sb.from('incidents').select('*', { count: 'exact', head: true }).eq('priority', 'P1').neq('status', 'resolved'),
-    ]).then(([{ data }, { count: open }, { count: p1 }]) => {
+      sb.from('incidents').select('*', { count: 'exact', head: true }).eq('severity', 'critical').neq('status', 'resolved'),
+    ]).then(([{ data }, { count: open }, { count: critical }]) => {
       setIncidents((data ?? []) as DbIncident[])
-      setCounts({ open: open ?? 0, p1: p1 ?? 0 })
+      setCounts({ open: open ?? 0, critical: critical ?? 0 })
       setLoading(false)
     })
   }, [])
@@ -70,7 +70,7 @@ export default function IncidentsPage() {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
           { l: 'Open', v: String(counts.open), t: 'text-critical' },
-          { l: 'P1 Critical', v: String(counts.p1), t: 'text-critical' },
+          { l: 'Critical', v: String(counts.critical), t: 'text-critical' },
           { l: 'Mean detect', v: '4m', t: 'text-healthy' },
           { l: 'Mean resolve', v: '38m', t: 'text-intel' },
         ].map((s) => (
@@ -94,16 +94,13 @@ export default function IncidentsPage() {
             const tone = severityTone(inc.severity)
             const sTone = STATUS_TONE[inc.status] ?? 'intel'
             const sLabel = STATUS_LABEL[inc.status] ?? inc.status
-            const started = inc.started_at
-              ? new Date(inc.started_at).toLocaleString()
-              : new Date(inc.created_at).toLocaleString()
             return (
               <Card key={inc.id} className="p-4 transition-colors hover:border-border">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
                   <div className="flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-mono text-xs text-muted-foreground">{inc.id.slice(0, 8)}…</span>
-                      <ToneBadge tone={tone}>{inc.priority}</ToneBadge>
+                      <ToneBadge tone={tone}>{inc.severity}</ToneBadge>
                       <span className="flex items-center gap-1.5 text-xs font-medium">
                         <StatusDot tone={sTone} pulse={inc.status !== 'resolved'} />
                         <span className={toneText[sTone]}>{sLabel}</span>
@@ -112,19 +109,13 @@ export default function IncidentsPage() {
                     <Link href={`/incidents/${inc.id}`}>
                       <h3 className="mt-2 text-pretty text-base font-semibold text-foreground hover:text-intel">{inc.title}</h3>
                     </Link>
-                    {inc.description && (
-                      <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{inc.description}</p>
-                    )}
+                    <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+                      {inc.ai_summary ?? inc.description ?? 'No summary available.'}
+                    </p>
                     <div className="mt-3 flex flex-wrap items-center gap-2">
-                      {inc.affected_users != null && (
-                        <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-card/60 px-2 py-0.5 text-[11px] text-muted-foreground">
-                          <Users className="h-3 w-3" /> {inc.affected_users.toLocaleString()} users
-                        </span>
-                      )}
                       <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-card/60 px-2 py-0.5 text-[11px] text-muted-foreground">
-                        <Clock className="h-3 w-3" /> {started}
+                        <Clock className="h-3 w-3" /> {new Date(inc.created_at).toLocaleString()}
                       </span>
-                      <ToneBadge tone={tone}>{inc.severity}</ToneBadge>
                     </div>
                   </div>
                   <div className="flex shrink-0 flex-wrap gap-2 lg:w-56 lg:flex-col">
