@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { PageHeader, Card, CardHead, AreaChart } from '@/components/kit'
+import { PageHeader, Card, CardHead } from '@/components/kit'
 import { SystemMap } from '@/components/dashboard/system-map'
 import { cn } from '@/lib/utils'
 import { toneText, toneBg } from '@/lib/tones'
@@ -155,14 +155,10 @@ export default function LiveMonitoringPage() {
       </div>
 
       <Card>
-        <CardHead title="Throughput" desc="Events across all sessions · last 12 samples" />
-        <div className="px-5 pb-5">
-          <AreaChart
-            data={[62, 70, 66, 78, 82, 76, 88, 92, 86, 95, 90, totalEvents % 100]}
-            tone="intel"
-            height={160}
-            labels={['-60m', '-45m', '-30m', '-15m', 'now']}
-          />
+        <CardHead title="Throughput" desc="Events across all sessions · live data" />
+        <div className="flex flex-col items-center gap-2 px-5 py-12 text-muted-foreground">
+          <Radio className="h-8 w-8 opacity-20" />
+          <p className="text-sm">Throughput history will appear once events are streaming from your app.</p>
         </div>
       </Card>
     </div>

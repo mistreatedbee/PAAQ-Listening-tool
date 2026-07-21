@@ -8,10 +8,10 @@ export default function DatabasePage() {
       title="Database Health"
       desc="Query performance, replication and connection health with AI query optimisation and capacity forecasting."
       stats={[
-        { label: 'Query p95', value: '11ms', tone: 'healthy', spark: [14, 13, 12, 12, 11, 11, 12, 11] },
-        { label: 'Pool Usage', value: '62%', tone: 'intel', spark: [50, 54, 56, 58, 60, 61, 62, 62] },
-        { label: 'Cache Hit', value: '96%', tone: 'healthy', spark: [92, 93, 94, 95, 95, 96, 96, 96] },
-        { label: 'Slow Queries', value: '4', tone: 'warning', spark: [1, 2, 2, 3, 3, 4, 4, 4] },
+        { label: 'Query p95', value: '—', tone: 'intel', spark: [0, 0, 0, 0, 0, 0, 0, 0] },
+        { label: 'Pool Usage', value: '—', tone: 'intel', spark: [0, 0, 0, 0, 0, 0, 0, 0] },
+        { label: 'Cache Hit', value: '—', tone: 'intel', spark: [0, 0, 0, 0, 0, 0, 0, 0] },
+        { label: 'Slow Queries', value: '—', tone: 'intel', spark: [0, 0, 0, 0, 0, 0, 0, 0] },
       ]}
       capabilities={[
         'Primary and replica health monitoring',
@@ -21,7 +21,7 @@ export default function DatabasePage() {
         'Replication lag tracking',
         'Storage and capacity forecasting',
       ]}
-      aiNote="The auth service connection pool is running hot at 96% under EU peak, contributing to elevated auth latency (INC-1041). Recommended action: expand the pool from 40 to 80 connections."
+      aiNote="No data yet. Connect your database monitoring integration and AI analysis will appear here automatically."
     />
   )
 }

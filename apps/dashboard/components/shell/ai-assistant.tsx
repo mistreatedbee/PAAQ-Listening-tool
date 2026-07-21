@@ -4,6 +4,8 @@ import { useState, useRef, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import { Sparkles, X, ArrowUp, Bot } from 'lucide-react'
 
+type Msg = { role: 'user' | 'ai'; text: string }
+
 const assistantSuggestions = [
   'What is the current incident status?',
   'Show me top errors',
@@ -12,14 +14,12 @@ const assistantSuggestions = [
   'What caused the latest error spike?',
 ]
 
-type Msg = { role: 'user' | 'ai'; text: string }
-
 const cannedAnswer =
-  'Your biggest issue right now is **INC-1042 — document upload failures**. Storage upload success dropped from 98% to 62% immediately after deploy #1482, which reduced the upload timeout while adding a synchronous virus-scan step. This is blocking onboarding for ~1,380 users and puts an estimated $12.4k MRR at risk. I recommend rolling back deploy #1482 — I have a fix drafted and ready for your approval.'
+  'I can see the live data from your platform. Check the Incidents page for active issues, the Errors page for recent error trends, and the Performance page for latency and resource metrics. Once more data flows in from your app\'s SDK, I\'ll be able to give you specific AI-driven recommendations.'
 
 export function AIAssistant({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [messages, setMessages] = useState<Msg[]>([
-    { role: 'ai', text: 'Good afternoon. I have been monitoring the platform. There is 1 critical incident and 2 active investigations. Ask me anything about system health, incidents, users or deployments.' },
+    { role: 'ai', text: 'Hello. I\'m monitoring your platform in real time. Ask me anything about system health, incidents, errors, users or performance.' },
   ])
   const [input, setInput] = useState('')
   const [thinking, setThinking] = useState(false)
@@ -60,7 +60,7 @@ export function AIAssistant({ open, onClose }: { open: boolean; onClose: () => v
           <div className="leading-none">
             <p className="text-sm font-semibold text-foreground">AI Assistant</p>
             <p className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
-              <span className="h-1.5 w-1.5 rounded-full bg-healthy animate-pulse-dot" /> Online · 96% confidence
+              <span className="h-1.5 w-1.5 rounded-full bg-healthy animate-pulse-dot" /> Online
             </p>
           </div>
         </div>

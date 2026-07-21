@@ -8,10 +8,10 @@ export default function ApiHealthPage() {
       title="API Health"
       desc="Endpoint availability, latency distribution and error budgets across all services, with AI anomaly detection and SLO tracking."
       stats={[
-        { label: 'Availability', value: '99.8%', tone: 'healthy', spark: [99.6, 99.7, 99.8, 99.9, 99.8, 99.7, 99.8, 99.8] },
-        { label: 'p95 Latency', value: '186ms', tone: 'healthy', spark: [220, 210, 205, 200, 195, 190, 188, 186] },
-        { label: 'Error Budget', value: '32%', tone: 'warning', spark: [80, 72, 64, 58, 50, 42, 36, 32] },
-        { label: 'Endpoints', value: '214', tone: 'intel', spark: [200, 204, 206, 208, 210, 212, 213, 214] },
+        { label: 'Availability', value: '—', tone: 'intel', spark: [0, 0, 0, 0, 0, 0, 0, 0] },
+        { label: 'p95 Latency', value: '—', tone: 'intel', spark: [0, 0, 0, 0, 0, 0, 0, 0] },
+        { label: 'Error Budget', value: '—', tone: 'intel', spark: [0, 0, 0, 0, 0, 0, 0, 0] },
+        { label: 'Endpoints', value: '—', tone: 'intel', spark: [0, 0, 0, 0, 0, 0, 0, 0] },
       ]}
       capabilities={[
         'Per-endpoint latency percentiles (p50, p95, p99)',
@@ -21,7 +21,7 @@ export default function ApiHealthPage() {
         'AI anomaly detection on traffic patterns',
         'Rate limiting and abuse pattern visibility',
       ]}
-      aiNote="The /v2/verify endpoint is the primary error budget consumer this cycle — responsible for 68% of burn rate at current volume. Freezing risky deploys to that service is recommended until the issue is resolved."
+      aiNote="No data yet. Once your app is integrated with the PAAQ SDK and API requests are flowing, AI analysis will appear here automatically."
     />
   )
 }
