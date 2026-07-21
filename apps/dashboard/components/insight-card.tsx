@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import type { Insight } from '@/lib/data'
 import { Card, Confidence, ToneBadge } from '@/components/kit'
 import { cn } from '@/lib/utils'
@@ -47,9 +48,9 @@ export function InsightCard({ insight, compact }: { insight: Insight; compact?: 
               {a}
             </button>
           ))}
-          <button className="ml-auto flex items-center gap-1 text-xs font-medium text-intel hover:underline">
+          <Link href="/ai-insights" className="ml-auto flex items-center gap-1 text-xs font-medium text-intel hover:underline">
             Details <ArrowRight className="h-3.5 w-3.5" />
-          </button>
+          </Link>
         </div>
       )}
     </Card>

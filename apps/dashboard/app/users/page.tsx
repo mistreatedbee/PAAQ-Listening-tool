@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { createClient } from '@/utils/supabase/client'
 import { Users } from 'lucide-react'
 import { PageHeader, Card, CardHead, ToneBadge } from '@/components/kit'
@@ -69,7 +70,8 @@ export default function UsersPage() {
             ) : (
               <ul className="divide-y divide-border/40">
                 {users.map((u) => (
-                  <li key={u.id} className="flex items-center gap-3 px-5 py-3 hover:bg-accent/30 transition-colors">
+                  <li key={u.id}>
+                  <Link href={`/users/${u.id}`} className="flex items-center gap-3 px-5 py-3 hover:bg-accent/30 transition-colors">
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-intel to-ai text-xs font-semibold text-white">
                       {(u.email ?? u.external_user_id)[0]?.toUpperCase()}
                     </span>
@@ -78,6 +80,7 @@ export default function UsersPage() {
                       <p className="text-xs text-muted-foreground">{u.external_user_id}</p>
                     </div>
                     <time className="text-[10px] text-muted-foreground">{new Date(u.created_at).toLocaleDateString()}</time>
+                  </Link>
                   </li>
                 ))}
               </ul>
