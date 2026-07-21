@@ -42,16 +42,17 @@ export default function AIInsightsPage() {
   const [insights, setInsights] = useState<Insight[]>([])
   const [raw, setRaw] = useState<DbInsight[]>([])
   const [loading, setLoading] = useState(true)
+  const [regenerating, setRegenerating] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
   const showToast = (msg: string) => {
     setToast(msg)
-    setTimeout(() => setToast(null), 3000)
+    setTimeout(() => setToast(null), 4000)
   }
 
-  useEffect(() => {
+  const fetchInsights = () => {
     const sb = createClient()
-    sb.from('ai_insights')
+    return sb.from('ai_insights')
       .select('id, category, title, description, confidence, recommendation, created_at')
       .order('created_at', { ascending: false })
       .then(({ data }) => {
@@ -60,7 +61,28 @@ export default function AIInsightsPage() {
         setInsights(rows.map(toInsight))
         setLoading(false)
       })
-  }, [])
+  }
+
+  useEffect(() => { fetchInsights() }, [])
+
+  const handleRegenerate = async () => {
+    setRegenerating(true)
+    showToast('Analysing your data with Claude AI…')
+    try {
+      const sb = createClient()
+      const { data, error } = await sb.functions.invoke('generate-insights')
+      if (error) throw error
+      if (data?.ok === false) {
+        showToast(data.reason ?? 'Not enough data yet to generate insights')
+      } else {
+        await fetchInsights()
+        showToast(`Generated ${data?.count ?? 'new'} insights from your live data`)
+      }
+    } catch {
+      showToast('Failed to generate insights — check that ANTHROPIC_API_KEY is set in Supabase')
+    }
+    setRegenerating(false)
+  }
 
   const critical = raw.filter((r) => r.category === 'error' || r.category === 'security').length
   const avgConf = raw.length
@@ -87,10 +109,12 @@ export default function AIInsightsPage() {
         desc="The heart of the platform. Autonomous analysis of what is happening, why, who is affected and what to do next."
         actions={
           <button
-            onClick={() => showToast('Insights are generated automatically — refresh to see latest analysis')}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-ai px-3 py-1.5 text-sm font-medium text-ai-foreground hover:opacity-90"
+            onClick={handleRegenerate}
+            disabled={regenerating}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-ai px-3 py-1.5 text-sm font-medium text-ai-foreground hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            <RefreshCw className="h-4 w-4" /> Regenerate insights
+            <RefreshCw className={`h-4 w-4 ${regenerating ? 'animate-spin' : ''}`} />
+            {regenerating ? 'Analysing…' : 'Regenerate insights'}
           </button>
         }
       />
@@ -109,7 +133,7 @@ export default function AIInsightsPage() {
       ) : insights.length === 0 ? (
         <Card className="p-10 text-center">
           <Sparkles className="mx-auto mb-3 h-8 w-8 text-muted-foreground opacity-20" />
-          <p className="text-sm text-muted-foreground">No AI insights yet. Insights are generated automatically once your app starts sending data via the PAAQ SDK.</p>
+          <p className="text-sm text-muted-foreground">No insights yet. Click "Regenerate insights" above to analyse your current data with Claude AI.</p>
         </Card>
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">
