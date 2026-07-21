@@ -1,13 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useTheme } from 'next-themes'
+import { createClient } from '@/utils/supabase/client'
 import { flatNav } from '@/lib/nav'
-import { notifications } from '@/lib/data'
 import { cn } from '@/lib/utils'
 import { toneBg, toneText } from '@/lib/tones'
+import type { Tone } from '@/lib/data'
 import {
   Menu,
   Search,
@@ -22,6 +23,21 @@ import {
   Moon,
 } from 'lucide-react'
 
+type DbNotification = {
+  id: string
+  title: string
+  body: string | null
+  type: string | null
+  created_at: string
+}
+
+function notifTone(type: string | null): Tone {
+  if (type === 'critical' || type === 'error') return 'critical'
+  if (type === 'warning') return 'warning'
+  if (type === 'success') return 'healthy'
+  return 'intel'
+}
+
 export function Topbar({
   onMenu,
   onToggleAssistant,
@@ -34,6 +50,29 @@ export function Topbar({
   const [search, setSearch] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
+  const [notifications, setNotifications] = useState<DbNotification[]>([])
+  const [criticalCount, setCriticalCount] = useState<number | null>(null)
+  const [sessionCount, setSessionCount] = useState<number | null>(null)
+
+  useEffect(() => {
+    const sb = createClient()
+    Promise.all([
+      sb.from('notifications')
+        .select('id, title, body, type, created_at')
+        .order('created_at', { ascending: false })
+        .limit(10),
+      sb.from('incidents')
+        .select('*', { count: 'exact', head: true })
+        .eq('severity', 'critical')
+        .neq('status', 'resolved'),
+      sb.from('sessions')
+        .select('*', { count: 'exact', head: true }),
+    ]).then(([{ data }, { count: critical }, { count: sessions }]) => {
+      setNotifications((data ?? []) as DbNotification[])
+      setCriticalCount(critical ?? 0)
+      setSessionCount(sessions ?? 0)
+    })
+  }, [])
 
   const results = search
     ? flatNav.filter((n) => n.label.toLowerCase().includes(search.toLowerCase())).slice(0, 6)
@@ -92,11 +131,20 @@ export function Topbar({
 
       {/* Status chips */}
       <div className="hidden items-center gap-2 xl:flex">
-        <StatusChip icon={<span className="h-2 w-2 rounded-full bg-healthy animate-pulse-dot" />} label="Health" value="98.4%" tone="healthy" />
         <StatusChip icon={<Sparkles className="h-3.5 w-3.5" />} label="AI" value="Active" tone="ai" />
-        <StatusChip icon={<Users className="h-3.5 w-3.5" />} label="Online" value="18.4k" tone="intel" />
+        <StatusChip
+          icon={<Users className="h-3.5 w-3.5" />}
+          label="Sessions"
+          value={sessionCount === null ? '—' : String(sessionCount)}
+          tone="intel"
+        />
         <Link href="/incidents">
-          <StatusChip icon={<AlertTriangle className="h-3.5 w-3.5" />} label="Critical" value="3" tone="critical" />
+          <StatusChip
+            icon={<AlertTriangle className="h-3.5 w-3.5" />}
+            label="Critical"
+            value={criticalCount === null ? '—' : String(criticalCount)}
+            tone={criticalCount ? 'critical' : 'healthy'}
+          />
         </Link>
       </div>
 
@@ -116,10 +164,12 @@ export function Topbar({
             aria-label="Notifications"
           >
             <Bell className="h-4 w-4" />
-            <span className="absolute -right-0.5 -top-0.5 flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full rounded-full bg-critical opacity-70 animate-pulse-dot" />
-              <span className="relative h-2 w-2 rounded-full bg-critical" />
-            </span>
+            {notifications.length > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full rounded-full bg-critical opacity-70 animate-pulse-dot" />
+                <span className="relative h-2 w-2 rounded-full bg-critical" />
+              </span>
+            )}
           </button>
           {notifOpen && (
             <>
@@ -127,21 +177,31 @@ export function Topbar({
               <div className="absolute right-0 top-11 z-40 w-80 overflow-hidden rounded-lg border border-border/70 bg-popover shadow-xl animate-rise">
                 <div className="flex items-center justify-between border-b border-border/60 px-3 py-2.5">
                   <p className="text-sm font-semibold">Notifications</p>
-                  <span className="rounded-full bg-critical/15 px-1.5 py-0.5 text-[10px] font-semibold text-critical">
-                    {notifications.length} new
-                  </span>
+                  {notifications.length > 0 && (
+                    <span className="rounded-full bg-critical/15 px-1.5 py-0.5 text-[10px] font-semibold text-critical">
+                      {notifications.length} new
+                    </span>
+                  )}
                 </div>
                 <ul className="max-h-80 overflow-y-auto scrollbar-thin">
-                  {notifications.map((n) => (
-                    <li key={n.id} className="flex gap-3 border-b border-border/40 px-3 py-2.5 last:border-0 hover:bg-accent/50">
-                      <span className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', toneBg[n.tone])} />
-                      <div className="flex-1">
-                        <p className={cn('text-sm font-medium', toneText[n.tone])}>{n.title}</p>
-                        <p className="text-xs text-muted-foreground">{n.detail}</p>
-                      </div>
-                      <span className="text-[10px] text-muted-foreground">{n.time}</span>
-                    </li>
-                  ))}
+                  {notifications.length === 0 ? (
+                    <li className="px-3 py-4 text-center text-sm text-muted-foreground">No notifications</li>
+                  ) : (
+                    notifications.map((n) => {
+                      const tone = notifTone(n.type)
+                      const timeStr = new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                      return (
+                        <li key={n.id} className="flex gap-3 border-b border-border/40 px-3 py-2.5 last:border-0 hover:bg-accent/50">
+                          <span className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', toneBg[tone])} />
+                          <div className="flex-1">
+                            <p className={cn('text-sm font-medium', toneText[tone])}>{n.title}</p>
+                            <p className="text-xs text-muted-foreground">{n.body ?? ''}</p>
+                          </div>
+                          <span className="text-[10px] text-muted-foreground">{timeStr}</span>
+                        </li>
+                      )
+                    })
+                  )}
                 </ul>
               </div>
             </>

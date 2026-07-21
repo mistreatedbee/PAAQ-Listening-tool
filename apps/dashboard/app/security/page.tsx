@@ -1,19 +1,80 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { createClient } from '@/utils/supabase/client'
 import { Shield } from 'lucide-react'
 import { PageHeader, Card, CardHead, ToneBadge, StatusDot } from '@/components/kit'
-import { securityStats, securityEvents } from '@/lib/data'
+import type { Tone } from '@/lib/data'
+
+type DbError = {
+  id: string
+  message: string
+  severity: string
+  status: string
+  created_at: string
+}
+
+function severityTone(s: string): Tone {
+  if (s === 'fatal' || s === 'error') return 'critical'
+  if (s === 'warning') return 'warning'
+  return 'intel'
+}
 
 export default function SecurityPage() {
+  const [errors, setErrors] = useState<DbError[]>([])
+  const [counts, setCounts] = useState({ total: 0, open: 0, critical: 0, warning: 0, resolved: 0 })
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const sb = createClient()
+    Promise.all([
+      sb.from('errors').select('id, message, severity, status, created_at').order('created_at', { ascending: false }).limit(10),
+      sb.from('errors').select('*', { count: 'exact', head: true }),
+      sb.from('errors').select('*', { count: 'exact', head: true }).eq('status', 'open'),
+      sb.from('errors').select('*', { count: 'exact', head: true }).in('severity', ['fatal', 'error']).eq('status', 'open'),
+      sb.from('errors').select('*', { count: 'exact', head: true }).eq('severity', 'warning'),
+      sb.from('errors').select('*', { count: 'exact', head: true }).eq('status', 'resolved'),
+    ]).then(([{ data }, { count: total }, { count: open }, { count: critical }, { count: warning }, { count: resolved }]) => {
+      setErrors((data ?? []) as DbError[])
+      setCounts({
+        total: total ?? 0,
+        open: open ?? 0,
+        critical: critical ?? 0,
+        warning: warning ?? 0,
+        resolved: resolved ?? 0,
+      })
+      setLoading(false)
+    })
+  }, [])
+
+  const stats = [
+    { label: 'Total errors', value: String(counts.total), tone: 'intel' as Tone },
+    { label: 'Open', value: String(counts.open), tone: (counts.open > 0 ? 'critical' : 'healthy') as Tone },
+    { label: 'Critical / Fatal', value: String(counts.critical), tone: (counts.critical > 0 ? 'critical' : 'healthy') as Tone },
+    { label: 'Warnings', value: String(counts.warning), tone: (counts.warning > 0 ? 'warning' : 'healthy') as Tone },
+    { label: 'Resolved', value: String(counts.resolved), tone: 'healthy' as Tone },
+    {
+      label: 'Open rate',
+      value: counts.total > 0 ? `${((counts.open / counts.total) * 100).toFixed(1)}%` : '0%',
+      tone: 'intel' as Tone,
+    },
+  ]
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         icon={<Shield className="h-5 w-5" />}
         title="Security Center"
         desc="Anomaly detection, threat monitoring and automated response driven by the Security Agent."
-        actions={<ToneBadge tone="warning" dot>Threat level: Elevated</ToneBadge>}
+        actions={
+          counts.critical > 0
+            ? <ToneBadge tone="critical" dot>Critical issues: {counts.critical}</ToneBadge>
+            : <ToneBadge tone="healthy" dot>All clear</ToneBadge>
+        }
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {securityStats.map((s) => (
+        {stats.map((s) => (
           <Card key={s.label} className="p-4">
             <p className="text-xs text-muted-foreground">{s.label}</p>
             <div className="mt-1 flex items-center justify-between">
@@ -24,48 +85,42 @@ export default function SecurityPage() {
         ))}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHead title="Security Event Timeline" desc="Automated detections and responses, newest first." />
+      <Card>
+        <CardHead title="Error Timeline" desc="Recent errors detected, newest first." />
+        {loading ? (
+          <div className="p-10 text-center text-sm text-muted-foreground">Loading…</div>
+        ) : errors.length === 0 ? (
+          <div className="p-10 text-center">
+            <Shield className="mx-auto mb-3 h-8 w-8 text-muted-foreground opacity-20" />
+            <p className="text-sm text-muted-foreground">No errors detected. Run database/seed.sql to add demo data.</p>
+          </div>
+        ) : (
           <div className="relative px-5 pb-5">
             <div className="absolute left-[26px] top-0 bottom-5 w-px bg-border" />
             <div className="flex flex-col gap-5">
-              {securityEvents.map((ev) => (
-                <div key={ev.time} className="relative flex gap-4 pl-4">
-                  <div className="relative z-10 mt-1">
-                    <StatusDot tone={ev.tone} />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-medium text-foreground">{ev.label}</p>
-                      <span className="font-mono text-xs text-muted-foreground">{ev.time}</span>
+              {errors.map((ev) => {
+                const tone = severityTone(ev.severity)
+                return (
+                  <div key={ev.id} className="relative flex gap-4 pl-4">
+                    <div className="relative z-10 mt-1">
+                      <StatusDot tone={tone} pulse={ev.status === 'open'} />
                     </div>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{ev.detail}</p>
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-medium text-foreground">{ev.message}</p>
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {new Date(ev.created_at).toLocaleTimeString()}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{ev.severity} · {ev.status}</p>
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
-        </Card>
-
-        <Card className="border-ai/30 bg-ai/5">
-          <CardHead title="Security Agent" desc="Autonomous threat response" />
-          <div className="space-y-3 px-5 pb-5 text-sm">
-            <p className="text-muted-foreground">
-              A credential-stuffing campaign targeting high-value accounts was detected and contained automatically.
-            </p>
-            <div className="rounded-lg border border-border/70 bg-card/60 p-3">
-              <p className="text-xs font-medium text-foreground">Actions taken</p>
-              <ul className="mt-2 space-y-1.5 text-xs text-muted-foreground">
-                <li>Rate-limited 118 source IPs</li>
-                <li>Enforced MFA on 3 flagged accounts</li>
-                <li>Escalated to on-call security engineer</li>
-              </ul>
-            </div>
-            <ToneBadge tone="ai" dot>92% confidence · contained</ToneBadge>
-          </div>
-        </Card>
-      </div>
+        )}
+      </Card>
     </div>
   )
 }

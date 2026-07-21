@@ -2,8 +2,15 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { cn } from '@/lib/utils'
-import { assistantSuggestions } from '@/lib/data'
 import { Sparkles, X, ArrowUp, Bot } from 'lucide-react'
+
+const assistantSuggestions = [
+  'What is the current incident status?',
+  'Show me top errors',
+  'Summarise today\'s activity',
+  'Which users are most affected?',
+  'What caused the latest error spike?',
+]
 
 type Msg = { role: 'user' | 'ai'; text: string }
 

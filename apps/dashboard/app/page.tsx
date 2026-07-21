@@ -2,14 +2,11 @@ import { PageHeader, Card, CardHead } from '@/components/kit'
 import { KpiGrid } from '@/components/dashboard/kpi-grid'
 import { SystemMap } from '@/components/dashboard/system-map'
 import { ActivityFeed } from '@/components/dashboard/activity-feed'
-import { InsightCard } from '@/components/insight-card'
-import { insights } from '@/lib/data'
+import { HomeInsights } from '@/components/dashboard/home-insights'
 import { Sparkles, Download, Zap, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
 
 export default function DashboardPage() {
-  const topInsights = insights.slice(0, 2)
-
   return (
     <div className="space-y-6">
       <PageHeader
@@ -49,10 +46,8 @@ export default function DashboardPage() {
             </Link>
           }
         />
-        <div className="grid gap-3 px-5 pb-5 lg:grid-cols-2">
-          {topInsights.map((i) => (
-            <InsightCard key={i.id} insight={i} />
-          ))}
+        <div className="px-5 pb-5">
+          <HomeInsights />
         </div>
       </Card>
     </div>
