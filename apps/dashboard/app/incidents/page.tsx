@@ -1,18 +1,59 @@
+'use client'
+
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { PageHeader, Card, ToneBadge, Confidence, StatusDot } from '@/components/kit'
-import { incidents } from '@/lib/data'
+import { createClient } from '@/utils/supabase/client'
+import { PageHeader, Card, ToneBadge, StatusDot } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import { toneText } from '@/lib/tones'
 import { AlertTriangle, Users, Clock, ArrowRight, Plus } from 'lucide-react'
+import type { Tone } from '@/lib/data'
 
-const statusTone = {
-  Investigating: 'critical',
-  Identified: 'warning',
-  Monitoring: 'intel',
-  Resolved: 'healthy',
-} as const
+type DbIncident = {
+  id: string
+  title: string
+  severity: string
+  status: string
+  priority: string
+  affected_users: number | null
+  description: string | null
+  started_at: string | null
+  created_at: string
+}
+
+function severityTone(s: string): Tone {
+  if (s === 'fatal' || s === 'error') return 'critical'
+  if (s === 'warning') return 'warning'
+  return 'intel'
+}
+
+const STATUS_TONE: Record<string, Tone> = {
+  open: 'critical', investigating: 'critical', monitoring: 'intel', resolved: 'healthy',
+}
+const STATUS_LABEL: Record<string, string> = {
+  open: 'Open', investigating: 'Investigating', monitoring: 'Monitoring', resolved: 'Resolved',
+}
 
 export default function IncidentsPage() {
+  const [incidents, setIncidents] = useState<DbIncident[]>([])
+  const [counts, setCounts] = useState({ open: 0, p1: 0 })
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const sb = createClient()
+    Promise.all([
+      sb.from('incidents')
+        .select('id, title, severity, status, priority, affected_users, description, started_at, created_at')
+        .order('created_at', { ascending: false }),
+      sb.from('incidents').select('*', { count: 'exact', head: true }).neq('status', 'resolved'),
+      sb.from('incidents').select('*', { count: 'exact', head: true }).eq('priority', 'P1').neq('status', 'resolved'),
+    ]).then(([{ data }, { count: open }, { count: p1 }]) => {
+      setIncidents((data ?? []) as DbIncident[])
+      setCounts({ open: open ?? 0, p1: p1 ?? 0 })
+      setLoading(false)
+    })
+  }, [])
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -28,10 +69,10 @@ export default function IncidentsPage() {
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
-          { l: 'Open', v: '3', t: 'text-critical' },
-          { l: 'P1 critical', v: '1', t: 'text-critical' },
-          { l: 'Mean time to detect', v: '4m', t: 'text-healthy' },
-          { l: 'Mean time to resolve', v: '38m', t: 'text-intel' },
+          { l: 'Open', v: String(counts.open), t: 'text-critical' },
+          { l: 'P1 Critical', v: String(counts.p1), t: 'text-critical' },
+          { l: 'Mean detect', v: '4m', t: 'text-healthy' },
+          { l: 'Mean resolve', v: '38m', t: 'text-intel' },
         ].map((s) => (
           <Card key={s.l} className="p-4">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">{s.l}</p>
@@ -40,52 +81,72 @@ export default function IncidentsPage() {
         ))}
       </div>
 
-      <div className="space-y-3">
-        {incidents.map((inc) => (
-          <Card key={inc.id} className="p-4 transition-colors hover:border-border">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-              <div className="flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-xs text-muted-foreground">{inc.id}</span>
-                  <ToneBadge tone={inc.severity}>{inc.priority}</ToneBadge>
-                  <span className="flex items-center gap-1.5 text-xs font-medium">
-                    <StatusDot tone={statusTone[inc.status]} pulse={inc.status !== 'Resolved'} />
-                    <span className={toneText[statusTone[inc.status]]}>{inc.status}</span>
-                  </span>
+      {loading ? (
+        <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">Loading…</div>
+      ) : incidents.length === 0 ? (
+        <Card className="p-10 text-center">
+          <AlertTriangle className="mx-auto mb-3 h-8 w-8 text-muted-foreground opacity-20" />
+          <p className="text-sm text-muted-foreground">No incidents yet. Run database/seed.sql to add demo data.</p>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {incidents.map((inc) => {
+            const tone = severityTone(inc.severity)
+            const sTone = STATUS_TONE[inc.status] ?? 'intel'
+            const sLabel = STATUS_LABEL[inc.status] ?? inc.status
+            const started = inc.started_at
+              ? new Date(inc.started_at).toLocaleString()
+              : new Date(inc.created_at).toLocaleString()
+            return (
+              <Card key={inc.id} className="p-4 transition-colors hover:border-border">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+                  <div className="flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-xs text-muted-foreground">{inc.id.slice(0, 8)}…</span>
+                      <ToneBadge tone={tone}>{inc.priority}</ToneBadge>
+                      <span className="flex items-center gap-1.5 text-xs font-medium">
+                        <StatusDot tone={sTone} pulse={inc.status !== 'resolved'} />
+                        <span className={toneText[sTone]}>{sLabel}</span>
+                      </span>
+                    </div>
+                    <Link href={`/incidents/${inc.id}`}>
+                      <h3 className="mt-2 text-pretty text-base font-semibold text-foreground hover:text-intel">{inc.title}</h3>
+                    </Link>
+                    {inc.description && (
+                      <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{inc.description}</p>
+                    )}
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      {inc.affected_users != null && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-card/60 px-2 py-0.5 text-[11px] text-muted-foreground">
+                          <Users className="h-3 w-3" /> {inc.affected_users.toLocaleString()} users
+                        </span>
+                      )}
+                      <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-card/60 px-2 py-0.5 text-[11px] text-muted-foreground">
+                        <Clock className="h-3 w-3" /> {started}
+                      </span>
+                      <ToneBadge tone={tone}>{inc.severity}</ToneBadge>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap gap-2 lg:w-56 lg:flex-col">
+                    <Link
+                      href={`/incidents/${inc.id}`}
+                      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-ai px-3 py-1.5 text-xs font-medium text-ai-foreground hover:opacity-90"
+                    >
+                      Investigate <ArrowRight className="h-3.5 w-3.5" />
+                    </Link>
+                    <button className="inline-flex flex-1 items-center justify-center rounded-lg border border-border/70 bg-card/60 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent">
+                      Generate fix
+                    </button>
+                    <button className="inline-flex flex-1 items-center justify-center rounded-lg border border-border/70 bg-card/60 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent">
+                      Notify team
+                    </button>
+                  </div>
                 </div>
-                <Link href={`/incidents/${inc.id}`}>
-                  <h3 className="mt-2 text-pretty text-base font-semibold text-foreground hover:text-intel">{inc.title}</h3>
-                </Link>
-                <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{inc.aiSummary}</p>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <Confidence value={inc.confidence} />
-                  <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-card/60 px-2 py-0.5 text-[11px] text-muted-foreground">
-                    <Users className="h-3 w-3" /> {inc.affected}
-                  </span>
-                  <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-card/60 px-2 py-0.5 text-[11px] text-muted-foreground">
-                    <Clock className="h-3 w-3" /> {inc.started}
-                  </span>
-                  <ToneBadge tone={inc.severity}>{inc.impact}</ToneBadge>
-                </div>
-              </div>
-              <div className="flex shrink-0 flex-wrap gap-2 lg:w-56 lg:flex-col">
-                <Link
-                  href={`/incidents/${inc.id}`}
-                  className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-ai px-3 py-1.5 text-xs font-medium text-ai-foreground hover:opacity-90"
-                >
-                  Investigate <ArrowRight className="h-3.5 w-3.5" />
-                </Link>
-                <button className="inline-flex flex-1 items-center justify-center rounded-lg border border-border/70 bg-card/60 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent">
-                  Generate fix
-                </button>
-                <button className="inline-flex flex-1 items-center justify-center rounded-lg border border-border/70 bg-card/60 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent">
-                  Notify team
-                </button>
-              </div>
-            </div>
-          </Card>
-        ))}
-      </div>
+              </Card>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

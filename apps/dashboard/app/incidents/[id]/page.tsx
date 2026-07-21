@@ -1,40 +1,86 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { notFound } from 'next/navigation'
-import { PageHeader, Card, CardHead, ToneBadge, Confidence, ProgressRing } from '@/components/kit'
-import { incidents } from '@/lib/data'
+import { createClient } from '@/utils/supabase/client'
+import { PageHeader, Card, CardHead, ToneBadge, ProgressRing } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import { toneBg, toneText } from '@/lib/tones'
 import {
-  ArrowLeft,
-  Wrench,
-  Ticket,
-  Bell,
-  UserPlus,
-  CheckCircle2,
-  Sparkles,
-  ListChecks,
-  Terminal,
+  ArrowLeft, Wrench, Ticket, Bell, UserPlus, CheckCircle2,
+  Sparkles, ListChecks, Terminal, Users, Clock,
 } from 'lucide-react'
+import type { Tone } from '@/lib/data'
 
-const statusTone = {
-  Investigating: 'critical',
-  Identified: 'warning',
-  Monitoring: 'intel',
-  Resolved: 'healthy',
-} as const
+type DbIncident = {
+  id: string
+  title: string
+  description: string | null
+  severity: string
+  status: string
+  priority: string
+  affected_users: number | null
+  started_at: string | null
+  resolved_at: string | null
+  created_at: string
+}
 
-const logLines = [
-  { t: '09:12:04', lvl: 'INFO', msg: 'deploy #1482 promoted to production (storage-svc)', tone: 'intel' as const },
-  { t: '09:13:41', lvl: 'WARN', msg: 'upload latency p95 = 1180ms (threshold 800ms)', tone: 'warning' as const },
-  { t: '09:14:02', lvl: 'ERROR', msg: 'TimeoutException: upload exceeded 30000ms', tone: 'critical' as const },
-  { t: '09:14:55', lvl: 'ERROR', msg: 'virus-scan step blocking request thread (34s avg)', tone: 'critical' as const },
-  { t: '09:18:20', lvl: 'AI', msg: 'incident agent correlated errors with deploy #1482', tone: 'ai' as const },
-]
+function severityTone(s: string): Tone {
+  if (s === 'fatal' || s === 'error') return 'critical'
+  if (s === 'warning') return 'warning'
+  return 'intel'
+}
 
-export default async function IncidentDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params
-  const inc = incidents.find((i) => i.id === id)
-  if (!inc) notFound()
+const STATUS_TONE: Record<string, Tone> = {
+  open: 'critical', investigating: 'critical', monitoring: 'intel', resolved: 'healthy',
+}
+
+function ActionBtn({ icon, label, primary }: { icon: React.ReactNode; label: string; primary?: boolean }) {
+  return (
+    <button className={cn(
+      'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+      primary ? 'bg-ai text-ai-foreground hover:opacity-90' : 'border border-border/70 bg-card/60 text-foreground hover:bg-accent',
+    )}>
+      {icon}{label}
+    </button>
+  )
+}
+
+export default function IncidentDetailPage() {
+  const { id } = useParams<{ id: string }>()
+  const [inc, setInc] = useState<DbIncident | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const sb = createClient()
+    sb.from('incidents').select('*').eq('id', id).single()
+      .then(({ data }) => {
+        setInc(data as DbIncident | null)
+        setLoading(false)
+      })
+  }, [id])
+
+  if (loading) {
+    return <div className="flex items-center justify-center py-32 text-sm text-muted-foreground">Loading…</div>
+  }
+
+  if (!inc) {
+    return (
+      <div className="space-y-4">
+        <Link href="/incidents" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="h-4 w-4" /> All incidents
+        </Link>
+        <p className="text-muted-foreground">Incident not found.</p>
+      </div>
+    )
+  }
+
+  const tone = severityTone(inc.severity)
+  const sTone = STATUS_TONE[inc.status] ?? 'intel'
+  const started = inc.started_at
+    ? new Date(inc.started_at).toLocaleString()
+    : new Date(inc.created_at).toLocaleString()
 
   return (
     <div className="space-y-6">
@@ -44,7 +90,7 @@ export default async function IncidentDetailPage({ params }: { params: Promise<{
 
       <PageHeader
         title={inc.title}
-        desc={`${inc.id} · ${inc.service} · started ${inc.started}`}
+        desc={`${inc.id.slice(0, 8)}… · ${inc.severity} · started ${started}`}
         actions={
           <div className="flex flex-wrap gap-2">
             <ActionBtn icon={<Wrench className="h-4 w-4" />} label="Generate fix" primary />
@@ -56,55 +102,59 @@ export default async function IncidentDetailPage({ params }: { params: Promise<{
         }
       />
 
-      {/* summary bar */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Card className="p-4">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">Priority</p>
-          <div className="mt-2"><ToneBadge tone={inc.severity}>{inc.priority}</ToneBadge></div>
+          <div className="mt-2"><ToneBadge tone={tone}>{inc.priority}</ToneBadge></div>
         </Card>
         <Card className="p-4">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">Status</p>
-          <p className={cn('mt-2 text-sm font-semibold', toneText[statusTone[inc.status]])}>{inc.status}</p>
+          <p className={cn('mt-2 text-sm font-semibold', toneText[sTone])}>{inc.status}</p>
         </Card>
         <Card className="p-4">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">Affected</p>
-          <p className="mt-2 text-sm font-semibold text-foreground">{inc.affected}</p>
+          <p className="mt-2 text-sm font-semibold text-foreground">
+            {inc.affected_users != null ? `${inc.affected_users.toLocaleString()} users` : '—'}
+          </p>
         </Card>
         <Card className="p-4">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">Business impact</p>
-          <p className={cn('mt-2 text-sm font-semibold', toneText[inc.severity])}>{inc.impact}</p>
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Severity</p>
+          <p className={cn('mt-2 text-sm font-semibold', toneText[tone])}>{inc.severity}</p>
         </Card>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        {/* left: investigation */}
         <div className="space-y-4 lg:col-span-2">
-          {/* AI conclusion */}
           <Card className="border-ai/25 bg-ai/[0.04]">
             <CardHead
               title="AI Conclusion"
               desc="Autonomous root cause analysis"
               icon={<Sparkles className="h-4 w-4 text-ai" />}
-              action={<Confidence value={inc.confidence} />}
             />
             <div className="px-5 pb-5">
-              <p className="text-sm leading-relaxed text-foreground">{inc.rootCause}</p>
+              <p className="text-sm leading-relaxed text-foreground">
+                {inc.description ?? 'No description available. Add a description to this incident to enable AI analysis.'}
+              </p>
               <div className="mt-4 rounded-lg border border-ai/20 bg-ai/[0.06] p-4">
                 <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ai">
                   <ListChecks className="h-3.5 w-3.5" /> Recommended fix
                 </p>
-                <p className="mt-1.5 text-sm text-foreground">{inc.suggestedFix}</p>
-                <p className="mt-2 text-xs text-muted-foreground">Estimated resolution time: ~12 minutes</p>
+                <p className="mt-1.5 text-sm text-foreground">
+                  Investigate the root cause and apply a targeted fix. Consider rolling back recent deployments if the issue correlates with a release.
+                </p>
+                <p className="mt-2 text-xs text-muted-foreground">Estimated resolution time: varies by severity</p>
               </div>
             </div>
           </Card>
 
-          {/* timeline */}
           <Card>
-            <CardHead title="Incident Timeline" desc="Correlated events across services" />
+            <CardHead title="Incident Timeline" desc="Key events" />
             <div className="px-5 pb-5">
               <ol className="relative border-l border-border/60 pl-5">
-                {inc.timeline.map((t, i) => (
+                {[
+                  { time: started, label: 'Incident started', tone: sTone },
+                  ...(inc.resolved_at ? [{ time: new Date(inc.resolved_at).toLocaleString(), label: 'Incident resolved', tone: 'healthy' as Tone }] : []),
+                ].map((t, i) => (
                   <li key={i} className="relative mb-5 last:mb-0">
                     <span className={cn('absolute -left-[27px] mt-0.5 h-3 w-3 rounded-full ring-4 ring-background', toneBg[t.tone])} />
                     <p className="font-mono text-[11px] text-muted-foreground">{t.time}</p>
@@ -115,16 +165,22 @@ export default async function IncidentDetailPage({ params }: { params: Promise<{
             </div>
           </Card>
 
-          {/* logs */}
           <Card>
-            <CardHead title="Correlated Logs" desc="Filtered to the causal window" icon={<Terminal className="h-4 w-4" />} />
+            <CardHead title="Incident Details" icon={<Terminal className="h-4 w-4" />} />
             <div className="px-5 pb-5">
-              <div className="scrollbar-thin overflow-x-auto rounded-lg border border-border/60 bg-background/60 p-3 font-mono text-xs">
-                {logLines.map((l, i) => (
-                  <div key={i} className="flex gap-3 whitespace-nowrap py-0.5">
-                    <span className="text-muted-foreground">{l.t}</span>
-                    <span className={cn('w-12 font-semibold', toneText[l.tone])}>{l.lvl}</span>
-                    <span className="text-foreground/90">{l.msg}</span>
+              <div className="rounded-lg border border-border/60 bg-background/60 p-3 font-mono text-xs">
+                {[
+                  { k: 'id', v: inc.id },
+                  { k: 'title', v: inc.title },
+                  { k: 'severity', v: inc.severity },
+                  { k: 'status', v: inc.status },
+                  { k: 'priority', v: inc.priority },
+                  { k: 'affected_users', v: String(inc.affected_users ?? 0) },
+                  { k: 'started_at', v: started },
+                ].map((l) => (
+                  <div key={l.k} className="flex gap-3 py-0.5">
+                    <span className="w-32 shrink-0 text-muted-foreground">{l.k}</span>
+                    <span className="text-foreground/90 break-all">{l.v}</span>
                   </div>
                 ))}
               </div>
@@ -132,39 +188,23 @@ export default async function IncidentDetailPage({ params }: { params: Promise<{
           </Card>
         </div>
 
-        {/* right: meta */}
         <div className="space-y-4">
           <Card className="flex flex-col items-center p-6">
-            <ProgressRing value={inc.confidence} tone="ai" size={96} stroke={7} label="confidence" />
+            <ProgressRing value={inc.status === 'resolved' ? 100 : 60} tone="ai" size={96} stroke={7} label="confidence" />
             <p className="mt-3 text-center text-sm font-medium text-foreground">AI diagnostic certainty</p>
-            <p className="mt-1 text-center text-xs text-muted-foreground">Based on 4 correlated signals</p>
+            <p className="mt-1 text-center text-xs text-muted-foreground">Based on available signals</p>
           </Card>
 
           <Card>
-            <CardHead title="Deployment correlation" />
-            <div className="px-5 pb-5 text-sm">
-              <div className="flex items-center justify-between rounded-lg border border-critical/25 bg-critical/[0.06] px-3 py-2.5">
-                <div>
-                  <p className="font-mono text-xs text-muted-foreground">deploy #1482</p>
-                  <p className="font-medium text-foreground">storage-svc</p>
-                </div>
-                <ToneBadge tone="critical">99% linked</ToneBadge>
+            <CardHead title="Quick info" />
+            <div className="space-y-3 px-5 pb-5 text-sm">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Users className="h-4 w-4 shrink-0" />
+                <span>{inc.affected_users != null ? `${inc.affected_users.toLocaleString()} affected users` : 'Users unknown'}</span>
               </div>
-              <button className="mt-3 w-full rounded-lg border border-border/70 bg-card/60 py-2 text-xs font-medium text-foreground hover:bg-accent">
-                Roll back deploy #1482
-              </button>
-            </div>
-          </Card>
-
-          <Card>
-            <CardHead title="Assignment" />
-            <div className="flex items-center gap-3 px-5 pb-5">
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-intel to-ai text-xs font-semibold text-white">
-                {inc.assignee.split(' ').map((n) => n[0]).join('')}
-              </span>
-              <div>
-                <p className="text-sm font-medium text-foreground">{inc.assignee}</p>
-                <p className="text-xs text-muted-foreground">On-call engineer</p>
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Clock className="h-4 w-4 shrink-0" />
+                <span>Started {started}</span>
               </div>
             </div>
           </Card>
@@ -172,24 +212,4 @@ export default async function IncidentDetailPage({ params }: { params: Promise<{
       </div>
     </div>
   )
-}
-
-function ActionBtn({ icon, label, primary }: { icon: React.ReactNode; label: string; primary?: boolean }) {
-  return (
-    <button
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
-        primary
-          ? 'bg-ai text-ai-foreground hover:opacity-90'
-          : 'border border-border/70 bg-card/60 text-foreground hover:bg-accent',
-      )}
-    >
-      {icon}
-      {label}
-    </button>
-  )
-}
-
-export function generateStaticParams() {
-  return incidents.map((i) => ({ id: i.id }))
 }
