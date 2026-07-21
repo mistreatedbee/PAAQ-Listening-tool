@@ -7,7 +7,7 @@ import { createClient } from '@/utils/supabase/client'
 import { PageHeader, Card, CardHead, ToneBadge } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import { toneText, toneBg } from '@/lib/tones'
-import { ArrowLeft, Bug, Terminal } from 'lucide-react'
+import { ArrowLeft, Bug, Terminal, CheckCircle2, EyeOff } from 'lucide-react'
 import type { Tone } from '@/lib/data'
 
 type DbError = {
@@ -33,6 +33,13 @@ export default function ErrorDetailPage() {
   const { id } = useParams<{ id: string }>()
   const [error, setError] = useState<DbError | null>(null)
   const [loading, setLoading] = useState(true)
+  const [updating, setUpdating] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
+
+  const showToast = (msg: string) => {
+    setToast(msg)
+    setTimeout(() => setToast(null), 3000)
+  }
 
   useEffect(() => {
     const sb = createClient()
@@ -45,6 +52,18 @@ export default function ErrorDetailPage() {
         setLoading(false)
       })
   }, [id])
+
+  const handleUpdateStatus = async (newStatus: string) => {
+    if (!error || error.status === newStatus) return
+    setUpdating(true)
+    const sb = createClient()
+    const { error: dbErr } = await sb.from('errors').update({ status: newStatus }).eq('id', id)
+    if (!dbErr) {
+      setError({ ...error, status: newStatus })
+      showToast(`Error marked as ${newStatus}`)
+    }
+    setUpdating(false)
+  }
 
   if (loading) {
     return <div className="flex items-center justify-center py-32 text-sm text-muted-foreground">Loading…</div>
@@ -67,6 +86,12 @@ export default function ErrorDetailPage() {
 
   return (
     <div className="space-y-6">
+      {toast && (
+        <div className="fixed bottom-4 right-4 z-50 rounded-lg bg-foreground px-4 py-2.5 text-sm font-medium text-background shadow-lg">
+          {toast}
+        </div>
+      )}
+
       <Link href="/errors" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="h-4 w-4" /> All errors
       </Link>
@@ -76,9 +101,29 @@ export default function ErrorDetailPage() {
         title={error.message}
         desc={`${error.error_type} · ${created}`}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <ToneBadge tone={sevTone}>{error.severity}</ToneBadge>
             <ToneBadge tone={sTone}>{error.status}</ToneBadge>
+            {error.status !== 'resolved' && (
+              <button
+                onClick={() => handleUpdateStatus('resolved')}
+                disabled={updating}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-healthy px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                {updating ? 'Updating…' : 'Mark resolved'}
+              </button>
+            )}
+            {error.status === 'open' && (
+              <button
+                onClick={() => handleUpdateStatus('ignored')}
+                disabled={updating}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-card/60 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <EyeOff className="h-3.5 w-3.5" />
+                Ignore
+              </button>
+            )}
           </div>
         }
       />

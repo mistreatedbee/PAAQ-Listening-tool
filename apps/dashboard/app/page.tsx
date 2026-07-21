@@ -3,7 +3,8 @@ import { KpiGrid } from '@/components/dashboard/kpi-grid'
 import { SystemMap } from '@/components/dashboard/system-map'
 import { ActivityFeed } from '@/components/dashboard/activity-feed'
 import { HomeInsights } from '@/components/dashboard/home-insights'
-import { Sparkles, Download, Zap, ArrowRight } from 'lucide-react'
+import { DashboardActions } from '@/components/dashboard/dashboard-actions'
+import { Sparkles, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
 
 export default function DashboardPage() {
@@ -12,16 +13,7 @@ export default function DashboardPage() {
       <PageHeader
         title="Command Center"
         desc="A single operating surface for monitoring, understanding, predicting and resolving everything across your ecosystem."
-        actions={
-          <>
-            <button className="inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-card/60 px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent">
-              <Download className="h-4 w-4" /> Export
-            </button>
-            <button className="inline-flex items-center gap-1.5 rounded-lg bg-ai px-3 py-1.5 text-sm font-medium text-ai-foreground hover:opacity-90">
-              <Zap className="h-4 w-4" /> Ask AI
-            </button>
-          </>
-        }
+        actions={<DashboardActions />}
       />
 
       <KpiGrid />

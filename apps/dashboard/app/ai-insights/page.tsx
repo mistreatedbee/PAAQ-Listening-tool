@@ -42,6 +42,12 @@ export default function AIInsightsPage() {
   const [insights, setInsights] = useState<Insight[]>([])
   const [raw, setRaw] = useState<DbInsight[]>([])
   const [loading, setLoading] = useState(true)
+  const [toast, setToast] = useState<string | null>(null)
+
+  const showToast = (msg: string) => {
+    setToast(msg)
+    setTimeout(() => setToast(null), 3000)
+  }
 
   useEffect(() => {
     const sb = createClient()
@@ -70,12 +76,20 @@ export default function AIInsightsPage() {
 
   return (
     <div className="space-y-6">
+      {toast && (
+        <div className="fixed bottom-4 right-4 z-50 rounded-lg bg-foreground px-4 py-2.5 text-sm font-medium text-background shadow-lg">
+          {toast}
+        </div>
+      )}
       <PageHeader
         icon={<Sparkles className="h-5 w-5 text-ai" />}
         title="AI Insights"
         desc="The heart of the platform. Autonomous analysis of what is happening, why, who is affected and what to do next."
         actions={
-          <button className="inline-flex items-center gap-1.5 rounded-lg bg-ai px-3 py-1.5 text-sm font-medium text-ai-foreground hover:opacity-90">
+          <button
+            onClick={() => showToast('Insights are generated automatically — refresh to see latest analysis')}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-ai px-3 py-1.5 text-sm font-medium text-ai-foreground hover:opacity-90"
+          >
             <RefreshCw className="h-4 w-4" /> Regenerate insights
           </button>
         }

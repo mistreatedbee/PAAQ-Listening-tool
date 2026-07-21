@@ -31,12 +31,20 @@ const STATUS_TONE: Record<string, Tone> = {
   monitoring: 'intel', resolved: 'healthy',
 }
 
-function ActionBtn({ icon, label, primary }: { icon: React.ReactNode; label: string; primary?: boolean }) {
+function ActionBtn({
+  icon, label, primary, onClick, disabled,
+}: {
+  icon: React.ReactNode; label: string; primary?: boolean; onClick?: () => void; disabled?: boolean
+}) {
   return (
-    <button className={cn(
-      'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
-      primary ? 'bg-ai text-ai-foreground hover:opacity-90' : 'border border-border/70 bg-card/60 text-foreground hover:bg-accent',
-    )}>
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed',
+        primary ? 'bg-ai text-ai-foreground hover:opacity-90' : 'border border-border/70 bg-card/60 text-foreground hover:bg-accent',
+      )}
+    >
       {icon}{label}
     </button>
   )
@@ -46,6 +54,13 @@ export default function IncidentDetailPage() {
   const { id } = useParams<{ id: string }>()
   const [inc, setInc] = useState<DbIncident | null>(null)
   const [loading, setLoading] = useState(true)
+  const [resolving, setResolving] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
+
+  const showToast = (msg: string) => {
+    setToast(msg)
+    setTimeout(() => setToast(null), 3000)
+  }
 
   useEffect(() => {
     const sb = createClient()
@@ -55,6 +70,28 @@ export default function IncidentDetailPage() {
         setLoading(false)
       })
   }, [id])
+
+  const handleResolve = async () => {
+    if (!inc || inc.status === 'resolved') return
+    setResolving(true)
+    const sb = createClient()
+    const { error } = await sb.from('incidents').update({ status: 'resolved' }).eq('id', id)
+    if (!error) {
+      setInc({ ...inc, status: 'resolved' })
+      showToast('Incident marked as resolved')
+    }
+    setResolving(false)
+  }
+
+  const handleNotify = async () => {
+    if (!inc) return
+    const sb = createClient()
+    await sb.from('notifications').insert({
+      type: 'info',
+      body: `Team notified for incident: ${inc.title}`,
+    })
+    showToast('Team notification sent')
+  }
 
   if (loading) {
     return <div className="flex items-center justify-center py-32 text-sm text-muted-foreground">Loading…</div>
@@ -76,6 +113,12 @@ export default function IncidentDetailPage() {
 
   return (
     <div className="space-y-6">
+      {toast && (
+        <div className="fixed bottom-4 right-4 z-50 rounded-lg bg-foreground px-4 py-2.5 text-sm font-medium text-background shadow-lg">
+          {toast}
+        </div>
+      )}
+
       <Link href="/incidents" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="h-4 w-4" /> All incidents
       </Link>
@@ -85,10 +128,28 @@ export default function IncidentDetailPage() {
         desc={`${inc.id.slice(0, 8)}… · ${inc.severity} · ${inc.status} · ${started}`}
         actions={
           <div className="flex flex-wrap gap-2">
-            <ActionBtn icon={<Wrench className="h-4 w-4" />} label="Generate fix" primary />
-            <ActionBtn icon={<Ticket className="h-4 w-4" />} label="Jira ticket" />
-            <ActionBtn icon={<Bell className="h-4 w-4" />} label="Notify" />
-            <ActionBtn icon={<CheckCircle2 className="h-4 w-4" />} label="Resolve" />
+            <ActionBtn
+              icon={<Wrench className="h-4 w-4" />}
+              label="Generate fix"
+              primary
+              onClick={() => showToast('AI fix generation — coming soon')}
+            />
+            <ActionBtn
+              icon={<Ticket className="h-4 w-4" />}
+              label="Jira ticket"
+              onClick={() => showToast('Jira integration — coming soon')}
+            />
+            <ActionBtn
+              icon={<Bell className="h-4 w-4" />}
+              label="Notify"
+              onClick={handleNotify}
+            />
+            <ActionBtn
+              icon={<CheckCircle2 className="h-4 w-4" />}
+              label={inc.status === 'resolved' ? 'Resolved' : resolving ? 'Resolving…' : 'Resolve'}
+              disabled={inc.status === 'resolved' || resolving}
+              onClick={handleResolve}
+            />
           </div>
         }
       />

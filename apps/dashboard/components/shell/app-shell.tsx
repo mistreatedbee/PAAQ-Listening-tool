@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 import { Sidebar } from './sidebar'
 import { Topbar } from './topbar'
@@ -9,6 +9,12 @@ import { AIAssistant } from './ai-assistant'
 export function AppShell({ children }: { children: ReactNode }) {
   const [mobileNav, setMobileNav] = useState(false)
   const [assistant, setAssistant] = useState(false)
+
+  useEffect(() => {
+    const handler = () => setAssistant(true)
+    window.addEventListener('open-assistant', handler)
+    return () => window.removeEventListener('open-assistant', handler)
+  }, [])
 
   return (
     <div className="min-h-screen bg-background">
