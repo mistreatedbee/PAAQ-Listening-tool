@@ -1,11 +1,19 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { createClient } from '@/utils/supabase/client'
 import { navGroups } from '@/lib/nav'
 import { cn } from '@/lib/utils'
-import { toneSoft } from '@/lib/tones'
+import { toneSoft, toneText } from '@/lib/tones'
 import { Activity, X } from 'lucide-react'
+
+type LiveCounts = {
+  '/incidents': number
+  '/errors': number
+  '/ai-insights': number
+}
 
 export function Sidebar({
   mobileOpen,
@@ -15,6 +23,37 @@ export function Sidebar({
   onClose: () => void
 }) {
   const pathname = usePathname()
+  const [counts, setCounts] = useState<LiveCounts | null>(null)
+  const [openIncidents, setOpenIncidents] = useState(0)
+
+  useEffect(() => {
+    const sb = createClient()
+    Promise.all([
+      sb.from('incidents').select('*', { count: 'exact', head: true }).neq('status', 'resolved'),
+      sb.from('errors').select('*', { count: 'exact', head: true }).eq('status', 'open'),
+      sb.from('ai_insights').select('*', { count: 'exact', head: true }),
+    ]).then(([{ count: incidents }, { count: errors }, { count: insights }]) => {
+      const inc = incidents ?? 0
+      setOpenIncidents(inc)
+      setCounts({
+        '/incidents': inc,
+        '/errors': errors ?? 0,
+        '/ai-insights': insights ?? 0,
+      })
+    })
+  }, [])
+
+  function getBadge(href: string): { value: string; tone: 'critical' | 'warning' | 'ai' } | null {
+    if (!counts) return null
+    const key = href as keyof LiveCounts
+    if (!(key in counts)) return null
+    const n = counts[key]
+    if (n === 0) return null
+    if (href === '/incidents') return { value: String(n), tone: 'critical' }
+    if (href === '/errors') return { value: String(n), tone: 'warning' }
+    if (href === '/ai-insights') return { value: String(n), tone: 'ai' }
+    return null
+  }
 
   return (
     <>
@@ -62,6 +101,8 @@ export function Sidebar({
                 {group.items.map((item) => {
                   const active = pathname === item.href
                   const Icon = item.icon
+                  const liveBadge = getBadge(item.href)
+                  const badge = item.badge === 'live' ? 'live' : liveBadge
                   return (
                     <li key={item.href}>
                       <Link
@@ -79,22 +120,21 @@ export function Sidebar({
                         )}
                         <Icon className={cn('h-4 w-4 shrink-0', active && 'text-intel')} />
                         <span className="flex-1 truncate">{item.label}</span>
-                        {item.badge &&
-                          (item.badge === 'live' ? (
-                            <span className="flex items-center gap-1 text-[10px] font-medium text-healthy">
-                              <span className="h-1.5 w-1.5 rounded-full bg-healthy animate-pulse-dot" />
-                              live
-                            </span>
-                          ) : (
-                            <span
-                              className={cn(
-                                'rounded-full border px-1.5 py-0 text-[10px] font-semibold',
-                                item.badgeTone && toneSoft[item.badgeTone],
-                              )}
-                            >
-                              {item.badge}
-                            </span>
-                          ))}
+                        {badge === 'live' ? (
+                          <span className="flex items-center gap-1 text-[10px] font-medium text-healthy">
+                            <span className="h-1.5 w-1.5 rounded-full bg-healthy animate-pulse-dot" />
+                            live
+                          </span>
+                        ) : badge ? (
+                          <span
+                            className={cn(
+                              'rounded-full border px-1.5 py-0 text-[10px] font-semibold',
+                              toneSoft[badge.tone],
+                            )}
+                          >
+                            {badge.value}
+                          </span>
+                        ) : null}
                       </Link>
                     </li>
                   )
@@ -107,10 +147,15 @@ export function Sidebar({
         {/* Footer status */}
         <div className="border-t border-sidebar-border p-3">
           <div className="flex items-center gap-2 rounded-lg bg-sidebar-accent/50 px-3 py-2">
-            <span className="h-2 w-2 rounded-full bg-healthy animate-pulse-dot" />
+            <span className={cn(
+              'h-2 w-2 rounded-full',
+              openIncidents > 0 ? 'bg-critical animate-pulse-dot' : 'bg-healthy animate-pulse-dot',
+            )} />
             <div className="flex-1 leading-tight">
-              <p className="text-xs font-medium text-sidebar-foreground">All systems operational</p>
-              <p className="text-[10px] text-muted-foreground">Production · us-east-1</p>
+              <p className={cn('text-xs font-medium', openIncidents > 0 ? toneText.critical : 'text-sidebar-foreground')}>
+                {openIncidents > 0 ? `${openIncidents} open incident${openIncidents !== 1 ? 's' : ''}` : 'All systems operational'}
+              </p>
+              <p className="text-[10px] text-muted-foreground">Production · live</p>
             </div>
           </div>
         </div>

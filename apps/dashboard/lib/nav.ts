@@ -42,8 +42,8 @@ export const navGroups: NavGroup[] = [
     items: [
       { label: 'Dashboard', href: '/', icon: LayoutDashboard },
       { label: 'Live Monitoring', href: '/live-monitoring', icon: Radio, badge: 'live', badgeTone: 'healthy' },
-      { label: 'AI Insights', href: '/ai-insights', icon: Sparkles, badge: '7', badgeTone: 'ai' },
-      { label: 'Incidents', href: '/incidents', icon: AlertTriangle, badge: '3', badgeTone: 'critical' },
+      { label: 'AI Insights', href: '/ai-insights', icon: Sparkles },
+      { label: 'Incidents', href: '/incidents', icon: AlertTriangle },
     ],
   },
   {
@@ -61,7 +61,7 @@ export const navGroups: NavGroup[] = [
     title: 'Operations',
     items: [
       { label: 'Performance', href: '/performance', icon: Gauge },
-      { label: 'Errors', href: '/errors', icon: Bug, badge: '12', badgeTone: 'warning' },
+      { label: 'Errors', href: '/errors', icon: Bug },
       { label: 'Security', href: '/security', icon: Shield },
       { label: 'Deployments', href: '/deployments', icon: Rocket },
       { label: 'Database', href: '/database', icon: Database },
@@ -72,7 +72,7 @@ export const navGroups: NavGroup[] = [
   {
     title: 'Intelligence',
     items: [
-      { label: 'AI Agents', href: '/ai-agents', icon: Bot, badge: '8', badgeTone: 'ai' },
+      { label: 'AI Agents', href: '/ai-agents', icon: Bot },
       { label: 'Product Memory', href: '/product-memory', icon: BrainCircuit },
       { label: 'Reports', href: '/reports', icon: FileText },
       { label: 'Settings', href: '/settings', icon: Settings },
