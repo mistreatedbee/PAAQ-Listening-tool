@@ -109,7 +109,7 @@ export default function AIInsightsPage() {
       ) : insights.length === 0 ? (
         <Card className="p-10 text-center">
           <Sparkles className="mx-auto mb-3 h-8 w-8 text-muted-foreground opacity-20" />
-          <p className="text-sm text-muted-foreground">No AI insights yet. Run the seed SQL to add demo data.</p>
+          <p className="text-sm text-muted-foreground">No AI insights yet. Insights are generated automatically once your app starts sending data via the PAAQ SDK.</p>
         </Card>
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">

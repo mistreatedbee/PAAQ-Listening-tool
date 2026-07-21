@@ -92,7 +92,7 @@ export default function SecurityPage() {
         ) : errors.length === 0 ? (
           <div className="p-10 text-center">
             <Shield className="mx-auto mb-3 h-8 w-8 text-muted-foreground opacity-20" />
-            <p className="text-sm text-muted-foreground">No errors detected. Run database/seed.sql to add demo data.</p>
+            <p className="text-sm text-muted-foreground">No errors detected yet. Errors appear here automatically once your app is integrated with the PAAQ SDK.</p>
           </div>
         ) : (
           <div className="relative px-5 pb-5">

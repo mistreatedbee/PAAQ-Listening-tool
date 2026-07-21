@@ -101,7 +101,7 @@ export default function PerformancePage() {
       {metrics.length === 0 ? (
         <Card className="p-10 text-center">
           <Gauge className="mx-auto mb-3 h-8 w-8 text-muted-foreground opacity-20" />
-          <p className="text-sm text-muted-foreground">No performance data yet. Run the seed SQL to add demo data.</p>
+          <p className="text-sm text-muted-foreground">No performance data yet. Metrics appear here automatically once your app is integrated with the PAAQ SDK.</p>
         </Card>
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">

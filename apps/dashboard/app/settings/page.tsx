@@ -43,7 +43,7 @@ export default function SettingsPage() {
         ) : projects.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-16 text-muted-foreground">
             <Key className="h-8 w-8 opacity-20" />
-            <p className="text-sm">No projects yet. Run database/seed.sql to create a demo project.</p>
+            <p className="text-sm">No projects yet. Integrate the PAAQ SDK into your app to register your first project.</p>
           </div>
         ) : (
           <ul className="divide-y divide-border/40">

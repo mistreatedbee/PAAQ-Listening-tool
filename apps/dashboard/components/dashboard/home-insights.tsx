@@ -66,7 +66,7 @@ export function HomeInsights() {
     return (
       <div className="flex flex-col items-center gap-2 py-8 text-center">
         <Sparkles className="h-6 w-6 text-muted-foreground opacity-30" />
-        <p className="text-sm text-muted-foreground">No insights yet. Run the seed SQL to add demo data.</p>
+        <p className="text-sm text-muted-foreground">No insights yet. They appear automatically once your app is integrated with the PAAQ SDK.</p>
       </div>
     )
   }
