@@ -25,6 +25,7 @@ class Listening {
   static ListeningClient? _client;
   static String? _sessionId;
   static DateTime? _sessionStart;
+  static String? _supabaseUserId; // resolved UUID from the users endpoint
 
   // ─── Initialisation ──────────────────────────────────────────────────────
 
@@ -116,19 +117,27 @@ class Listening {
 
   /// Call when the user is identified (e.g. after login).
   ///
-  /// Ends the anonymous session and starts a new one tied to this user.
+  /// Pass your own auth system's user ID (Firebase UID, Supabase Auth ID,
+  /// internal UUID — any string). The SDK resolves it to a PAAQ user record
+  /// automatically, creating one on first call.
   ///
   /// ```dart
-  /// await Listening.identify(userId: user.id, email: user.email);
+  /// await Listening.identify(userId: firebaseUser.uid, email: firebaseUser.email);
   /// ```
   static Future<void> identify({
     required String userId,
     String? email,
   }) async {
-    // End the current anonymous session first.
+    // Resolve the external user ID to a PAAQ Supabase UUID.
+    final res = await _client?.sendWithResponse('users', {
+      'external_user_id': userId,
+      if (email != null) 'email': email,
+    });
+    _supabaseUserId = res?['user_id'] as String?;
+
+    // End the current anonymous session and start one tied to this user.
     await _endSession();
-    // Start a new session tied to this user.
-    await _startSession(userId: userId);
+    await _startSession(userId: _supabaseUserId);
     trackEvent('user_identified', category: 'auth');
   }
 
