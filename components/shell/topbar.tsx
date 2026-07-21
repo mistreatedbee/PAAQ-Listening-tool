@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useTheme } from 'next-themes'
 import { flatNav } from '@/lib/nav'
 import { notifications } from '@/lib/data'
 import { cn } from '@/lib/utils'
@@ -17,6 +18,8 @@ import {
   AlertTriangle,
   Users,
   Command,
+  Sun,
+  Moon,
 } from 'lucide-react'
 
 export function Topbar({
@@ -27,6 +30,7 @@ export function Topbar({
   onToggleAssistant: () => void
 }) {
   const router = useRouter()
+  const { resolvedTheme, setTheme } = useTheme()
   const [search, setSearch] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
@@ -143,6 +147,15 @@ export function Topbar({
             </>
           )}
         </div>
+
+        {/* Theme toggle */}
+        <button
+          onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+          className="rounded-lg border border-border/70 bg-card/60 p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
+          aria-label="Toggle theme"
+        >
+          {resolvedTheme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </button>
 
         {/* AI assistant toggle */}
         <button
