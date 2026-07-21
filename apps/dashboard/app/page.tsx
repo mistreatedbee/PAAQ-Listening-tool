@@ -26,14 +26,9 @@ export default function DashboardPage() {
 
       <KpiGrid />
 
-      <div className="grid gap-4 xl:grid-cols-3">
-        <div className="xl:col-span-2">
-          <SystemMap />
-        </div>
-        <div className="min-h-[420px] xl:h-auto">
-          <ActivityFeed />
-        </div>
-      </div>
+      <SystemMap />
+
+      <ActivityFeed />
 
       <Card>
         <CardHead
