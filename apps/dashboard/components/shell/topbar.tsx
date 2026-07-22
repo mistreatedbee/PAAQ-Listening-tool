@@ -226,7 +226,7 @@ export function Topbar({
 
         {/* Profile */}
         <button className="flex items-center gap-2 rounded-lg border border-border/70 bg-card/60 p-1 pr-2 hover:bg-accent">
-          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-gradient-to-br from-intel to-ai text-xs font-semibold text-white">
+          <span className="paaq-gradient flex h-7 w-7 items-center justify-center rounded-md text-xs font-semibold text-white">
             AC
           </span>
           <ChevronDown className="hidden h-3.5 w-3.5 text-muted-foreground sm:block" />
