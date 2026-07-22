@@ -4,24 +4,44 @@ import { SystemMap } from '@/components/dashboard/system-map'
 import { ActivityFeed } from '@/components/dashboard/activity-feed'
 import { HomeInsights } from '@/components/dashboard/home-insights'
 import { DashboardActions } from '@/components/dashboard/dashboard-actions'
+import { AgentStatusBar } from '@/components/dashboard/agent-status-bar'
+import { CriticalFlows } from '@/components/dashboard/critical-flows'
+import { HomeIncidents } from '@/components/dashboard/home-incidents'
+import { HomeRecommendations } from '@/components/dashboard/home-recommendations'
 import { Sparkles, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
 
 export default function DashboardPage() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
+      {/* Agent status bar — always top */}
+      <AgentStatusBar />
+
       <PageHeader
         title="Command Center"
         desc="Real-time intelligence across Ask, Book, Attend and Learn — every session, error, AI signal and incident in one surface."
         actions={<DashboardActions />}
       />
 
+      {/* KPI strip */}
       <KpiGrid />
 
-      <SystemMap />
+      {/* Module health + Incidents side by side */}
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_380px]">
+        <SystemMap />
+        <HomeIncidents />
+      </div>
 
+      {/* Critical flows + AI recommendations */}
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_380px]">
+        <CriticalFlows />
+        <HomeRecommendations />
+      </div>
+
+      {/* Activity feed */}
       <ActivityFeed />
 
+      {/* AI Insights */}
       <Card>
         <CardHead
           title="AI Insights"

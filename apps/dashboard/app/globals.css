@@ -4,6 +4,13 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ─────────────────────────────────────────────────────────────────────────
+   PAAQ Brand Palette (exact hex values from design system)
+   Deep Blue #27A6CE · Ocean Blue #3BBAD0 · Sky Cyan #51C9D3
+   Aqua #5FDED4 · Light Aqua #C7EDEF
+   Gradient: 135deg, #27A6CE 0%, #3BBAD0 35%, #51C9D3 65%, #5FDED4 100%
+────────────────────────────────────────────────────────────────────────── */
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -24,7 +31,7 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
-  /* semantic status colors */
+  /* Semantic status colors */
   --color-intel: var(--intel);
   --color-intel-foreground: var(--intel-foreground);
   --color-healthy: var(--healthy);
@@ -35,6 +42,16 @@
   --color-critical-foreground: var(--critical-foreground);
   --color-ai: var(--ai);
   --color-ai-foreground: var(--ai-foreground);
+
+  /* PAAQ Module colors — each module has a consistent brand identity */
+  --color-ask: var(--ask);
+  --color-ask-foreground: var(--ask-foreground);
+  --color-book: var(--book);
+  --color-book-foreground: var(--book-foreground);
+  --color-attend: var(--attend);
+  --color-attend-foreground: var(--attend-foreground);
+  --color-learn: var(--learn);
+  --color-learn-foreground: var(--learn-foreground);
 
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
@@ -66,17 +83,17 @@
   color-scheme: light;
   --radius: 0.75rem;
 
-  --background: oklch(0.972 0.006 268);
-  --foreground: oklch(0.12 0.016 268);
+  --background: oklch(0.972 0.006 210);
+  --foreground: oklch(0.12 0.016 210);
 
-  --card: oklch(1 0.004 268);
-  --card-foreground: oklch(0.12 0.016 268);
+  --card: oklch(1 0.004 210);
+  --card-foreground: oklch(0.12 0.016 210);
 
-  --popover: oklch(0.990 0.004 268);
-  --popover-foreground: oklch(0.12 0.016 268);
+  --popover: oklch(0.990 0.004 210);
+  --popover-foreground: oklch(0.12 0.016 210);
 
-  /* PAAQ brand: cyan-teal (from logo) */
-  --primary: oklch(0.52 0.16 210);
+  /* Primary = Deep Blue #27A6CE */
+  --primary: oklch(0.52 0.12 210);
   --primary-foreground: oklch(0.99 0.006 210);
 
   --secondary: oklch(0.93 0.008 210);
@@ -92,10 +109,10 @@
 
   --border: oklch(0.86 0.010 210);
   --input: oklch(0.84 0.010 210);
-  --ring: oklch(0.52 0.16 210);
+  --ring: oklch(0.52 0.12 210);
 
-  /* Semantic status */
-  --intel: oklch(0.50 0.16 208);        /* PAAQ cyan-teal (brand) */
+  /* Semantic status — all within PAAQ brand palette, no purple */
+  --intel: oklch(0.50 0.12 208);        /* Ocean Blue #3BBAD0 — brand primary */
   --intel-foreground: oklch(0.99 0.008 208);
   --healthy: oklch(0.52 0.16 158);
   --healthy-foreground: oklch(0.99 0.02 158);
@@ -103,42 +120,52 @@
   --warning-foreground: oklch(0.99 0.03 68);
   --critical: oklch(0.54 0.22 24);
   --critical-foreground: oklch(0.99 0.01 24);
-  --ai: oklch(0.52 0.20 278);           /* Blue-violet — AI-specific */
-  --ai-foreground: oklch(0.99 0.01 278);
+  --ai: oklch(0.50 0.09 191);           /* Aqua #5FDED4 — AI content, distinct hue */
+  --ai-foreground: oklch(0.99 0.006 191);
 
-  --chart-1: oklch(0.50 0.16 208);
-  --chart-2: oklch(0.52 0.16 158);
-  --chart-3: oklch(0.52 0.20 278);
-  --chart-4: oklch(0.58 0.14 68);
-  --chart-5: oklch(0.54 0.22 24);
+  --chart-1: oklch(0.50 0.12 208);      /* Ocean Blue */
+  --chart-2: oklch(0.52 0.16 158);      /* Green */
+  --chart-3: oklch(0.50 0.09 191);      /* Aqua */
+  --chart-4: oklch(0.58 0.14 68);       /* Amber */
+  --chart-5: oklch(0.54 0.22 24);       /* Red */
+
+  /* PAAQ Module colors */
+  --ask: oklch(0.52 0.12 208);          /* Ocean Blue — Ask is the brand core */
+  --ask-foreground: oklch(0.99 0.006 208);
+  --book: oklch(0.50 0.14 155);         /* Emerald — confirmed, booked */
+  --book-foreground: oklch(0.99 0.006 155);
+  --attend: oklch(0.50 0.10 200);       /* Sky Cyan #51C9D3 — live events */
+  --attend-foreground: oklch(0.99 0.006 200);
+  --learn: oklch(0.52 0.14 50);         /* Gold — knowledge */
+  --learn-foreground: oklch(0.99 0.006 50);
 
   --sidebar: oklch(0.952 0.007 210);
   --sidebar-foreground: oklch(0.14 0.014 210);
-  --sidebar-primary: oklch(0.52 0.16 210);
+  --sidebar-primary: oklch(0.52 0.12 210);
   --sidebar-primary-foreground: oklch(0.99 0.006 210);
   --sidebar-accent: oklch(0.90 0.008 210);
   --sidebar-accent-foreground: oklch(0.12 0.016 210);
   --sidebar-border: oklch(0.86 0.010 210);
-  --sidebar-ring: oklch(0.52 0.16 210);
+  --sidebar-ring: oklch(0.52 0.12 210);
 }
 
 /* ─── Dark mode (PAAQ primary) ───────────────────────────────────────────── */
 .dark {
   color-scheme: dark;
 
-  /* Deep navy-black — "command centre at night" */
-  --background: oklch(0.108 0.020 268);
-  --foreground: oklch(0.960 0.007 268);
+  /* Deep navy-black — command centre at night */
+  --background: oklch(0.108 0.020 210);
+  --foreground: oklch(0.960 0.007 210);
 
-  --card: oklch(0.148 0.018 268);
-  --card-foreground: oklch(0.960 0.007 268);
+  --card: oklch(0.148 0.018 210);
+  --card-foreground: oklch(0.960 0.007 210);
 
-  --popover: oklch(0.142 0.018 268);
-  --popover-foreground: oklch(0.960 0.007 268);
+  --popover: oklch(0.142 0.018 210);
+  --popover-foreground: oklch(0.960 0.007 210);
 
-  /* PAAQ brand cyan-teal — bright in dark (matches logo) */
-  --primary: oklch(0.658 0.168 208);
-  --primary-foreground: oklch(0.06 0.010 208);
+  /* Primary = Deep Blue #27A6CE */
+  --primary: oklch(0.660 0.118 210);
+  --primary-foreground: oklch(0.06 0.010 210);
 
   --secondary: oklch(0.218 0.016 210);
   --secondary-foreground: oklch(0.920 0.007 210);
@@ -153,35 +180,45 @@
 
   --border: oklch(0.248 0.018 210);
   --input: oklch(0.268 0.018 210);
-  --ring: oklch(0.658 0.168 208);
+  --ring: oklch(0.660 0.118 210);
 
-  /* Semantic status — tuned for deep dark */
-  --intel: oklch(0.740 0.160 205);      /* PAAQ bright cyan-teal */
-  --intel-foreground: oklch(0.06 0.010 205);
+  /* Semantic status — all PAAQ brand palette, no purple */
+  --intel: oklch(0.728 0.105 207);      /* Ocean Blue #3BBAD0 */
+  --intel-foreground: oklch(0.06 0.010 207);
   --healthy: oklch(0.720 0.158 158);
   --healthy-foreground: oklch(0.18 0.02 158);
   --warning: oklch(0.768 0.148 68);
   --warning-foreground: oklch(0.20 0.03 68);
   --critical: oklch(0.635 0.225 24);
   --critical-foreground: oklch(0.99 0.01 24);
-  --ai: oklch(0.668 0.200 278);         /* Blue-violet — AI-specific, distinct from teal */
-  --ai-foreground: oklch(0.99 0.01 278);
+  --ai: oklch(0.848 0.088 191);         /* Aqua #5FDED4 — AI content, distinct hue */
+  --ai-foreground: oklch(0.10 0.015 191);
 
-  --chart-1: oklch(0.740 0.160 205);
-  --chart-2: oklch(0.720 0.158 158);
-  --chart-3: oklch(0.668 0.200 278);
-  --chart-4: oklch(0.768 0.148 68);
-  --chart-5: oklch(0.635 0.225 24);
+  --chart-1: oklch(0.728 0.105 207);    /* Ocean Blue */
+  --chart-2: oklch(0.720 0.158 158);    /* Green */
+  --chart-3: oklch(0.848 0.088 191);    /* Aqua */
+  --chart-4: oklch(0.768 0.148 68);     /* Amber */
+  --chart-5: oklch(0.635 0.225 24);     /* Red */
+
+  /* PAAQ Module colors */
+  --ask: oklch(0.728 0.105 207);        /* Ocean Blue #3BBAD0 — Ask is brand core */
+  --ask-foreground: oklch(0.06 0.010 207);
+  --book: oklch(0.700 0.140 155);       /* Emerald — confirmed, booked */
+  --book-foreground: oklch(0.06 0.010 155);
+  --attend: oklch(0.782 0.092 203);     /* Sky Cyan #51C9D3 — live events */
+  --attend-foreground: oklch(0.06 0.010 203);
+  --learn: oklch(0.760 0.140 55);       /* Gold — knowledge */
+  --learn-foreground: oklch(0.10 0.010 55);
 
   /* Sidebar — darkest layer */
   --sidebar: oklch(0.086 0.016 210);
   --sidebar-foreground: oklch(0.900 0.007 210);
-  --sidebar-primary: oklch(0.658 0.168 208);
-  --sidebar-primary-foreground: oklch(0.06 0.010 208);
+  --sidebar-primary: oklch(0.660 0.118 210);
+  --sidebar-primary-foreground: oklch(0.06 0.010 210);
   --sidebar-accent: oklch(0.172 0.016 210);
   --sidebar-accent-foreground: oklch(0.960 0.007 210);
   --sidebar-border: oklch(0.198 0.016 210);
-  --sidebar-ring: oklch(0.658 0.168 208);
+  --sidebar-ring: oklch(0.660 0.118 210);
 }
 
 @layer base {
@@ -211,15 +248,18 @@
     background: var(--border);
     border-radius: 9999px;
   }
-  /* PAAQ brand gradient — matches logo: bright cyan → deep blue-teal */
+  /* PAAQ brand gradient — exact hex values: Deep Blue → Ocean Blue → Sky Cyan → Aqua */
   .paaq-gradient {
-    background: linear-gradient(135deg, oklch(0.80 0.16 195), oklch(0.55 0.14 228));
+    background: linear-gradient(135deg, #27A6CE 0%, #3BBAD0 35%, #51C9D3 65%, #5FDED4 100%);
   }
   .paaq-gradient-text {
-    background: linear-gradient(135deg, oklch(0.82 0.15 195), oklch(0.60 0.14 228));
+    background: linear-gradient(135deg, #27A6CE 0%, #5FDED4 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+  }
+  .paaq-glow {
+    box-shadow: 0 0 20px 0 color-mix(in srgb, #5FDED4 30%, transparent);
   }
 }
 

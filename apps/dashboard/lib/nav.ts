@@ -22,6 +22,10 @@ import {
   Settings,
   Search,
   ListChecks,
+  BadgeCheck,
+  Bell,
+  CreditCard,
+  TrendingUp,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -61,6 +65,7 @@ export const navGroups: NavGroup[] = [
     title: 'Experience',
     items: [
       { label: 'User Journey Explorer', href: '/user-journey', icon: Route },
+      { label: 'Credibility Signals', href: '/credibility', icon: BadgeCheck },
       { label: 'Session Replay', href: '/session-replay', icon: PlaySquare },
       { label: 'Users', href: '/users', icon: Users },
       { label: 'Features', href: '/features', icon: Blocks },
@@ -74,6 +79,7 @@ export const navGroups: NavGroup[] = [
       { label: 'Performance', href: '/performance', icon: Gauge },
       { label: 'Errors', href: '/errors', icon: Bug },
       { label: 'Security', href: '/security', icon: Shield },
+      { label: 'Notifications', href: '/notifications', icon: Bell },
       { label: 'Deployments', href: '/deployments', icon: Rocket },
       { label: 'Database', href: '/database', icon: Database },
       { label: 'API Health', href: '/api-health', icon: Activity },
@@ -83,6 +89,8 @@ export const navGroups: NavGroup[] = [
   {
     title: 'Platform',
     items: [
+      { label: 'Payments & Wallet', href: '/payments', icon: CreditCard },
+      { label: 'Referral & Revenue', href: '/referral', icon: TrendingUp },
       { label: 'Reports', href: '/reports', icon: FileText },
       { label: 'Settings', href: '/settings', icon: Settings },
     ],
