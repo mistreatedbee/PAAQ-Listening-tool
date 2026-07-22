@@ -236,7 +236,7 @@ export default function IncidentsPage() {
                     <button
                       onClick={async () => {
                         const sb = createClient()
-                        await sb.from('notifications').insert({ type: 'info', body: `Team notified: ${inc.title}` })
+                        await sb.from('notifications').insert({ type: 'info', message: `Team notified: ${inc.title}` })
                         showToast('Team notification sent')
                       }}
                       className="inline-flex flex-1 items-center justify-center rounded-lg border border-border/70 bg-card/60 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"

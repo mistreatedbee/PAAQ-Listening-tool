@@ -25,7 +25,7 @@ import {
 
 type DbNotification = {
   id: string
-  body: string | null
+  message: string | null
   type: string | null
   created_at: string
 }
@@ -57,7 +57,7 @@ export function Topbar({
     const sb = createClient()
     Promise.all([
       sb.from('notifications')
-        .select('id, body, type, created_at')
+        .select('id, message, type, created_at')
         .order('created_at', { ascending: false })
         .limit(10),
       sb.from('incidents')
@@ -193,7 +193,7 @@ export function Topbar({
                         <li key={n.id} className="flex gap-3 border-b border-border/40 px-3 py-2.5 last:border-0 hover:bg-accent/50">
                           <span className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', toneBg[tone])} />
                           <div className="flex-1">
-                            <p className={cn('text-sm font-medium', toneText[tone])}>{n.body ?? 'Notification'}</p>
+                            <p className={cn('text-sm font-medium', toneText[tone])}>{n.message ?? 'Notification'}</p>
                           </div>
                           <span className="text-[10px] text-muted-foreground">{timeStr}</span>
                         </li>

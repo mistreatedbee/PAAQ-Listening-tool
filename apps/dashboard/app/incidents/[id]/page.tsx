@@ -88,7 +88,7 @@ export default function IncidentDetailPage() {
     const sb = createClient()
     await sb.from('notifications').insert({
       type: 'info',
-      body: `Team notified for incident: ${inc.title}`,
+      message: `Team notified for incident: ${inc.title}`,
     })
     showToast('Team notification sent')
   }
