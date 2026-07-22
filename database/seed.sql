@@ -109,23 +109,23 @@ INSERT INTO errors (project_id, session_id, error_type, message, severity, statu
 -- ============================================================
 -- Performance Metrics
 -- ============================================================
-INSERT INTO performance_metrics (project_id, session_id, metric_type, value, created_at) VALUES
-  ('a1b2c3d4-0000-0000-0000-000000000001', 'cc000001-0000-0000-0000-000000000001', 'response_time', 145, NOW() - INTERVAL '2 hours'),
-  ('a1b2c3d4-0000-0000-0000-000000000001', 'cc000001-0000-0000-0000-000000000001', 'response_time', 162, NOW() - INTERVAL '110 minutes'),
-  ('a1b2c3d4-0000-0000-0000-000000000001', 'cc000001-0000-0000-0000-000000000002', 'response_time', 189, NOW() - INTERVAL '3 hours'),
-  ('a1b2c3d4-0000-0000-0000-000000000001', 'cc000001-0000-0000-0000-000000000003', 'response_time', 520, NOW() - INTERVAL '90 minutes'),
-  ('a1b2c3d4-0000-0000-0000-000000000001', 'cc000001-0000-0000-0000-000000000004', 'response_time', 134, NOW() - INTERVAL '1 hour'),
-  ('a1b2c3d4-0000-0000-0000-000000000001', 'cc000001-0000-0000-0000-000000000005', 'response_time', 178, NOW() - INTERVAL '10 minutes'),
-  ('a1b2c3d4-0000-0000-0000-000000000001', 'cc000001-0000-0000-0000-000000000001', 'fps',            58, NOW() - INTERVAL '2 hours'),
-  ('a1b2c3d4-0000-0000-0000-000000000001', 'cc000001-0000-0000-0000-000000000002', 'fps',            60, NOW() - INTERVAL '3 hours'),
-  ('a1b2c3d4-0000-0000-0000-000000000001', 'cc000001-0000-0000-0000-000000000003', 'fps',            24, NOW() - INTERVAL '90 minutes'),
-  ('a1b2c3d4-0000-0000-0000-000000000001', 'cc000001-0000-0000-0000-000000000004', 'fps',            59, NOW() - INTERVAL '1 hour'),
-  ('a1b2c3d4-0000-0000-0000-000000000001', 'cc000001-0000-0000-0000-000000000001', 'memory',         52, NOW() - INTERVAL '2 hours'),
-  ('a1b2c3d4-0000-0000-0000-000000000001', 'cc000001-0000-0000-0000-000000000002', 'memory',         48, NOW() - INTERVAL '3 hours'),
-  ('a1b2c3d4-0000-0000-0000-000000000001', 'cc000001-0000-0000-0000-000000000003', 'memory',         81, NOW() - INTERVAL '90 minutes'),
-  ('a1b2c3d4-0000-0000-0000-000000000001', 'cc000001-0000-0000-0000-000000000004', 'memory',         44, NOW() - INTERVAL '1 hour'),
-  ('a1b2c3d4-0000-0000-0000-000000000002', 'cc000001-0000-0000-0000-000000000007', 'response_time', 210, NOW() - INTERVAL '45 minutes'),
-  ('a1b2c3d4-0000-0000-0000-000000000002', 'cc000001-0000-0000-0000-000000000007', 'fps',            55, NOW() - INTERVAL '45 minutes');
+INSERT INTO performance_metrics (project_id, metric_type, value, created_at) VALUES
+  ('a1b2c3d4-0000-0000-0000-000000000001', 'response_time', 145, NOW() - INTERVAL '2 hours'),
+  ('a1b2c3d4-0000-0000-0000-000000000001', 'response_time', 162, NOW() - INTERVAL '110 minutes'),
+  ('a1b2c3d4-0000-0000-0000-000000000001', 'response_time', 189, NOW() - INTERVAL '3 hours'),
+  ('a1b2c3d4-0000-0000-0000-000000000001', 'response_time', 520, NOW() - INTERVAL '90 minutes'),
+  ('a1b2c3d4-0000-0000-0000-000000000001', 'response_time', 134, NOW() - INTERVAL '1 hour'),
+  ('a1b2c3d4-0000-0000-0000-000000000001', 'response_time', 178, NOW() - INTERVAL '10 minutes'),
+  ('a1b2c3d4-0000-0000-0000-000000000001', 'fps',            58, NOW() - INTERVAL '2 hours'),
+  ('a1b2c3d4-0000-0000-0000-000000000001', 'fps',            60, NOW() - INTERVAL '3 hours'),
+  ('a1b2c3d4-0000-0000-0000-000000000001', 'fps',            24, NOW() - INTERVAL '90 minutes'),
+  ('a1b2c3d4-0000-0000-0000-000000000001', 'fps',            59, NOW() - INTERVAL '1 hour'),
+  ('a1b2c3d4-0000-0000-0000-000000000001', 'memory',         52, NOW() - INTERVAL '2 hours'),
+  ('a1b2c3d4-0000-0000-0000-000000000001', 'memory',         48, NOW() - INTERVAL '3 hours'),
+  ('a1b2c3d4-0000-0000-0000-000000000001', 'memory',         81, NOW() - INTERVAL '90 minutes'),
+  ('a1b2c3d4-0000-0000-0000-000000000001', 'memory',         44, NOW() - INTERVAL '1 hour'),
+  ('a1b2c3d4-0000-0000-0000-000000000002', 'response_time', 210, NOW() - INTERVAL '45 minutes'),
+  ('a1b2c3d4-0000-0000-0000-000000000002', 'fps',            55, NOW() - INTERVAL '45 minutes');
 
 -- ============================================================
 -- Incidents
