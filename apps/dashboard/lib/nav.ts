@@ -20,6 +20,8 @@ import {
   BrainCircuit,
   FileText,
   Settings,
+  Search,
+  ListChecks,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -40,10 +42,19 @@ export const navGroups: NavGroup[] = [
   {
     title: 'Overview',
     items: [
-      { label: 'Dashboard', href: '/', icon: LayoutDashboard },
+      { label: 'Mission Control', href: '/', icon: LayoutDashboard },
       { label: 'Live Monitoring', href: '/live-monitoring', icon: Radio, badge: 'live', badgeTone: 'healthy' },
       { label: 'AI Insights', href: '/ai-insights', icon: Sparkles },
       { label: 'Incidents', href: '/incidents', icon: AlertTriangle },
+    ],
+  },
+  {
+    title: 'AI Operations',
+    items: [
+      { label: 'Investigations', href: '/investigations', icon: Search, badge: 'new', badgeTone: 'ai' },
+      { label: 'Recommendations', href: '/recommendations', icon: ListChecks },
+      { label: 'Agent Center', href: '/ai-agents', icon: Bot },
+      { label: 'Product Memory', href: '/product-memory', icon: BrainCircuit },
     ],
   },
   {
@@ -70,10 +81,8 @@ export const navGroups: NavGroup[] = [
     ],
   },
   {
-    title: 'Intelligence',
+    title: 'Platform',
     items: [
-      { label: 'AI Agents', href: '/ai-agents', icon: Bot },
-      { label: 'Product Memory', href: '/product-memory', icon: BrainCircuit },
       { label: 'Reports', href: '/reports', icon: FileText },
       { label: 'Settings', href: '/settings', icon: Settings },
     ],
