@@ -151,7 +151,11 @@ INSERT INTO incidents (project_id, title, description, ai_summary, severity, sta
 
 -- ============================================================
 -- Notifications
+-- Ensure columns exist (safe to run on existing tables)
 -- ============================================================
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS project_id UUID REFERENCES projects(id) ON DELETE CASCADE;
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS body TEXT;
+
 INSERT INTO notifications (project_id, type, body, created_at) VALUES
   ('a1b2c3d4-0000-0000-0000-000000000001', 'critical', 'ALERT: Payment gateway error rate exceeded 15% threshold',   NOW() - INTERVAL '75 minutes'),
   ('a1b2c3d4-0000-0000-0000-000000000001', 'warning',  'High memory usage detected in session cc000001-003 (81%)',   NOW() - INTERVAL '88 minutes'),
