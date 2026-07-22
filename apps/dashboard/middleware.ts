@@ -1,12 +1,12 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-const PUBLIC_PATHS = ['/login', '/signup', '/_next', '/favicon', '/logo']
+const PUBLIC_PATHS = ['/', '/login', '/signup', '/_next', '/favicon', '/logo']
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
+  if (PUBLIC_PATHS.some((p) => pathname === p || (p !== '/' && pathname.startsWith(p)))) {
     return NextResponse.next()
   }
 

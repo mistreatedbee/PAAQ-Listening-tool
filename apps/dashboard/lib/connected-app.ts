@@ -59,6 +59,7 @@ export type SdkStatus = 'connected' | 'disconnected' | 'degraded'
 
 export type ConnectedApp = {
   id: string
+  tenantId: string
   name: string
   environment: 'Production' | 'Staging' | 'Development'
   apiKey: string
@@ -84,15 +85,16 @@ export type ConnectedApp = {
 
 export const PAAQ_APP: ConnectedApp = {
   id: 'paaq-prod',
+  tenantId: 'paaq-tenant',
   name: 'PAAQ',
   environment: 'Production',
   apiKey: 'plt_paaq_prod_k7x2m9q4v1',
   accentColor: '#51C9D3',
   featureAreas: [
-    { id: 'ask',    label: 'Ask',    color: '#51C9D3', textClass: 'text-ask',    bgClass: 'bg-ask',    softClass: 'bg-ask/12 text-ask border-ask/25' },
-    { id: 'book',   label: 'Book',   color: '#22C55E', textClass: 'text-book',   bgClass: 'bg-book',   softClass: 'bg-book/12 text-book border-book/25' },
-    { id: 'attend', label: 'Attend', color: '#3B82F6', textClass: 'text-attend', bgClass: 'bg-attend', softClass: 'bg-attend/12 text-attend border-attend/25' },
-    { id: 'learn',  label: 'Learn',  color: '#F59E0B', textClass: 'text-learn',  bgClass: 'bg-learn',  softClass: 'bg-learn/12 text-learn border-learn/25' },
+    { id: 'ask',    label: 'Please',   color: '#51C9D3', textClass: 'text-ask',    bgClass: 'bg-ask',    softClass: 'bg-ask/12 text-ask border-ask/25' },
+    { id: 'book',   label: 'Ask',      color: '#22C55E', textClass: 'text-book',   bgClass: 'bg-book',   softClass: 'bg-book/12 text-book border-book/25' },
+    { id: 'attend', label: 'Any',      color: '#3B82F6', textClass: 'text-attend', bgClass: 'bg-attend', softClass: 'bg-attend/12 text-attend border-attend/25' },
+    { id: 'learn',  label: 'Question', color: '#F59E0B', textClass: 'text-learn',  bgClass: 'bg-learn',  softClass: 'bg-learn/12 text-learn border-learn/25' },
   ],
   criticalFlows: [
     {
@@ -187,6 +189,7 @@ export const PAAQ_APP: ConnectedApp = {
 
 export const DEMO_APP: ConnectedApp = {
   id: 'demoapp-prod',
+  tenantId: 'demo-tenant',
   name: 'DemoApp',
   environment: 'Production',
   apiKey: 'plt_demo_prod_h3n8p2r6w5',

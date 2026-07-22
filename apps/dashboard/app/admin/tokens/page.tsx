@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
 import { statusBadgeClass, timeAgo, maskToken } from '@/lib/admin-utils'
@@ -30,7 +30,7 @@ function genToken(type: string): string {
   return prefix + Array.from({ length: 32 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }
 
-export default function TokensPage() {
+function TokensContent() {
   const searchParams = useSearchParams()
   const filterTenant = searchParams.get('tenant')
 
@@ -258,5 +258,13 @@ export default function TokensPage() {
         )}
       </div>
     </div>
+  )
+}
+
+export default function TokensPage() {
+  return (
+    <Suspense fallback={<div className="py-20 text-center text-sm" style={{ color: 'var(--text-muted)' }}>Loading…</div>}>
+      <TokensContent />
+    </Suspense>
   )
 }

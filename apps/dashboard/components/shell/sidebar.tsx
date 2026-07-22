@@ -5,7 +5,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
-import { NAV_ITEMS } from '@/lib/nav'
+import { navGroups } from '@/lib/nav'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { cn } from '@/lib/utils'
 import { toneSoft } from '@/lib/tones'
@@ -68,7 +68,7 @@ export function Sidebar({
       >
         {/* Tool identity — always PAAQ Listening Tool */}
         <div className="flex h-14 items-center justify-between gap-2 border-b border-sidebar-border px-4">
-          <Link href="/" className="flex items-center gap-3" onClick={onClose}>
+          <Link href="/dashboard" className="flex items-center gap-3" onClick={onClose}>
             <Image
               src="/logo.png"
               alt="PAAQ Listening Tool"
@@ -94,7 +94,7 @@ export function Sidebar({
         {/* Connected app feature areas — driven by config */}
         <div className="border-b border-sidebar-border/60 px-3 py-2.5">
           <p className="mb-2 px-1 text-[9px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-            {app.name} · Feature Areas
+            {app.name}
           </p>
           <div className={cn('grid gap-1', app.featureAreas.length <= 4 ? 'grid-cols-4' : 'grid-cols-3')}>
             {app.featureAreas.map((fa) => (
@@ -112,40 +112,47 @@ export function Sidebar({
           </div>
         </div>
 
-        {/* Nine fixed nav tabs */}
-        <nav className="scrollbar-thin flex-1 overflow-y-auto px-3 py-4">
-          <ul className="space-y-0.5">
-            {NAV_ITEMS.map((item) => {
-              const active = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href))
-              const Icon = item.icon
-              const badge = liveBadge(item.href)
-              return (
-                <li key={item.href} className="relative">
-                  <Link
-                    href={item.href}
-                    onClick={onClose}
-                    className={cn(
-                      'group flex items-center gap-2.5 rounded-lg px-2 py-2 text-sm transition-all',
-                      active
-                        ? 'bg-intel/10 font-semibold text-intel'
-                        : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground',
-                    )}
-                  >
-                    {active && (
-                      <span className="absolute left-0 h-5 w-0.5 rounded-r-full bg-intel" aria-hidden="true" />
-                    )}
-                    <Icon className={cn('h-4 w-4 shrink-0', active ? 'text-intel' : 'text-muted-foreground/70')} />
-                    <span className="flex-1 truncate">{item.label}</span>
-                    {badge && (
-                      <span className={cn('rounded-full border px-1.5 py-0 text-[10px] font-semibold', toneSoft[badge.tone])}>
-                        {badge.value}
-                      </span>
-                    )}
-                  </Link>
-                </li>
-              )
-            })}
-          </ul>
+        {/* Grouped nav */}
+        <nav className="scrollbar-thin flex-1 overflow-y-auto px-3 py-3">
+          {navGroups.map((group, gi) => (
+            <div key={group.title} className={gi > 0 ? 'mt-4' : ''}>
+              <p className="mb-1 px-2 text-[9px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+                {group.title}
+              </p>
+              <ul className="space-y-0.5">
+                {group.items.map((item) => {
+                  const active = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
+                  const Icon = item.icon
+                  const badge = liveBadge(item.href) ?? (item.badge ? { value: item.badge, tone: item.badgeTone ?? 'intel' as const } : null)
+                  return (
+                    <li key={item.href} className="relative">
+                      <Link
+                        href={item.href}
+                        onClick={onClose}
+                        className={cn(
+                          'group flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-all',
+                          active
+                            ? 'bg-intel/10 font-semibold text-intel'
+                            : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground',
+                        )}
+                      >
+                        {active && (
+                          <span className="absolute left-0 h-5 w-0.5 rounded-r-full bg-intel" aria-hidden="true" />
+                        )}
+                        <Icon className={cn('h-4 w-4 shrink-0', active ? 'text-intel' : 'text-muted-foreground/70')} />
+                        <span className="flex-1 truncate">{item.label}</span>
+                        {badge && (
+                          <span className={cn('rounded-full border px-1.5 py-0 text-[10px] font-semibold', toneSoft[badge.tone])}>
+                            {badge.value}
+                          </span>
+                        )}
+                      </Link>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          ))}
         </nav>
 
         {/* Footer — connected app identity + health */}

@@ -56,7 +56,7 @@ export default function LoginPage() {
         setLoading(false)
         return
       }
-      router.push('/')
+      router.push('/dashboard')
       router.refresh()
     } else {
       const { error: err } = await sb.auth.signUp({ email, password })
