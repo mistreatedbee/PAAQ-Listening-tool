@@ -1,6 +1,7 @@
 import {
   LayoutDashboard,
   AlertTriangle,
+  Bug,
   Route,
   Rocket,
   Shield,
@@ -19,11 +20,10 @@ export type NavItem = {
   badgeTone?: 'intel' | 'healthy' | 'warning' | 'critical' | 'ai'
 }
 
-// Nine fixed tabs — the PAAQ Listening Tool shell never changes.
-// What changes is the content inside each tab, driven by the connected app's config.
 export const NAV_ITEMS: NavItem[] = [
   { label: 'Overview',       href: '/',               icon: LayoutDashboard },
   { label: 'Incidents',      href: '/incidents',      icon: AlertTriangle },
+  { label: 'Errors',         href: '/errors',         icon: Bug },
   { label: 'User Journeys',  href: '/user-journey',   icon: Route },
   { label: 'Deployments',    href: '/deployments',    icon: Rocket },
   { label: 'Security',       href: '/security',       icon: Shield },

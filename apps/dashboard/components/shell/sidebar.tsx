@@ -40,6 +40,8 @@ export function Sidebar({
   function liveBadge(href: string) {
     if (href === '/incidents' && openIncidents > 0)
       return { value: String(openIncidents), tone: 'critical' as const }
+    if (href === '/errors' && openErrors > 0)
+      return { value: String(openErrors), tone: 'warning' as const }
     if (href === '/ai-insights' && aiInsights > 0)
       return { value: String(aiInsights), tone: 'ai' as const }
     return null
