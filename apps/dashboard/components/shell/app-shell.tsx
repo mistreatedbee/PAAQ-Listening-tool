@@ -1,21 +1,30 @@
 'use client'
 
 import { useState, useEffect, type ReactNode } from 'react'
+import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { Sidebar } from './sidebar'
 import { Topbar } from './topbar'
 import { AIAssistant } from './ai-assistant'
 import { ConnectedAppProvider } from './connected-app-context'
 
+const AUTH_PATHS = ['/login', '/signup']
+
 export function AppShell({ children }: { children: ReactNode }) {
+  const pathname = usePathname()
   const [mobileNav, setMobileNav] = useState(false)
   const [assistant, setAssistant] = useState(false)
+  const isAuthPage = AUTH_PATHS.includes(pathname)
 
   useEffect(() => {
     const handler = () => setAssistant(true)
     window.addEventListener('open-assistant', handler)
     return () => window.removeEventListener('open-assistant', handler)
   }, [])
+
+  if (isAuthPage) {
+    return <>{children}</>
+  }
 
   return (
     <ConnectedAppProvider>

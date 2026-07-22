@@ -251,7 +251,7 @@ function ProfileMenu() {
   const handleSignOut = async () => {
     const sb = createClient()
     await sb.auth.signOut()
-    router.push('/')
+    router.push('/login')
     router.refresh()
   }
 
