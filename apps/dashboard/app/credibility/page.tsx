@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { Card, CardHead, ToneBadge, StatusDot } from '@/components/kit'
-import { BadgeCheck, Linkedin, FileText, Award, User, ChevronRight } from 'lucide-react'
+import { BadgeCheck, Link2, FileText, Award, User } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Tone } from '@/lib/data'
 
@@ -73,7 +73,7 @@ export default function CredibilityPage() {
           id: 'linkedin',
           label: 'LinkedIn Linked',
           desc: 'Expert profiles with a verified LinkedIn URL attached',
-          Icon: Linkedin,
+          Icon: Link2,
           count: total,
           verified: linkedinLinked ?? 0,
           tone: pct(linkedinLinked ?? 0, total) >= 60 ? 'healthy' : pct(linkedinLinked ?? 0, total) >= 35 ? 'warning' : 'critical',
