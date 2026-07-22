@@ -9,4 +9,7 @@ export type Insight = {
   affected: string
   severity: Tone
   actions: string[]
+  priority?: string
+  recommendedAction?: string
+  evidence?: Record<string, unknown>
 }
