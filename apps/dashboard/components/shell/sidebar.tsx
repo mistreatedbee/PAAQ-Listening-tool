@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
@@ -73,18 +74,15 @@ export function Sidebar({
         {/* Logo */}
         <div className="flex h-14 items-center justify-between gap-2 border-b border-sidebar-border px-4">
           <Link href="/" className="flex items-center gap-3">
-            {/* PAAQ logo mark — cyan-teal gradient matching brand */}
-            <span className="paaq-gradient relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg shadow-lg shadow-intel/20">
-              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-                {/* P? lettermark */}
-                <path
-                  d="M7 4h5.5a4 4 0 0 1 0 8H7V4Z"
-                  fill="white"
-                  fillOpacity="0.95"
-                />
-                <rect x="7" y="15" width="3" height="3" rx="1.5" fill="white" fillOpacity="0.95" />
-              </svg>
-            </span>
+            {/* PAAQ logo */}
+            <Image
+              src="/paaq-logo.png"
+              alt="PAAQ"
+              width={32}
+              height={32}
+              className="shrink-0 rounded-lg"
+              priority
+            />
             <span className="flex flex-col leading-none">
               <span className="paaq-gradient-text text-sm font-black tracking-tight">PAAQ</span>
               <span className="text-[10px] font-medium tracking-wide text-muted-foreground/70 uppercase">Listening</span>
