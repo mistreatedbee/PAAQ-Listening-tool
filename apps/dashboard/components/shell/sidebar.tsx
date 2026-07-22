@@ -5,16 +5,11 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
-import { navGroups } from '@/lib/nav'
+import { NAV_ITEMS } from '@/lib/nav'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { cn } from '@/lib/utils'
-import { toneSoft, toneText } from '@/lib/tones'
-import { X, Wifi } from 'lucide-react'
-
-type LiveCounts = {
-  '/incidents': number
-  '/errors': number
-  '/ai-insights': number
-}
+import { toneSoft } from '@/lib/tones'
+import { X, Wifi, WifiOff } from 'lucide-react'
 
 export function Sidebar({
   mobileOpen,
@@ -24,8 +19,10 @@ export function Sidebar({
   onClose: () => void
 }) {
   const pathname = usePathname()
-  const [counts, setCounts] = useState<LiveCounts | null>(null)
+  const { app } = useConnectedApp()
   const [openIncidents, setOpenIncidents] = useState(0)
+  const [openErrors, setOpenErrors] = useState(0)
+  const [aiInsights, setAiInsights] = useState(0)
 
   useEffect(() => {
     const sb = createClient()
@@ -33,28 +30,24 @@ export function Sidebar({
       sb.from('incidents').select('*', { count: 'exact', head: true }).neq('status', 'resolved'),
       sb.from('errors').select('*', { count: 'exact', head: true }).eq('status', 'open'),
       sb.from('ai_insights').select('*', { count: 'exact', head: true }),
-    ]).then(([{ count: incidents }, { count: errors }, { count: insights }]) => {
-      const inc = incidents ?? 0
-      setOpenIncidents(inc)
-      setCounts({
-        '/incidents': inc,
-        '/errors': errors ?? 0,
-        '/ai-insights': insights ?? 0,
-      })
+    ]).then(([{ count: inc }, { count: err }, { count: ai }]) => {
+      setOpenIncidents(inc ?? 0)
+      setOpenErrors(err ?? 0)
+      setAiInsights(ai ?? 0)
     })
   }, [])
 
-  function getBadge(href: string): { value: string; tone: 'critical' | 'warning' | 'ai' } | null {
-    if (!counts) return null
-    const key = href as keyof LiveCounts
-    if (!(key in counts)) return null
-    const n = counts[key]
-    if (n === 0) return null
-    if (href === '/incidents') return { value: String(n), tone: 'critical' }
-    if (href === '/errors') return { value: String(n), tone: 'warning' }
-    if (href === '/ai-insights') return { value: String(n), tone: 'ai' }
+  function liveBadge(href: string) {
+    if (href === '/incidents' && openIncidents > 0)
+      return { value: String(openIncidents), tone: 'critical' as const }
+    if (href === '/ai-insights' && aiInsights > 0)
+      return { value: String(aiInsights), tone: 'ai' as const }
     return null
   }
+
+  const allConnected = app.sdkStatus.frontend === 'connected'
+    && app.sdkStatus.backend === 'connected'
+    && app.sdkStatus.database === 'connected'
 
   return (
     <>
@@ -71,13 +64,12 @@ export function Sidebar({
           mobileOpen ? 'translate-x-0' : '-translate-x-full',
         )}
       >
-        {/* Logo */}
+        {/* Tool identity — always PAAQ Listening Tool */}
         <div className="flex h-14 items-center justify-between gap-2 border-b border-sidebar-border px-4">
-          <Link href="/" className="flex items-center gap-3">
-            {/* PAAQ logo */}
+          <Link href="/" className="flex items-center gap-3" onClick={onClose}>
             <Image
               src="/logo.png"
-              alt="PAAQ"
+              alt="PAAQ Listening Tool"
               width={32}
               height={32}
               className="shrink-0 rounded-lg"
@@ -85,7 +77,7 @@ export function Sidebar({
             />
             <span className="flex flex-col leading-none">
               <span className="paaq-gradient-text text-sm font-black tracking-tight">PAAQ</span>
-              <span className="text-[10px] font-medium tracking-wide text-muted-foreground/70 uppercase">Listening</span>
+              <span className="text-[10px] font-semibold tracking-widest text-muted-foreground/70 uppercase">Listening Tool</span>
             </span>
           </Link>
           <button
@@ -97,104 +89,105 @@ export function Sidebar({
           </button>
         </div>
 
-        {/* PAAQ module quick-status */}
+        {/* Connected app feature areas — driven by config */}
         <div className="border-b border-sidebar-border/60 px-3 py-2.5">
           <p className="mb-2 px-1 text-[9px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-            Platform Modules
+            {app.name} · Feature Areas
           </p>
-          <div className="grid grid-cols-4 gap-1">
-            {[
-              { label: 'Ask', color: 'bg-healthy' },
-              { label: 'Book', color: 'bg-intel' },
-              { label: 'Attend', color: 'bg-ai' },
-              { label: 'Learn', color: 'bg-warning' },
-            ].map((m) => (
-              <div key={m.label} className="flex flex-col items-center gap-1 rounded-lg border border-sidebar-border/60 bg-sidebar-accent/30 py-1.5">
-                <span className={cn('h-1.5 w-1.5 rounded-full animate-pulse-dot', m.color)} />
-                <span className="text-[9px] font-semibold text-sidebar-foreground/70">{m.label}</span>
+          <div className={cn('grid gap-1', app.featureAreas.length <= 4 ? 'grid-cols-4' : 'grid-cols-3')}>
+            {app.featureAreas.map((fa) => (
+              <div
+                key={fa.id}
+                className="flex flex-col items-center gap-1 rounded-lg border border-sidebar-border/60 bg-sidebar-accent/30 py-1.5"
+              >
+                <span
+                  className="h-1.5 w-1.5 rounded-full animate-pulse-dot"
+                  style={{ backgroundColor: fa.color }}
+                />
+                <span className="text-[9px] font-semibold text-sidebar-foreground/70">{fa.label}</span>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Nav */}
-        <nav className="scrollbar-thin flex-1 space-y-5 overflow-y-auto px-3 py-4">
-          {navGroups.map((group) => (
-            <div key={group.title}>
-              <p className="px-2 pb-1.5 text-[9px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-                {group.title}
-              </p>
-              <ul className="space-y-0.5">
-                {group.items.map((item) => {
-                  const active = pathname === item.href
-                  const Icon = item.icon
-                  const liveBadge = getBadge(item.href)
-                  const badge = item.badge === 'live' ? 'live' : liveBadge
-                  return (
-                    <li key={item.href} className="relative">
-                      <Link
-                        href={item.href}
-                        onClick={onClose}
-                        className={cn(
-                          'group flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-all',
-                          active
-                            ? 'bg-intel/10 font-medium text-intel'
-                            : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground',
-                        )}
-                      >
-                        {active && (
-                          <span className="absolute left-0 h-5 w-0.5 rounded-r-full bg-intel" aria-hidden="true" />
-                        )}
-                        <Icon className={cn('h-4 w-4 shrink-0', active ? 'text-intel' : 'text-muted-foreground/70')} />
-                        <span className="flex-1 truncate">{item.label}</span>
-                        {badge === 'live' ? (
-                          <span className="flex items-center gap-1 text-[10px] font-medium text-healthy">
-                            <span className="h-1.5 w-1.5 rounded-full bg-healthy animate-pulse-dot" />
-                            live
-                          </span>
-                        ) : badge ? (
-                          <span
-                            className={cn(
-                              'rounded-full border px-1.5 py-0 text-[10px] font-semibold',
-                              toneSoft[badge.tone],
-                            )}
-                          >
-                            {badge.value}
-                          </span>
-                        ) : null}
-                      </Link>
-                    </li>
-                  )
-                })}
-              </ul>
-            </div>
-          ))}
+        {/* Nine fixed nav tabs */}
+        <nav className="scrollbar-thin flex-1 overflow-y-auto px-3 py-4">
+          <ul className="space-y-0.5">
+            {NAV_ITEMS.map((item) => {
+              const active = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href))
+              const Icon = item.icon
+              const badge = liveBadge(item.href)
+              return (
+                <li key={item.href} className="relative">
+                  <Link
+                    href={item.href}
+                    onClick={onClose}
+                    className={cn(
+                      'group flex items-center gap-2.5 rounded-lg px-2 py-2 text-sm transition-all',
+                      active
+                        ? 'bg-intel/10 font-semibold text-intel'
+                        : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground',
+                    )}
+                  >
+                    {active && (
+                      <span className="absolute left-0 h-5 w-0.5 rounded-r-full bg-intel" aria-hidden="true" />
+                    )}
+                    <Icon className={cn('h-4 w-4 shrink-0', active ? 'text-intel' : 'text-muted-foreground/70')} />
+                    <span className="flex-1 truncate">{item.label}</span>
+                    {badge && (
+                      <span className={cn('rounded-full border px-1.5 py-0 text-[10px] font-semibold', toneSoft[badge.tone])}>
+                        {badge.value}
+                      </span>
+                    )}
+                  </Link>
+                </li>
+              )
+            })}
+          </ul>
         </nav>
 
-        {/* Footer — platform health */}
-        <div className="border-t border-sidebar-border p-3">
-          <div className="flex items-center gap-2.5 rounded-lg border border-sidebar-border/60 bg-sidebar-accent/40 px-3 py-2.5">
+        {/* Footer — connected app identity + health */}
+        <div className="border-t border-sidebar-border p-3 space-y-2">
+          {/* Connected app badge */}
+          <div
+            className="flex items-center gap-2 rounded-lg border px-3 py-2"
+            style={{ borderColor: `${app.accentColor}30`, backgroundColor: `${app.accentColor}08` }}
+          >
+            <span
+              className="h-2 w-2 shrink-0 rounded-full"
+              style={{ backgroundColor: app.accentColor }}
+            />
+            <div className="flex-1 min-w-0 leading-tight">
+              <p className="truncate text-xs font-semibold text-foreground">{app.name}</p>
+              <p className="text-[10px] text-muted-foreground/70">{app.environment}</p>
+            </div>
             <span className={cn(
-              'relative flex h-2.5 w-2.5 shrink-0',
+              'text-[10px] font-semibold',
+              allConnected ? 'text-healthy' : 'text-warning',
             )}>
+              {allConnected ? '3/3' : app.sdkStatus.frontend === 'connected' ? '2/3' : '1/3'}
+            </span>
+          </div>
+
+          {/* Platform health pulse */}
+          <div className="flex items-center gap-2.5 rounded-lg border border-sidebar-border/60 bg-sidebar-accent/40 px-3 py-2">
+            <span className="relative flex h-2 w-2 shrink-0">
               <span className={cn(
                 'absolute inline-flex h-full w-full rounded-full opacity-60 animate-pulse-dot',
                 openIncidents > 0 ? 'bg-critical' : 'bg-healthy',
               )} />
               <span className={cn(
-                'relative h-2.5 w-2.5 rounded-full',
+                'relative h-2 w-2 rounded-full',
                 openIncidents > 0 ? 'bg-critical' : 'bg-healthy',
               )} />
             </span>
-            <div className="flex-1 min-w-0 leading-tight">
-              <p className={cn('truncate text-xs font-semibold', openIncidents > 0 ? toneText.critical : 'text-sidebar-foreground')}>
-                {openIncidents > 0
-                  ? `${openIncidents} open incident${openIncidents !== 1 ? 's' : ''}`
-                  : 'All systems healthy'}
-              </p>
-              <p className="text-[10px] text-muted-foreground/70">PAAQ Production · live</p>
-            </div>
-            <Wifi className="h-3.5 w-3.5 shrink-0 text-healthy opacity-70" />
+            <p className={cn('flex-1 truncate text-xs font-semibold', openIncidents > 0 ? 'text-critical' : 'text-sidebar-foreground')}>
+              {openIncidents > 0 ? `${openIncidents} open incident${openIncidents !== 1 ? 's' : ''}` : 'All systems healthy'}
+            </p>
+            {allConnected
+              ? <Wifi className="h-3.5 w-3.5 shrink-0 text-healthy/70" />
+              : <WifiOff className="h-3.5 w-3.5 shrink-0 text-warning/70" />
+            }
           </div>
         </div>
       </aside>
