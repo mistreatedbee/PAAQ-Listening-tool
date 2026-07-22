@@ -6,7 +6,7 @@
 
 /* ─────────────────────────────────────────────────────────────────────────
    PAAQ Brand Palette (exact hex values from design system)
-   Deep Blue #27A6CE · Ocean Blue #3BBAD0 · Sky Cyan #51C9D3
+   Deep Blue #27A6CE · Ocean Blue #3BBAD0 · Sky Cyan #51C9D3 (PRIMARY)
    Aqua #5FDED4 · Light Aqua #C7EDEF
    Gradient: 135deg, #27A6CE 0%, #3BBAD0 35%, #51C9D3 65%, #5FDED4 100%
 ────────────────────────────────────────────────────────────────────────── */
@@ -92,28 +92,28 @@
   --popover: oklch(0.990 0.004 210);
   --popover-foreground: oklch(0.12 0.016 210);
 
-  /* Primary = Deep Blue #27A6CE */
-  --primary: oklch(0.46 0.13 210);
-  --primary-foreground: oklch(0.99 0.006 210);
+  /* Primary = Sky Cyan #51C9D3 */
+  --primary: oklch(0.54 0.10 198);
+  --primary-foreground: oklch(0.99 0.006 198);
 
-  --secondary: oklch(0.93 0.008 210);
-  --secondary-foreground: oklch(0.18 0.012 210);
+  --secondary: oklch(0.93 0.008 198);
+  --secondary-foreground: oklch(0.18 0.012 198);
 
-  --muted: oklch(0.93 0.008 210);
-  --muted-foreground: oklch(0.46 0.014 210);
+  --muted: oklch(0.93 0.008 198);
+  --muted-foreground: oklch(0.46 0.014 198);
 
-  --accent: oklch(0.91 0.008 210);
-  --accent-foreground: oklch(0.12 0.016 210);
+  --accent: oklch(0.91 0.008 198);
+  --accent-foreground: oklch(0.12 0.016 198);
 
   --destructive: oklch(0.56 0.22 25);
 
-  --border: oklch(0.86 0.010 210);
-  --input: oklch(0.84 0.010 210);
-  --ring: oklch(0.46 0.13 210);
+  --border: oklch(0.86 0.010 198);
+  --input: oklch(0.84 0.010 198);
+  --ring: oklch(0.54 0.10 198);
 
   /* Semantic status — all within PAAQ brand palette, no purple */
-  --intel: oklch(0.44 0.13 208);        /* Ocean Blue #3BBAD0 — brand primary */
-  --intel-foreground: oklch(0.99 0.008 208);
+  --intel: oklch(0.54 0.10 198);        /* Sky Cyan #51C9D3 — brand primary */
+  --intel-foreground: oklch(0.99 0.008 198);
   --healthy: oklch(0.52 0.16 158);
   --healthy-foreground: oklch(0.99 0.02 158);
   --warning: oklch(0.58 0.14 68);
@@ -123,30 +123,30 @@
   --ai: oklch(0.50 0.09 191);           /* Aqua #5FDED4 — AI content, distinct hue */
   --ai-foreground: oklch(0.99 0.006 191);
 
-  --chart-1: oklch(0.50 0.12 208);      /* Ocean Blue */
+  --chart-1: oklch(0.54 0.10 198);      /* Sky Cyan */
   --chart-2: oklch(0.52 0.16 158);      /* Green */
   --chart-3: oklch(0.50 0.09 191);      /* Aqua */
   --chart-4: oklch(0.58 0.14 68);       /* Amber */
   --chart-5: oklch(0.54 0.22 24);       /* Red */
 
   /* PAAQ Module colors */
-  --ask: oklch(0.44 0.13 208);          /* Deep Blue #27A6CE — Ask is the brand core */
-  --ask-foreground: oklch(0.99 0.006 208);
+  --ask: oklch(0.54 0.10 198);          /* Sky Cyan #51C9D3 — Ask is the brand core */
+  --ask-foreground: oklch(0.99 0.006 198);
   --book: oklch(0.50 0.14 155);         /* Emerald — confirmed, booked */
   --book-foreground: oklch(0.99 0.006 155);
-  --attend: oklch(0.46 0.11 203);       /* Deep Sky Cyan — live events */
-  --attend-foreground: oklch(0.99 0.006 203);
+  --attend: oklch(0.56 0.09 195);       /* Sky Cyan variant — live events */
+  --attend-foreground: oklch(0.99 0.006 195);
   --learn: oklch(0.52 0.14 50);         /* Gold — knowledge */
   --learn-foreground: oklch(0.99 0.006 50);
 
-  --sidebar: oklch(0.952 0.007 210);
-  --sidebar-foreground: oklch(0.14 0.014 210);
-  --sidebar-primary: oklch(0.52 0.12 210);
-  --sidebar-primary-foreground: oklch(0.99 0.006 210);
-  --sidebar-accent: oklch(0.90 0.008 210);
-  --sidebar-accent-foreground: oklch(0.12 0.016 210);
-  --sidebar-border: oklch(0.86 0.010 210);
-  --sidebar-ring: oklch(0.52 0.12 210);
+  --sidebar: oklch(0.952 0.007 198);
+  --sidebar-foreground: oklch(0.14 0.014 198);
+  --sidebar-primary: oklch(0.54 0.10 198);
+  --sidebar-primary-foreground: oklch(0.99 0.006 198);
+  --sidebar-accent: oklch(0.90 0.008 198);
+  --sidebar-accent-foreground: oklch(0.12 0.016 198);
+  --sidebar-border: oklch(0.86 0.010 198);
+  --sidebar-ring: oklch(0.54 0.10 198);
 }
 
 /* ─── Dark mode (PAAQ primary) ───────────────────────────────────────────── */
@@ -163,28 +163,28 @@
   --popover: oklch(0.142 0.018 210);
   --popover-foreground: oklch(0.960 0.007 210);
 
-  /* Primary = Deep Blue #27A6CE → oklch(0.655 0.115 207) */
-  --primary: oklch(0.655 0.115 207);
-  --primary-foreground: oklch(0.06 0.010 210);
+  /* Primary = Sky Cyan #51C9D3 → oklch(0.772 0.090 198) */
+  --primary: oklch(0.772 0.090 198);
+  --primary-foreground: oklch(0.06 0.010 198);
 
-  --secondary: oklch(0.218 0.016 210);
-  --secondary-foreground: oklch(0.920 0.007 210);
+  --secondary: oklch(0.218 0.016 198);
+  --secondary-foreground: oklch(0.920 0.007 198);
 
-  --muted: oklch(0.218 0.016 210);
-  --muted-foreground: oklch(0.610 0.014 210);
+  --muted: oklch(0.218 0.016 198);
+  --muted-foreground: oklch(0.610 0.014 198);
 
-  --accent: oklch(0.238 0.018 210);
-  --accent-foreground: oklch(0.960 0.007 210);
+  --accent: oklch(0.238 0.018 198);
+  --accent-foreground: oklch(0.960 0.007 198);
 
   --destructive: oklch(0.630 0.225 25);
 
-  --border: oklch(0.248 0.018 210);
-  --input: oklch(0.268 0.018 210);
-  --ring: oklch(0.655 0.115 207);
+  --border: oklch(0.248 0.018 198);
+  --input: oklch(0.268 0.018 198);
+  --ring: oklch(0.772 0.090 198);
 
   /* Semantic status — all PAAQ brand palette, no purple */
-  --intel: oklch(0.655 0.115 207);      /* Deep Blue #27A6CE — darker to match logo */
-  --intel-foreground: oklch(0.06 0.010 207);
+  --intel: oklch(0.772 0.090 198);      /* Sky Cyan #51C9D3 */
+  --intel-foreground: oklch(0.06 0.010 198);
   --healthy: oklch(0.720 0.158 158);
   --healthy-foreground: oklch(0.18 0.02 158);
   --warning: oklch(0.768 0.148 68);
@@ -194,31 +194,31 @@
   --ai: oklch(0.848 0.088 191);         /* Aqua #5FDED4 — AI content, distinct hue */
   --ai-foreground: oklch(0.10 0.015 191);
 
-  --chart-1: oklch(0.728 0.105 207);    /* Ocean Blue */
+  --chart-1: oklch(0.772 0.090 198);    /* Sky Cyan */
   --chart-2: oklch(0.720 0.158 158);    /* Green */
   --chart-3: oklch(0.848 0.088 191);    /* Aqua */
   --chart-4: oklch(0.768 0.148 68);     /* Amber */
   --chart-5: oklch(0.635 0.225 24);     /* Red */
 
   /* PAAQ Module colors */
-  --ask: oklch(0.655 0.115 207);        /* Deep Blue #27A6CE — Ask is brand core */
-  --ask-foreground: oklch(0.06 0.010 207);
+  --ask: oklch(0.772 0.090 198);        /* Sky Cyan #51C9D3 — Ask is brand core */
+  --ask-foreground: oklch(0.06 0.010 198);
   --book: oklch(0.700 0.140 155);       /* Emerald — confirmed, booked */
   --book-foreground: oklch(0.06 0.010 155);
-  --attend: oklch(0.675 0.105 203);     /* Darker Sky Cyan — live events */
-  --attend-foreground: oklch(0.06 0.010 203);
+  --attend: oklch(0.800 0.080 195);     /* Lighter Sky Cyan variant — live events */
+  --attend-foreground: oklch(0.06 0.010 195);
   --learn: oklch(0.760 0.140 55);       /* Gold — knowledge */
   --learn-foreground: oklch(0.10 0.010 55);
 
   /* Sidebar — darkest layer */
-  --sidebar: oklch(0.086 0.016 210);
-  --sidebar-foreground: oklch(0.900 0.007 210);
-  --sidebar-primary: oklch(0.655 0.115 207);
-  --sidebar-primary-foreground: oklch(0.06 0.010 210);
-  --sidebar-accent: oklch(0.172 0.016 210);
-  --sidebar-accent-foreground: oklch(0.960 0.007 210);
-  --sidebar-border: oklch(0.198 0.016 210);
-  --sidebar-ring: oklch(0.655 0.115 207);
+  --sidebar: oklch(0.086 0.016 198);
+  --sidebar-foreground: oklch(0.900 0.007 198);
+  --sidebar-primary: oklch(0.772 0.090 198);
+  --sidebar-primary-foreground: oklch(0.06 0.010 198);
+  --sidebar-accent: oklch(0.172 0.016 198);
+  --sidebar-accent-foreground: oklch(0.960 0.007 198);
+  --sidebar-border: oklch(0.198 0.016 198);
+  --sidebar-ring: oklch(0.772 0.090 198);
 }
 
 @layer base {
