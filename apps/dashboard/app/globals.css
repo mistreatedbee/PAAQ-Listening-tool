@@ -295,3 +295,132 @@
   background-size: 200% auto;
   animation: shimmer 3s linear infinite;
 }
+
+/* ─── Admin scope — isolated from dashboard theme ─────────────────────────── */
+.admin-scope {
+  --bg:          #080d12;
+  --surface:     #0d1520;
+  --surface-2:   #111c28;
+  --text:        #e8f0f8;
+  --text-muted:  #8ba0b4;
+  --text-dim:    #5a7080;
+  --primary:     #51C9D3;
+  --primary-dim: rgba(81,201,211,0.12);
+  --accent:      #51C9D3;
+  --accent-2:    #27A6CE;
+  --ai:          #5FDED4;
+  --healthy:     #4ade80;
+  --warning:     #fbbf24;
+  --critical:    #f87171;
+  --border:      rgba(255,255,255,0.07);
+  --border-hi:   rgba(255,255,255,0.13);
+
+  color: var(--text);
+}
+
+.admin-scope .admin-card {
+  background: var(--surface);
+  border: 1px solid var(--border-hi);
+  border-radius: 0.875rem;
+  padding: 1.25rem;
+}
+
+.admin-scope .admin-card-sm {
+  background: var(--surface);
+  border: 1px solid var(--border-hi);
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+/* badge variants */
+.admin-scope .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 9999px;
+  padding: 0.15rem 0.65rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  border: 1px solid transparent;
+}
+/* status badges — names match statusBadgeClass() in admin-utils.ts */
+.admin-scope .badge-healthy  { background: rgba(34,197,94,0.12);  color: #4ade80; border-color: rgba(34,197,94,0.25); }
+.admin-scope .badge-warning  { background: rgba(251,191,36,0.12); color: #fbbf24; border-color: rgba(251,191,36,0.25); }
+.admin-scope .badge-critical { background: rgba(239,68,68,0.10);  color: #f87171; border-color: rgba(239,68,68,0.25); }
+.admin-scope .badge-accent   { background: rgba(81,201,211,0.10); color: #51C9D3; border-color: rgba(81,201,211,0.25); }
+.admin-scope .badge-muted    { background: rgba(90,112,128,0.12); color: #8ba0b4; border-color: rgba(90,112,128,0.20); }
+/* plan badges — names match planBadgeClass() in admin-utils.ts */
+.admin-scope .badge-plan-starter    { background: rgba(90,112,128,0.12); color: #8ba0b4; border-color: rgba(90,112,128,0.20); }
+.admin-scope .badge-plan-growth     { background: rgba(81,201,211,0.10); color: #51C9D3; border-color: rgba(81,201,211,0.25); }
+.admin-scope .badge-plan-business   { background: rgba(39,166,206,0.12); color: #27A6CE; border-color: rgba(39,166,206,0.25); }
+.admin-scope .badge-plan-enterprise { background: rgba(95,222,212,0.10); color: #5FDED4; border-color: rgba(95,222,212,0.25); }
+
+/* button variants */
+.admin-scope .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 0.6rem;
+  padding: 0.45rem 1rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  border: 1px solid transparent;
+}
+.admin-scope .btn:hover { opacity: 0.85; }
+.admin-scope .btn-primary {
+  background: linear-gradient(135deg, #27A6CE, #51C9D3);
+  color: #fff;
+}
+.admin-scope .btn-ghost {
+  background: transparent;
+  color: var(--text-muted);
+  border-color: var(--border-hi);
+}
+.admin-scope .btn-ghost:hover { color: var(--text); }
+.admin-scope .btn-danger {
+  background: rgba(239,68,68,0.10);
+  color: #f87171;
+  border-color: rgba(239,68,68,0.25);
+}
+
+/* form elements in admin */
+.admin-scope input,
+.admin-scope select,
+.admin-scope textarea {
+  background: var(--bg);
+  border: 1px solid var(--border-hi);
+  border-radius: 0.6rem;
+  color: var(--text);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  outline: none;
+  width: 100%;
+}
+.admin-scope input::placeholder { color: var(--text-dim); }
+.admin-scope input:focus,
+.admin-scope select:focus,
+.admin-scope textarea:focus { border-color: #51C9D3; }
+
+/* table helpers */
+.admin-scope table { width: 100%; border-collapse: collapse; }
+.admin-scope th {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+.admin-scope td {
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+  color: var(--text);
+}
+.admin-scope tr:last-child td { border-bottom: none; }
+.admin-scope tr:hover td { background: rgba(255,255,255,0.02); }

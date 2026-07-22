@@ -7,6 +7,7 @@ import { Sidebar } from './sidebar'
 import { Topbar } from './topbar'
 import { AIAssistant } from './ai-assistant'
 import { ConnectedAppProvider } from './connected-app-context'
+import { AdminShell } from '@/components/admin/admin-shell'
 
 const AUTH_PATHS = ['/login', '/signup']
 
@@ -15,6 +16,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [mobileNav, setMobileNav] = useState(false)
   const [assistant, setAssistant] = useState(false)
   const isAuthPage = AUTH_PATHS.includes(pathname)
+  const isAdminPage = pathname.startsWith('/admin')
 
   useEffect(() => {
     const handler = () => setAssistant(true)
@@ -24,6 +26,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   if (isAuthPage) {
     return <>{children}</>
+  }
+
+  if (isAdminPage) {
+    return <AdminShell>{children}</AdminShell>
   }
 
   return (

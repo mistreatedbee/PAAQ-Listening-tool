@@ -6,7 +6,6 @@ const PUBLIC_PATHS = ['/login', '/signup', '/_next', '/favicon', '/logo']
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  // Allow public paths through without auth check
   if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
     return NextResponse.next()
   }
@@ -38,6 +37,21 @@ export async function middleware(request: NextRequest) {
     const loginUrl = request.nextUrl.clone()
     loginUrl.pathname = '/login'
     return NextResponse.redirect(loginUrl)
+  }
+
+  // Super admin check — /admin/* requires admin_users entry
+  if (pathname.startsWith('/admin')) {
+    const { data: adminUser } = await supabase
+      .from('admin_users')
+      .select('id')
+      .eq('auth_user_id', user.id)
+      .single()
+
+    if (!adminUser) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/'
+      return NextResponse.redirect(url)
+    }
   }
 
   return supabaseResponse
