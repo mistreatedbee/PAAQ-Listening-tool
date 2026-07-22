@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { PageHeader, Card, CardHead, AreaChart, ToneBadge } from '@/components/kit'
+import { PageHeader, Card, CardHead, AreaChart } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import { toneText } from '@/lib/tones'
 import { Gauge, Sparkles } from 'lucide-react'
@@ -129,22 +129,12 @@ export default function PerformancePage() {
         <CardHead
           title="Predicted Capacity"
           desc="AI forecast across compute, storage and database"
-          action={<ToneBadge tone="intel" dot>Monitoring</ToneBadge>}
         />
-        <div className="grid gap-4 px-5 pb-5 sm:grid-cols-3">
-          {[
-            { l: 'Compute', v: '32 days', t: 'intel' as const, s: [50, 46, 42, 38, 35, 34, 33, 32] },
-            { l: 'Storage', v: '18 days', t: 'warning' as const, s: [40, 36, 30, 26, 22, 20, 19, 18] },
-            { l: 'Database', v: '54 days', t: 'healthy' as const, s: [70, 68, 64, 62, 58, 56, 55, 54] },
-          ].map((c) => (
-            <div key={c.l} className="rounded-lg border border-border/60 bg-background/40 p-4">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">{c.l} headroom</p>
-              <p className={cn('mt-1 text-xl font-semibold', toneText[c.t])}>{c.v}</p>
-              <div className="mt-2">
-                <AreaChart data={c.s} tone={c.t} height={54} />
-              </div>
-            </div>
-          ))}
+        <div className="p-10 text-center">
+          <Gauge className="mx-auto mb-3 h-8 w-8 text-muted-foreground opacity-20" />
+          <p className="text-sm text-muted-foreground">
+            Capacity forecasting will appear here once infrastructure metrics are flowing in from your app.
+          </p>
         </div>
       </Card>
     </div>
