@@ -15,7 +15,7 @@ function slugify(name: string): string {
     + '-' + Math.random().toString(36).slice(2, 6)
 }
 
-Deno.serve(async (req) => {
+export default async function handler(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
 
   try {
@@ -52,7 +52,6 @@ Deno.serve(async (req) => {
       .single()
 
     if (existing?.tenant_id) {
-      // User already has a tenant — create an additional project instead
       const projectKey = 'proj_' + Math.random().toString(36).slice(2, 10)
       const { data: project } = await sb.from('tenant_projects').insert({
         tenant_id: existing.tenant_id,
@@ -63,7 +62,7 @@ Deno.serve(async (req) => {
         status: 'active',
       }).select().single()
 
-      if (!project) return new Response(JSON.stringify({ error: 'Failed to create project' }), { status: 500, headers: cors })
+      if (!project) return new Response(JSON.stringify({ error: 'Failed to create project' }), { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } })
 
       const tokens = await createTokens(sb, existing.tenant_id, project.id)
       return new Response(JSON.stringify({ tenantId: existing.tenant_id, project, tokens, isNew: false }), {
@@ -82,7 +81,7 @@ Deno.serve(async (req) => {
     }).select().single()
 
     if (tenantErr || !tenant) {
-      return new Response(JSON.stringify({ error: 'Failed to create tenant', detail: tenantErr?.message }), { status: 500, headers: cors })
+      return new Response(JSON.stringify({ error: 'Failed to create tenant', detail: tenantErr?.message }), { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } })
     }
 
     // ── 2. Link auth user to tenant ──────────────────────────────────────────
@@ -105,7 +104,7 @@ Deno.serve(async (req) => {
     }).select().single()
 
     if (projErr || !project) {
-      return new Response(JSON.stringify({ error: 'Failed to create project', detail: projErr?.message }), { status: 500, headers: cors })
+      return new Response(JSON.stringify({ error: 'Failed to create project', detail: projErr?.message }), { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } })
     }
 
     // ── 4. Generate credentials ───────────────────────────────────────────────
@@ -116,7 +115,7 @@ Deno.serve(async (req) => {
       action: `Self-serve onboarding: "${companyName}" created project "${projectName}"`,
       resource_type: 'tenant',
       resource_id: tenant.id,
-    }).catch(() => {}) // non-fatal
+    }).catch(() => {})
 
     return new Response(JSON.stringify({ tenantId: tenant.id, project, tokens, isNew: true }), {
       headers: { ...cors, 'Content-Type': 'application/json' },
@@ -127,14 +126,14 @@ Deno.serve(async (req) => {
       headers: { ...cors, 'Content-Type': 'application/json' },
     })
   }
-})
+}
 
 async function createTokens(sb: ReturnType<typeof createClient>, tenantId: string, projectId: string) {
   const rows = [
-    { token_type: 'sdk_token',       prefix: 'sdk_live_' },
-    { token_type: 'public_key',      prefix: 'pk_live_' },
-    { token_type: 'secret_key',      prefix: 'sk_live_' },
-    { token_type: 'webhook_secret',  prefix: 'whsec_' },
+    { token_type: 'sdk_token',      prefix: 'sdk_live_' },
+    { token_type: 'public_key',     prefix: 'pk_live_' },
+    { token_type: 'secret_key',     prefix: 'sk_live_' },
+    { token_type: 'webhook_secret', prefix: 'whsec_' },
   ].map(({ token_type, prefix }) => {
     const token = gen(prefix)
     return { tenant_id: tenantId, project_id: projectId, token_type, token, token_hint: token.slice(-4), status: 'active' }
