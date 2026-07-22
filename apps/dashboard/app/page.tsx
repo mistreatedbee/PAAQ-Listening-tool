@@ -12,7 +12,7 @@ export default function DashboardPage() {
     <div className="space-y-6">
       <PageHeader
         title="Command Center"
-        desc="A single operating surface for monitoring, understanding, predicting and resolving everything across your ecosystem."
+        desc="Real-time intelligence across Ask, Book, Attend and Learn — every session, error, AI signal and incident in one surface."
         actions={<DashboardActions />}
       />
 
@@ -25,7 +25,7 @@ export default function DashboardPage() {
       <Card>
         <CardHead
           title="AI Insights"
-          desc="What is happening, why, and what to do about it"
+          desc="What is happening across the PAAQ platform, why, and what to do about it"
           icon={<Sparkles className="h-4 w-4 text-ai" />}
           action={
             <Link href="/ai-insights" className="flex items-center gap-1 text-xs font-medium text-intel hover:underline">

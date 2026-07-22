@@ -6,7 +6,7 @@ import { createClient } from '@/utils/supabase/client'
 import { PageHeader, Card, ToneBadge, StatusDot } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import { toneText } from '@/lib/tones'
-import { AlertTriangle, Clock, ArrowRight, Plus, X } from 'lucide-react'
+import { AlertTriangle, Clock, ArrowRight, Plus, X, Loader2 } from 'lucide-react'
 import type { Tone } from '@/lib/data'
 
 type DbIncident = {
@@ -41,6 +41,7 @@ export default function IncidentsPage() {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ title: '', severity: 'medium', description: '' })
   const [saving, setSaving] = useState(false)
+  const [fixingId, setFixingId] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
   const showToast = (msg: string) => {
@@ -82,6 +83,22 @@ export default function IncidentsPage() {
       showToast('Incident declared successfully')
     }
     setSaving(false)
+  }
+
+  const handleGenerateFix = async (inc: DbIncident) => {
+    setFixingId(inc.id)
+    showToast('Dispatching AI agents to investigate this incident…')
+    try {
+      const sb = createClient()
+      const { data, error } = await sb.functions.invoke('investigate', {
+        body: { incident_id: inc.id },
+      })
+      if (error) throw error
+      showToast(`Investigation complete — ${data?.recommendations ?? 0} fix recommendations generated`)
+    } catch {
+      showToast('Failed — make sure ANTHROPIC_API_KEY is set in Supabase Edge Function secrets')
+    }
+    setFixingId(null)
   }
 
   return (
@@ -196,6 +213,7 @@ export default function IncidentsPage() {
             const tone = severityTone(inc.severity)
             const sTone = STATUS_TONE[inc.status] ?? 'intel'
             const sLabel = STATUS_LABEL[inc.status] ?? inc.status
+            const isFixing = fixingId === inc.id
             return (
               <Card key={inc.id} className="p-4 transition-colors hover:border-border">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
@@ -228,10 +246,18 @@ export default function IncidentsPage() {
                       Investigate <ArrowRight className="h-3.5 w-3.5" />
                     </Link>
                     <button
-                      onClick={() => showToast('AI fix generation — coming soon')}
-                      className="inline-flex flex-1 items-center justify-center rounded-lg border border-border/70 bg-card/60 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+                      onClick={() => handleGenerateFix(inc)}
+                      disabled={isFixing || fixingId !== null}
+                      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-border/70 bg-card/60 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Generate fix
+                      {isFixing ? (
+                        <>
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          Investigating…
+                        </>
+                      ) : (
+                        'Generate fix'
+                      )}
                     </button>
                     <button
                       onClick={async () => {

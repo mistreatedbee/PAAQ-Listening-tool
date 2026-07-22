@@ -7,7 +7,7 @@ import { createClient } from '@/utils/supabase/client'
 import { navGroups } from '@/lib/nav'
 import { cn } from '@/lib/utils'
 import { toneSoft, toneText } from '@/lib/tones'
-import { Activity, X } from 'lucide-react'
+import { X, Wifi } from 'lucide-react'
 
 type LiveCounts = {
   '/incidents': number
@@ -72,13 +72,14 @@ export function Sidebar({
       >
         {/* Logo */}
         <div className="flex h-14 items-center justify-between gap-2 border-b border-sidebar-border px-4">
-          <Link href="/" className="flex items-center gap-2.5">
-            <span className="relative flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-intel to-ai">
-              <Activity className="h-4 w-4 text-white" strokeWidth={2.5} />
+          <Link href="/" className="flex items-center gap-3">
+            {/* PAAQ lettermark */}
+            <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-intel to-ai text-sm font-black tracking-tighter text-white shadow-lg shadow-intel/20">
+              P
             </span>
             <span className="flex flex-col leading-none">
-              <span className="text-sm font-semibold tracking-tight text-sidebar-foreground">PAAQ</span>
-              <span className="text-[10px] font-medium text-muted-foreground">Listening Platform</span>
+              <span className="text-sm font-bold tracking-tight text-sidebar-foreground">PAAQ</span>
+              <span className="text-[10px] font-medium tracking-wide text-muted-foreground/70 uppercase">Listening</span>
             </span>
           </Link>
           <button
@@ -90,11 +91,31 @@ export function Sidebar({
           </button>
         </div>
 
+        {/* PAAQ module quick-status */}
+        <div className="border-b border-sidebar-border/60 px-3 py-2.5">
+          <p className="mb-2 px-1 text-[9px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+            Platform Modules
+          </p>
+          <div className="grid grid-cols-4 gap-1">
+            {[
+              { label: 'Ask', color: 'bg-healthy' },
+              { label: 'Book', color: 'bg-intel' },
+              { label: 'Attend', color: 'bg-ai' },
+              { label: 'Learn', color: 'bg-warning' },
+            ].map((m) => (
+              <div key={m.label} className="flex flex-col items-center gap-1 rounded-lg border border-sidebar-border/60 bg-sidebar-accent/30 py-1.5">
+                <span className={cn('h-1.5 w-1.5 rounded-full animate-pulse-dot', m.color)} />
+                <span className="text-[9px] font-semibold text-sidebar-foreground/70">{m.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* Nav */}
         <nav className="scrollbar-thin flex-1 space-y-5 overflow-y-auto px-3 py-4">
           {navGroups.map((group) => (
             <div key={group.title}>
-              <p className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">
+              <p className="px-2 pb-1.5 text-[9px] font-semibold uppercase tracking-widest text-muted-foreground/60">
                 {group.title}
               </p>
               <ul className="space-y-0.5">
@@ -104,21 +125,21 @@ export function Sidebar({
                   const liveBadge = getBadge(item.href)
                   const badge = item.badge === 'live' ? 'live' : liveBadge
                   return (
-                    <li key={item.href}>
+                    <li key={item.href} className="relative">
                       <Link
                         href={item.href}
                         onClick={onClose}
                         className={cn(
-                          'group flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-colors',
+                          'group flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-all',
                           active
-                            ? 'bg-sidebar-accent font-medium text-sidebar-foreground'
+                            ? 'bg-intel/10 font-medium text-intel'
                             : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground',
                         )}
                       >
                         {active && (
                           <span className="absolute left-0 h-5 w-0.5 rounded-r-full bg-intel" aria-hidden="true" />
                         )}
-                        <Icon className={cn('h-4 w-4 shrink-0', active && 'text-intel')} />
+                        <Icon className={cn('h-4 w-4 shrink-0', active ? 'text-intel' : 'text-muted-foreground/70')} />
                         <span className="flex-1 truncate">{item.label}</span>
                         {badge === 'live' ? (
                           <span className="flex items-center gap-1 text-[10px] font-medium text-healthy">
@@ -144,19 +165,30 @@ export function Sidebar({
           ))}
         </nav>
 
-        {/* Footer status */}
+        {/* Footer — platform health */}
         <div className="border-t border-sidebar-border p-3">
-          <div className="flex items-center gap-2 rounded-lg bg-sidebar-accent/50 px-3 py-2">
+          <div className="flex items-center gap-2.5 rounded-lg border border-sidebar-border/60 bg-sidebar-accent/40 px-3 py-2.5">
             <span className={cn(
-              'h-2 w-2 rounded-full',
-              openIncidents > 0 ? 'bg-critical animate-pulse-dot' : 'bg-healthy animate-pulse-dot',
-            )} />
-            <div className="flex-1 leading-tight">
-              <p className={cn('text-xs font-medium', openIncidents > 0 ? toneText.critical : 'text-sidebar-foreground')}>
-                {openIncidents > 0 ? `${openIncidents} open incident${openIncidents !== 1 ? 's' : ''}` : 'All systems operational'}
+              'relative flex h-2.5 w-2.5 shrink-0',
+            )}>
+              <span className={cn(
+                'absolute inline-flex h-full w-full rounded-full opacity-60 animate-pulse-dot',
+                openIncidents > 0 ? 'bg-critical' : 'bg-healthy',
+              )} />
+              <span className={cn(
+                'relative h-2.5 w-2.5 rounded-full',
+                openIncidents > 0 ? 'bg-critical' : 'bg-healthy',
+              )} />
+            </span>
+            <div className="flex-1 min-w-0 leading-tight">
+              <p className={cn('truncate text-xs font-semibold', openIncidents > 0 ? toneText.critical : 'text-sidebar-foreground')}>
+                {openIncidents > 0
+                  ? `${openIncidents} open incident${openIncidents !== 1 ? 's' : ''}`
+                  : 'All systems healthy'}
               </p>
-              <p className="text-[10px] text-muted-foreground">Production · live</p>
+              <p className="text-[10px] text-muted-foreground/70">PAAQ Production · live</p>
             </div>
+            <Wifi className="h-3.5 w-3.5 shrink-0 text-healthy opacity-70" />
           </div>
         </div>
       </aside>

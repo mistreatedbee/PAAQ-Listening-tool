@@ -96,7 +96,7 @@ export function Topbar({
             onChange={(e) => setSearch(e.target.value)}
             onFocus={() => setSearchOpen(true)}
             onBlur={() => setTimeout(() => setSearchOpen(false), 150)}
-            placeholder="Search services, incidents, metrics…"
+            placeholder="Search PAAQ modules, incidents, insights…"
             className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
           />
           <kbd className="hidden items-center gap-0.5 rounded border border-border/70 px-1.5 py-0.5 text-[10px] text-muted-foreground sm:flex">
