@@ -9,7 +9,7 @@ import { AIAssistant } from './ai-assistant'
 import { ConnectedAppProvider } from './connected-app-context'
 import { AdminShell } from '@/components/admin/admin-shell'
 
-const AUTH_PATHS = ['/login', '/signup']
+const AUTH_PATHS = ['/login', '/signup', '/onboarding']
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname()

@@ -205,28 +205,21 @@ function NoProjectsShell() {
         <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
           <Sparkles className="h-8 w-8 text-primary" />
         </div>
-        <h1 className="text-2xl font-black tracking-tight">Connect your first app</h1>
+        <h1 className="text-2xl font-black tracking-tight">Welcome to PAAQ Intelligence</h1>
         <p className="mt-3 text-base text-muted-foreground leading-relaxed">
-          You don't have any projects yet. Ask your admin to add you to a project, or create a new one to start monitoring.
+          You're in — now let's connect your app. The setup takes about 2 minutes.
         </p>
-        <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
+        <div className="mt-8">
           <Link
-            href="/admin/tenants/new"
-            className="flex items-center justify-center gap-2 rounded-xl bg-primary px-6 py-3 text-sm font-bold text-primary-foreground hover:opacity-90 transition-opacity"
+            href="/onboarding"
+            className="flex items-center justify-center gap-2 rounded-xl bg-primary px-8 py-3.5 text-sm font-bold text-primary-foreground hover:opacity-90 transition-opacity"
           >
             <Plus className="h-4 w-4" />
-            Create new project
-          </Link>
-          <Link
-            href="/settings"
-            className="flex items-center justify-center gap-2 rounded-xl border px-6 py-3 text-sm font-semibold hover:bg-muted transition-colors"
-          >
-            Go to settings
+            Set up my workspace
           </Link>
         </div>
-        <p className="mt-6 text-xs text-muted-foreground">
-          Projects are created by a Super Admin in the Admin Platform at{' '}
-          <Link href="/admin" className="text-primary hover:underline">/admin</Link>
+        <p className="mt-4 text-xs text-muted-foreground">
+          Already have an invite? Ask your workspace admin to add your email to the project.
         </p>
       </div>
     </div>

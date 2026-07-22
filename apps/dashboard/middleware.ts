@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 const PUBLIC_PATHS = ['/', '/login', '/signup', '/_next', '/favicon', '/logo']
+// /onboarding is auth-required but accessible without a project (handled in context)
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
