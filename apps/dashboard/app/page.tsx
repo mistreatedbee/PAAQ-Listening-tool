@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useState, useEffect } from 'react'
 import {
   BrainCircuit, Sparkles, Shield, Zap, Route, Bug, BarChart3,
-  ArrowRight, Github, CheckCircle, Activity, Eye, Bell,
+  ArrowRight, GitBranch, CheckCircle, Activity, Eye, Bell,
 } from 'lucide-react'
 
 const STATS = [
@@ -395,7 +395,7 @@ export default function LandingPage() {
                   className="flex items-center gap-2 rounded-xl px-6 py-3.5 text-sm font-semibold transition-all hover:opacity-80"
                   style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: '#e8f0f8' }}
                 >
-                  <Github className="h-4 w-4" />
+                  <GitBranch className="h-4 w-4" />
                   View on GitHub
                 </Link>
               </div>
