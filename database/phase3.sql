@@ -116,3 +116,28 @@ CREATE TABLE IF NOT EXISTS deployment_analysis (
   recommendation    TEXT,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- ============================================================
+-- Disable RLS on all platform tables
+-- The dashboard uses the anon key directly — no auth layer.
+-- ============================================================
+ALTER TABLE notifications       DISABLE ROW LEVEL SECURITY;
+ALTER TABLE projects            DISABLE ROW LEVEL SECURITY;
+ALTER TABLE users               DISABLE ROW LEVEL SECURITY;
+ALTER TABLE sessions            DISABLE ROW LEVEL SECURITY;
+ALTER TABLE events              DISABLE ROW LEVEL SECURITY;
+ALTER TABLE errors              DISABLE ROW LEVEL SECURITY;
+ALTER TABLE performance_metrics DISABLE ROW LEVEL SECURITY;
+ALTER TABLE incidents           DISABLE ROW LEVEL SECURITY;
+ALTER TABLE ai_insights         DISABLE ROW LEVEL SECURITY;
+ALTER TABLE feature_health      DISABLE ROW LEVEL SECURITY;
+ALTER TABLE user_journeys       DISABLE ROW LEVEL SECURITY;
+ALTER TABLE anomaly_events      DISABLE ROW LEVEL SECURITY;
+ALTER TABLE ai_analysis_jobs    DISABLE ROW LEVEL SECURITY;
+ALTER TABLE investigations      DISABLE ROW LEVEL SECURITY;
+ALTER TABLE agent_tasks         DISABLE ROW LEVEL SECURITY;
+ALTER TABLE recommendations     DISABLE ROW LEVEL SECURITY;
+ALTER TABLE product_memory      DISABLE ROW LEVEL SECURITY;
+ALTER TABLE engineering_reports DISABLE ROW LEVEL SECURITY;
+ALTER TABLE executive_reports   DISABLE ROW LEVEL SECURITY;
+ALTER TABLE deployment_analysis DISABLE ROW LEVEL SECURITY;
