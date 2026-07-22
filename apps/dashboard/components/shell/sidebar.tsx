@@ -76,7 +76,7 @@ export function Sidebar({
           <Link href="/" className="flex items-center gap-3">
             {/* PAAQ logo */}
             <Image
-              src="/paaq-logo.png"
+              src="/logo.png"
               alt="PAAQ"
               width={32}
               height={32}
