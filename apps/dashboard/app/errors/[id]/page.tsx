@@ -7,7 +7,8 @@ import { createClient } from '@/utils/supabase/client'
 import { PageHeader, Card, CardHead, ToneBadge } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import { toneText, toneBg } from '@/lib/tones'
-import { ArrowLeft, Bug, Terminal, CheckCircle2, EyeOff } from 'lucide-react'
+import { ArrowLeft, Bug, Terminal, CheckCircle2, EyeOff, Sparkles } from 'lucide-react'
+import { GenerateFix } from '@/components/dashboard/generate-fix'
 import type { Tone } from '@/lib/data'
 
 type DbError = {
@@ -141,6 +142,30 @@ export default function ErrorDetailPage() {
           </Card>
         ))}
       </div>
+
+      {/* AI Fix — shown for open/unresolved errors */}
+      {error.status !== 'resolved' && (
+        <Card>
+          <CardHead
+            title="Generate Fix"
+            desc="AI agent analyses the error and returns root cause, fix steps, and a code example"
+            icon={<Sparkles className="h-4 w-4 text-ai" />}
+          />
+          <div className="px-5 pb-5">
+            <GenerateFix
+              payload={{
+                errorId: error.id,
+                message: error.message,
+                errorType: error.error_type,
+                severity: error.severity,
+                screen: error.screen,
+                stackTrace: error.stack_trace,
+                context: error.context,
+              }}
+            />
+          </div>
+        </Card>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
