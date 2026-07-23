@@ -736,7 +736,7 @@ export default function OnboardingPage() {
                 <RefreshCw className="h-4 w-4" /> Check for connection
               </button>
 
-              <PrimaryBtn onClick={() => setStep(7)}>
+              <PrimaryBtn onClick={() => verifyStatus === 'connected' ? setStep(7) : router.push('/dashboard')}>
                 {verifyStatus === 'connected' ? <>Continue <ArrowRight className="h-4 w-4" /></> : 'Skip for now — go to dashboard'}
               </PrimaryBtn>
 
