@@ -236,24 +236,38 @@ export default function OnboardingPage() {
     if (!projectName.trim() || !platform) return
     setSubmitting(true)
     setError(null)
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 30000)
     try {
       const sb = createClient()
       const { data: { session } } = await sb.auth.getSession()
-      if (!session) throw new Error('Not authenticated')
+      if (!session) throw new Error('Not authenticated — please sign in again.')
 
       const res = await sb.functions.invoke('client-onboard', {
         body: { companyName, website, industry, projectName, platform, environment },
       })
 
-      if (res.error) throw new Error(res.error.message)
+      if (res.error) {
+        const msg = typeof res.error === 'object' && 'message' in res.error
+          ? String(res.error.message)
+          : JSON.stringify(res.error)
+        throw new Error(msg)
+      }
+      if (!res.data) throw new Error('No response from server — please try again.')
 
       const { project: proj, tokens } = res.data as { project: ProjectResult; tokens: GeneratedCredentials; tenantId: string }
+      if (!proj || !tokens) throw new Error('Incomplete response from server.')
       setProject(proj)
       setCreds(tokens)
       setStep(2)
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Something went wrong. Please try again.')
+      if (e instanceof Error && e.name === 'AbortError') {
+        setError('Request timed out after 30 seconds. Please try again.')
+      } else {
+        setError(e instanceof Error ? e.message : 'Something went wrong. Please try again.')
+      }
     } finally {
+      clearTimeout(timeout)
       setSubmitting(false)
     }
   }
