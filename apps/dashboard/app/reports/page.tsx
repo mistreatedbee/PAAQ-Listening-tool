@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { PageHeader, Card, CardHead, ToneBadge } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import { FileText, Sparkles, RefreshCw, CheckCircle2, AlertTriangle, TrendingUp, Zap, Shield } from 'lucide-react'
@@ -59,6 +60,7 @@ function healthTone(score: number): Tone {
 }
 
 export default function ReportsPage() {
+  const { app } = useConnectedApp()
   const [report, setReport] = useState<ReportData | null>(null)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
@@ -69,31 +71,28 @@ export default function ReportsPage() {
     setTimeout(() => setToast(null), 4000)
   }
 
-  const loadReport = async () => {
+  const loadReport = async (projectId: string) => {
     const sb = createClient()
     const [
       { data: insights },
-      { count: users },
       { count: sessions },
       { count: errTotal },
       { count: errOpen },
       { count: errCrit },
       { count: openIncidents },
-      { count: pendingRecs },
       { data: features },
       { data: perf },
     ] = await Promise.all([
       sb.from('ai_insights')
         .select('id, category, title, description, confidence, recommendation, recommended_action, priority')
+        .eq('project_id', projectId)
         .order('created_at', { ascending: false })
         .limit(20),
-      sb.from('users').select('*', { count: 'exact', head: true }),
-      sb.from('sessions').select('*', { count: 'exact', head: true }),
-      sb.from('errors').select('*', { count: 'exact', head: true }),
-      sb.from('errors').select('*', { count: 'exact', head: true }).eq('status', 'open'),
-      sb.from('errors').select('*', { count: 'exact', head: true }).in('severity', ['fatal', 'error']).eq('status', 'open'),
-      sb.from('incidents').select('*', { count: 'exact', head: true }).neq('status', 'resolved'),
-      sb.from('recommendations').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
+      sb.from('sessions').select('*', { count: 'exact', head: true }).eq('project_id', projectId),
+      sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', projectId),
+      sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', projectId).eq('status', 'open'),
+      sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', projectId).in('severity', ['fatal', 'error']).eq('status', 'open'),
+      sb.from('incidents').select('*', { count: 'exact', head: true }).eq('project_id', projectId).neq('status', 'resolved'),
       sb.from('feature_health').select('feature_name, health_score, trend').order('health_score').limit(10),
       sb.from('performance_metrics').select('metric_type, value').limit(500),
     ])
@@ -112,11 +111,11 @@ export default function ReportsPage() {
 
     setReport({
       generatedAt: new Date().toISOString(),
-      users: users ?? 0,
+      users: 0,
       sessions: sessions ?? 0,
       errors: { total: errTotal ?? 0, open: errOpen ?? 0, critical: errCrit ?? 0 },
       openIncidents: openIncidents ?? 0,
-      pendingRecs: pendingRecs ?? 0,
+      pendingRecs: 0,
       insights: (insights ?? []) as DbInsight[],
       topFeatures: (features ?? []) as { feature_name: string; health_score: number; trend: string }[],
       perfAvgs,
@@ -124,7 +123,10 @@ export default function ReportsPage() {
     setLoading(false)
   }
 
-  useEffect(() => { loadReport() }, [])
+  useEffect(() => {
+    if (app.id === '__loading__') return
+    loadReport(app.id)
+  }, [app.id])
 
   const handleGenerate = async () => {
     setGenerating(true)
@@ -135,7 +137,7 @@ export default function ReportsPage() {
       showToast('Failed — make sure ANTHROPIC_API_KEY is set in Supabase Edge Function secrets')
     } else {
       showToast(`Analysis complete — ${data?.insights ?? 'new'} insights generated`)
-      await loadReport()
+      await loadReport(app.id)
     }
     setGenerating(false)
   }

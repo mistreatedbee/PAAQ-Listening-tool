@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/utils/supabase/client'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { Card, CardHead, ToneBadge, StatusDot } from '@/components/kit'
 import { AlertTriangle, ArrowRight, Plus } from 'lucide-react'
 import type { Tone } from '@/lib/data'
@@ -34,25 +35,28 @@ function timeAgo(ts: string): string {
 }
 
 export function HomeIncidents() {
+  const { app } = useConnectedApp()
   const [incidents, setIncidents] = useState<Incident[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (app.id === '__loading__') return
     const sb = createClient()
     Promise.all([
       sb.from('incidents')
         .select('id, title, severity, status, created_at, ai_summary')
+        .eq('project_id', app.id)
         .neq('status', 'resolved')
         .order('created_at', { ascending: false })
         .limit(4),
-      sb.from('incidents').select('*', { count: 'exact', head: true }).neq('status', 'resolved'),
+      sb.from('incidents').select('*', { count: 'exact', head: true }).eq('project_id', app.id).neq('status', 'resolved'),
     ]).then(([{ data }, { count }]) => {
       setIncidents((data ?? []) as Incident[])
       setTotal(count ?? 0)
       setLoading(false)
     })
-  }, [])
+  }, [app.id])
 
   return (
     <Card className="flex flex-col">

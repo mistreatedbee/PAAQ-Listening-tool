@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { Sparkline } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import { toneText } from '@/lib/tones'
@@ -27,19 +28,21 @@ const placeholder: KpiData[] = [
 ]
 
 export function KpiGrid() {
+  const { app } = useConnectedApp()
   const [kpis, setKpis] = useState<KpiData[]>(placeholder)
 
   useEffect(() => {
+    if (app.id === '__loading__') return
     const sb = createClient()
     const yesterday = new Date(Date.now() - 86_400_000).toISOString()
 
     Promise.all([
-      sb.from('events').select('user_id').gte('created_at', yesterday),
-      sb.from('sessions').select('*', { count: 'exact', head: true }).eq('status', 'active'),
-      sb.from('events').select('*', { count: 'exact', head: true }).gte('created_at', yesterday),
-      sb.from('errors').select('*', { count: 'exact', head: true }).eq('status', 'open'),
-      sb.from('incidents').select('*', { count: 'exact', head: true }).neq('status', 'resolved'),
-      sb.from('ai_insights').select('*', { count: 'exact', head: true }),
+      sb.from('events').select('user_id').gte('created_at', yesterday).eq('project_id', app.id),
+      sb.from('sessions').select('*', { count: 'exact', head: true }).eq('status', 'active').eq('project_id', app.id),
+      sb.from('events').select('*', { count: 'exact', head: true }).gte('created_at', yesterday).eq('project_id', app.id),
+      sb.from('errors').select('*', { count: 'exact', head: true }).eq('status', 'open').eq('project_id', app.id),
+      sb.from('incidents').select('*', { count: 'exact', head: true }).neq('status', 'resolved').eq('project_id', app.id),
+      sb.from('ai_insights').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
     ]).then(([dauRaw, sessions, events24h, errors, incidents, insights]) => {
       const dauSet = new Set(
         ((dauRaw.data ?? []) as { user_id: string | null }[])
@@ -99,7 +102,7 @@ export function KpiGrid() {
         },
       ])
     })
-  }, [])
+  }, [app.id])
 
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">

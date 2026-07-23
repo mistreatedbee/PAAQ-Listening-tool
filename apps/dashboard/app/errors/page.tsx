@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/utils/supabase/client'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { Bug } from 'lucide-react'
 import { PageHeader, Card, CardHead, ToneBadge, Meter } from '@/components/kit'
 import type { Tone } from '@/lib/data'
@@ -25,24 +26,26 @@ type DbError = {
 }
 
 export default function ErrorsPage() {
+  const { app } = useConnectedApp()
   const [rows, setRows] = useState<DbError[]>([])
   const [counts, setCounts] = useState({ total: 0, open: 0, resolved: 0, fatal: 0 })
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (app.id === '__loading__') return
     const sb = createClient()
     Promise.all([
-      sb.from('errors').select('id, error_type, message, severity, status, screen, created_at').order('created_at', { ascending: false }).limit(50),
-      sb.from('errors').select('*', { count: 'exact', head: true }),
-      sb.from('errors').select('*', { count: 'exact', head: true }).eq('status', 'open'),
-      sb.from('errors').select('*', { count: 'exact', head: true }).eq('status', 'resolved'),
-      sb.from('errors').select('*', { count: 'exact', head: true }).eq('severity', 'fatal'),
+      sb.from('errors').select('id, error_type, message, severity, status, screen, created_at').eq('project_id', app.id).order('created_at', { ascending: false }).limit(50),
+      sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
+      sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', app.id).eq('status', 'open'),
+      sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', app.id).eq('status', 'resolved'),
+      sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', app.id).eq('severity', 'fatal'),
     ]).then(([{ data }, { count: total }, { count: open }, { count: resolved }, { count: fatal }]) => {
       setRows((data ?? []) as DbError[])
       setCounts({ total: total ?? 0, open: open ?? 0, resolved: resolved ?? 0, fatal: fatal ?? 0 })
       setLoading(false)
     })
-  }, [])
+  }, [app.id])
 
   const stats = [
     { label: 'Total Errors', value: counts.total, tone: 'warning' as Tone },

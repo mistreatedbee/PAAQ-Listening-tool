@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { PageHeader, Card, ToneBadge } from '@/components/kit'
 import { InsightCard } from '@/components/insight-card'
 import { Sparkles, RefreshCw } from 'lucide-react'
@@ -59,6 +60,7 @@ function toInsight(i: DbInsight): Insight {
 const FILTERS = ['All', 'critical', 'high', 'medium', 'low']
 
 export default function AIInsightsPage() {
+  const { app } = useConnectedApp()
   const [insights, setInsights] = useState<Insight[]>([])
   const [raw, setRaw] = useState<DbInsight[]>([])
   const [loading, setLoading] = useState(true)
@@ -71,10 +73,11 @@ export default function AIInsightsPage() {
     setTimeout(() => setToast(null), 4000)
   }
 
-  const fetchInsights = () => {
+  const fetchInsights = (projectId: string) => {
     const sb = createClient()
     return sb.from('ai_insights')
       .select('id, category, title, description, confidence, recommendation, recommended_action, impact_score, affected_users, priority, evidence, status, created_at')
+      .eq('project_id', projectId)
       .order('created_at', { ascending: false })
       .then(({ data }) => {
         const rows = (data ?? []) as DbInsight[]
@@ -84,7 +87,10 @@ export default function AIInsightsPage() {
       })
   }
 
-  useEffect(() => { fetchInsights() }, [])
+  useEffect(() => {
+    if (app.id === '__loading__') return
+    fetchInsights(app.id)
+  }, [app.id])
 
   const handleRegenerate = async () => {
     setRegenerating(true)
@@ -93,7 +99,7 @@ export default function AIInsightsPage() {
       const sb = createClient()
       const { data, error } = await sb.functions.invoke('analyze')
       if (error) throw error
-      await fetchInsights()
+      await fetchInsights(app.id)
       showToast(`Analysis complete — ${data?.insights ?? 'new'} insights generated`)
     } catch {
       showToast('Failed — make sure ANTHROPIC_API_KEY is set in Supabase Edge Function secrets')

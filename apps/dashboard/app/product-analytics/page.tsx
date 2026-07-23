@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { PageHeader, Card, CardHead } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import { toneText } from '@/lib/tones'
@@ -40,6 +41,7 @@ const TONE_FOR_CAT: Record<string, Tone> = {
 }
 
 export default function ProductAnalyticsPage() {
+  const { app } = useConnectedApp()
   const [events, setEvents] = useState<RawEvent[]>([])
   const [sessionCount, setSessionCount] = useState(0)
   const [userCount, setUserCount] = useState(0)
@@ -52,23 +54,27 @@ export default function ProductAnalyticsPage() {
     setTimeout(() => setToast(null), 4000)
   }
 
-  const load = async () => {
+  const load = async (projectId: string) => {
     const sb = createClient()
-    const [{ data }, { count: sc }, { count: uc }] = await Promise.all([
+    const [{ data }, { count: sc }] = await Promise.all([
       sb.from('events')
         .select('event_name, event_category, screen_name, user_id, session_id, timestamp')
+        .eq('project_id', projectId)
         .order('timestamp', { ascending: false })
         .limit(2000),
-      sb.from('sessions').select('*', { count: 'exact', head: true }),
-      sb.from('users').select('*', { count: 'exact', head: true }),
+      sb.from('sessions').select('*', { count: 'exact', head: true }).eq('project_id', projectId),
     ])
+    const uc = new Set((data ?? []).filter((e) => e.user_id).map((e) => e.user_id)).size
     setEvents((data ?? []) as RawEvent[])
     setSessionCount(sc ?? 0)
-    setUserCount(uc ?? 0)
+    setUserCount(uc)
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    if (app.id === '__loading__') return
+    load(app.id)
+  }, [app.id])
 
   const runAnalysis = async () => {
     setAnalysing(true)

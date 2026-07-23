@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { Card, CardHead } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import { toneBg, toneText } from '@/lib/tones'
@@ -41,15 +42,18 @@ function toFeedItem(e: Record<string, unknown>): FeedItem {
 }
 
 export function ActivityFeed() {
+  const { app } = useConnectedApp()
   const [items, setItems] = useState<FeedItem[]>([])
   const [filter, setFilter] = useState('All')
   const [connected, setConnected] = useState(false)
 
   useEffect(() => {
+    if (app.id === '__loading__') return
     const sb = createClient()
 
     sb.from('events')
       .select('id, event_name, screen_name, event_category, timestamp')
+      .eq('project_id', app.id)
       .order('timestamp', { ascending: false })
       .limit(40)
       .then(({ data }) => {
@@ -57,14 +61,14 @@ export function ActivityFeed() {
       })
 
     const channel = sb
-      .channel('activity-feed')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'events' }, (payload) => {
+      .channel(`activity-feed-${app.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'events', filter: `project_id=eq.${app.id}` }, (payload) => {
         setItems((prev) => [toFeedItem(payload.new as Record<string, unknown>), ...prev].slice(0, 60))
       })
       .subscribe((status) => setConnected(status === 'SUBSCRIBED'))
 
     return () => { sb.removeChannel(channel) }
-  }, [])
+  }, [app.id])
 
   const filtered = filter === 'All' ? items : items.filter((e) => e.category === filter)
 

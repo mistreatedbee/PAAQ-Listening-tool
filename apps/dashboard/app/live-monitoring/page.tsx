@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { PageHeader, Card, CardHead } from '@/components/kit'
 import { SystemMap } from '@/components/dashboard/system-map'
 import { cn } from '@/lib/utils'
@@ -29,6 +30,7 @@ function categoryTone(category: string | null): Tone {
 }
 
 export default function LiveMonitoringPage() {
+  const { app } = useConnectedApp()
   const [events, setEvents] = useState<LiveEvent[]>([])
   const [connected, setConnected] = useState(false)
   const [totalEvents, setTotalEvents] = useState(0)
@@ -36,40 +38,38 @@ export default function LiveMonitoringPage() {
   const [errorCount, setErrorCount] = useState(0)
 
   useEffect(() => {
-    // createClient() is called inside useEffect so it only runs on the client,
-    // preventing prerender failures when env vars aren't available at build time.
+    if (app.id === '__loading__') return
     const sb = createClient()
 
-    // Load initial data
     sb.from('events')
       .select('id, event_name, screen_name, event_category, timestamp, properties')
+      .eq('project_id', app.id)
       .order('timestamp', { ascending: false })
       .limit(100)
       .then(({ data }) => { if (data) setEvents(data as LiveEvent[]) })
 
-    sb.from('events').select('*', { count: 'exact', head: true })
+    sb.from('events').select('*', { count: 'exact', head: true }).eq('project_id', app.id)
       .then(({ count }) => { if (count != null) setTotalEvents(count) })
 
-    sb.from('sessions').select('*', { count: 'exact', head: true }).eq('status', 'active')
+    sb.from('sessions').select('*', { count: 'exact', head: true }).eq('project_id', app.id).eq('status', 'active')
       .then(({ count }) => { if (count != null) setActiveSessions(count) })
 
-    sb.from('errors').select('*', { count: 'exact', head: true }).eq('status', 'open')
+    sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', app.id).eq('status', 'open')
       .then(({ count }) => { if (count != null) setErrorCount(count) })
 
-    // Real-time subscriptions
     const channel = sb
-      .channel('live-platform')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'events' },
+      .channel(`live-platform-${app.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'events', filter: `project_id=eq.${app.id}` },
         (payload) => {
           setEvents((prev) => [payload.new as LiveEvent, ...prev].slice(0, 200))
           setTotalEvents((n) => n + 1)
         })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'errors' },
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'errors', filter: `project_id=eq.${app.id}` },
         () => setErrorCount((n) => n + 1))
       .subscribe((status) => setConnected(status === 'SUBSCRIBED'))
 
     return () => { sb.removeChannel(channel) }
-  }, [])
+  }, [app.id])
 
   const liveStats = [
     { label: 'Total Events', value: totalEvents.toLocaleString(), tone: 'intel' as Tone },

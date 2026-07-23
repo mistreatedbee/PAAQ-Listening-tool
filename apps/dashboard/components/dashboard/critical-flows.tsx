@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { Card, CardHead, ToneBadge } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import { Calendar, Users, MessageCircle, UserCheck, CreditCard, Minus } from 'lucide-react'
@@ -42,14 +43,16 @@ function computeFlow(
 }
 
 export function CriticalFlows() {
+  const { app } = useConnectedApp()
   const [flows, setFlows] = useState<Flow[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (app.id === '__loading__') return
     const sb = createClient()
     Promise.all([
-      sb.from('events').select('event_name, screen_name, event_category').limit(2000),
-      sb.from('errors').select('error_type, screen, status').limit(500),
+      sb.from('events').select('event_name, screen_name, event_category').eq('project_id', app.id).limit(2000),
+      sb.from('errors').select('error_type, screen, status').eq('project_id', app.id).limit(500),
     ]).then(([{ data: evts }, { data: errs }]) => {
       const events = (evts ?? []) as { event_name: string; screen_name: string | null; event_category: string | null }[]
       const errors = (errs ?? []) as { error_type: string | null; screen: string | null; status: string | null }[]
@@ -108,7 +111,7 @@ export function CriticalFlows() {
       setFlows(result)
       setLoading(false)
     })
-  }, [])
+  }, [app.id])
 
   return (
     <Card>

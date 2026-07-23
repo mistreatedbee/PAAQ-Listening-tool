@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { Shield } from 'lucide-react'
 import { PageHeader, Card, CardHead, ToneBadge, StatusDot } from '@/components/kit'
 import type { Tone } from '@/lib/data'
@@ -21,19 +22,21 @@ function severityTone(s: string): Tone {
 }
 
 export default function SecurityPage() {
+  const { app } = useConnectedApp()
   const [errors, setErrors] = useState<DbError[]>([])
   const [counts, setCounts] = useState({ total: 0, open: 0, critical: 0, warning: 0, resolved: 0 })
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (app.id === '__loading__') return
     const sb = createClient()
     Promise.all([
-      sb.from('errors').select('id, message, severity, status, created_at').order('created_at', { ascending: false }).limit(10),
-      sb.from('errors').select('*', { count: 'exact', head: true }),
-      sb.from('errors').select('*', { count: 'exact', head: true }).eq('status', 'open'),
-      sb.from('errors').select('*', { count: 'exact', head: true }).in('severity', ['fatal', 'error']).eq('status', 'open'),
-      sb.from('errors').select('*', { count: 'exact', head: true }).eq('severity', 'warning'),
-      sb.from('errors').select('*', { count: 'exact', head: true }).eq('status', 'resolved'),
+      sb.from('errors').select('id, message, severity, status, created_at').eq('project_id', app.id).order('created_at', { ascending: false }).limit(10),
+      sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
+      sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', app.id).eq('status', 'open'),
+      sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', app.id).in('severity', ['fatal', 'error']).eq('status', 'open'),
+      sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', app.id).eq('severity', 'warning'),
+      sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', app.id).eq('status', 'resolved'),
     ]).then(([{ data }, { count: total }, { count: open }, { count: critical }, { count: warning }, { count: resolved }]) => {
       setErrors((data ?? []) as DbError[])
       setCounts({
@@ -45,7 +48,7 @@ export default function SecurityPage() {
       })
       setLoading(false)
     })
-  }, [])
+  }, [app.id])
 
   const stats = [
     { label: 'Total errors', value: String(counts.total), tone: 'intel' as Tone },

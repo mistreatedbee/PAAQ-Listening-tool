@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { cn } from '@/lib/utils'
 import { toneText, toneSoft } from '@/lib/tones'
 import { AlertCircle, BarChart2, CheckCircle2, Shield, Gauge, FileText } from 'lucide-react'
@@ -25,19 +26,21 @@ const AGENTS: AgentDef[] = [
 ]
 
 export function AgentStatusBar() {
+  const { app } = useConnectedApp()
   const [insightCount, setInsightCount] = useState<number | null>(null)
   const [lastAgent, setLastAgent] = useState<string | null>(null)
 
   useEffect(() => {
+    if (app.id === '__loading__') return
     const sb = createClient()
     Promise.all([
-      sb.from('ai_insights').select('*', { count: 'exact', head: true }),
-      sb.from('ai_insights').select('agent').order('created_at', { ascending: false }).limit(1),
+      sb.from('ai_insights').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
+      sb.from('ai_insights').select('agent').eq('project_id', app.id).order('created_at', { ascending: false }).limit(1),
     ]).then(([{ count }, { data }]) => {
       setInsightCount(count ?? 0)
       setLastAgent((data?.[0] as { agent?: string })?.agent ?? null)
     })
-  }, [])
+  }, [app.id])
 
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/60 bg-card/60 px-4 py-2.5">

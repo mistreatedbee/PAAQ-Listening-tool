@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { InsightCard } from '@/components/insight-card'
 import { Sparkles } from 'lucide-react'
 import type { Insight, Tone } from '@/lib/data'
@@ -37,20 +38,23 @@ function toInsight(i: DbInsight): Insight {
 }
 
 export function HomeInsights() {
+  const { app } = useConnectedApp()
   const [insights, setInsights] = useState<Insight[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (app.id === '__loading__') return
     const sb = createClient()
     sb.from('ai_insights')
       .select('id, category, title, description, confidence, recommendation')
+      .eq('project_id', app.id)
       .order('created_at', { ascending: false })
       .limit(2)
       .then(({ data }) => {
         setInsights(((data ?? []) as DbInsight[]).map(toInsight))
         setLoading(false)
       })
-  }, [])
+  }, [app.id])
 
   if (loading) {
     return (

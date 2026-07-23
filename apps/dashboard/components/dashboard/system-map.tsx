@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { Card, CardHead, ToneBadge, StatusDot } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import { toneBg, toneText } from '@/lib/tones'
@@ -105,18 +106,20 @@ type SelectedNode = {
 }
 
 export function SystemMap() {
+  const { app } = useConnectedApp()
   const [modules, setModules] = useState<ModuleNode[]>([])
   const [infra, setInfra] = useState<InfraNode[]>([])
   const [selected, setSelected] = useState<SelectedNode | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (app.id === '__loading__') return
     const sb = createClient()
     Promise.all([
-      sb.from('events').select('event_name, event_category, screen_name').limit(1000),
-      sb.from('errors').select('error_type, severity, status, screen').limit(500),
+      sb.from('events').select('event_name, event_category, screen_name').eq('project_id', app.id).limit(1000),
+      sb.from('errors').select('error_type, severity, status, screen').eq('project_id', app.id).limit(500),
       sb.from('performance_metrics').select('metric_type, value').eq('metric_type', 'response_time').order('created_at', { ascending: false }).limit(20),
-      sb.from('incidents').select('*', { count: 'exact', head: true }).neq('status', 'resolved'),
+      sb.from('incidents').select('*', { count: 'exact', head: true }).eq('project_id', app.id).neq('status', 'resolved'),
     ]).then(([{ data: evts }, { data: errs }, { data: perf }, { count: openInc }]) => {
       const events = evts ?? []
       const errors = errs ?? []
@@ -197,7 +200,7 @@ export function SystemMap() {
       }
       setLoading(false)
     })
-  }, [])
+  }, [app.id])
 
   if (loading) {
     return (

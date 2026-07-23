@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/utils/supabase/client'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { PageHeader, Card, ToneBadge, StatusDot } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import { toneText } from '@/lib/tones'
@@ -35,6 +36,7 @@ const STATUS_LABEL: Record<string, string> = {
 }
 
 export default function IncidentsPage() {
+  const { app } = useConnectedApp()
   const [incidents, setIncidents] = useState<DbIncident[]>([])
   const [counts, setCounts] = useState({ open: 0, critical: 0 })
   const [loading, setLoading] = useState(true)
@@ -49,14 +51,15 @@ export default function IncidentsPage() {
     setTimeout(() => setToast(null), 3000)
   }
 
-  const fetchIncidents = () => {
+  const fetchIncidents = (projectId: string) => {
     const sb = createClient()
     Promise.all([
       sb.from('incidents')
         .select('id, title, description, ai_summary, severity, status, created_at')
+        .eq('project_id', projectId)
         .order('created_at', { ascending: false }),
-      sb.from('incidents').select('*', { count: 'exact', head: true }).neq('status', 'resolved'),
-      sb.from('incidents').select('*', { count: 'exact', head: true }).eq('severity', 'critical').neq('status', 'resolved'),
+      sb.from('incidents').select('*', { count: 'exact', head: true }).eq('project_id', projectId).neq('status', 'resolved'),
+      sb.from('incidents').select('*', { count: 'exact', head: true }).eq('project_id', projectId).eq('severity', 'critical').neq('status', 'resolved'),
     ]).then(([{ data }, { count: open }, { count: critical }]) => {
       setIncidents((data ?? []) as DbIncident[])
       setCounts({ open: open ?? 0, critical: critical ?? 0 })
@@ -64,7 +67,10 @@ export default function IncidentsPage() {
     })
   }
 
-  useEffect(() => { fetchIncidents() }, [])
+  useEffect(() => {
+    if (app.id === '__loading__') return
+    fetchIncidents(app.id)
+  }, [app.id])
 
   const handleDeclare = async () => {
     if (!form.title.trim()) return
@@ -75,11 +81,12 @@ export default function IncidentsPage() {
       severity: form.severity,
       description: form.description.trim() || null,
       status: 'open',
+      project_id: app.id,
     })
     if (!error) {
       setForm({ title: '', severity: 'medium', description: '' })
       setShowForm(false)
-      fetchIncidents()
+      fetchIncidents(app.id)
       showToast('Incident declared successfully')
     }
     setSaving(false)
