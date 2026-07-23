@@ -9,9 +9,9 @@ const geistSans = Geist({ subsets: ['latin'], variable: '--font-geist-sans' })
 const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-geist-mono' })
 
 export const metadata: Metadata = {
-  title: 'PAAQ Listening Platform',
+  title: 'PAAQ Intelligence',
   description:
-    'AI-native product intelligence & engineering operations command center. Monitor, understand, predict, and resolve everything happening inside your application ecosystem.',
+    'AI Digital Product Intelligence Platform. Connect your website, mobile app, backend API, or full platform — monitor, understand, predict, and resolve everything across your digital product ecosystem.',
 }
 
 export const viewport: Viewport = {

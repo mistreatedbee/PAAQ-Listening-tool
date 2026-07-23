@@ -57,10 +57,10 @@ export default function SettingsPage() {
       <PageHeader
         icon={<Settings className="h-5 w-5" />}
         title="Settings"
-        desc="Configure connected apps, feature areas, flows, integrations, alert rules, and team access. This tab is what makes the PAAQ Listening Tool pluggable."
+        desc="Configure connected digital products, feature areas, critical flows, integrations, alert rules, and team access."
         actions={
           <ToneBadge tone="intel" dot>
-            {allApps.length} app{allApps.length !== 1 ? 's' : ''} registered
+            {allApps.length} digital product{allApps.length !== 1 ? 's' : ''} connected
           </ToneBadge>
         }
       />
@@ -99,7 +99,7 @@ export default function SettingsPage() {
               <Card>
                 <CardHead
                   title="App Registration"
-                  desc="This is your connected app's identity within the PAAQ Listening Tool. Each app gets its own API key and environment."
+                  desc="This is your connected digital product's identity within PAAQ Intelligence. Each project gets its own API key and environment."
                   icon={<Key className="h-4 w-4 text-intel" />}
                 />
                 <div className="divide-y divide-border/40 px-5 pb-5">
@@ -149,22 +149,30 @@ export default function SettingsPage() {
                 />
                 <div className="space-y-4 px-5 pb-5">
                   <div>
-                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Flutter / Dart</p>
-                    <pre className="overflow-x-auto rounded-lg border border-border/60 bg-muted/60 p-4 font-mono text-xs text-foreground whitespace-pre-wrap">{`PAAQListening.init(
-  apiKey: '${app.apiKey}',
-  appName: '${app.name}',
-  environment: Environment.${app.environment.toLowerCase()},
+                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Web SDK (React / Next.js / Vue)</p>
+                    <pre className="overflow-x-auto rounded-lg border border-border/60 bg-muted/60 p-4 font-mono text-xs text-foreground whitespace-pre-wrap">{`import { PAAQProvider } from '@paaq/web-sdk';
+
+<PAAQProvider sdkToken="${app.apiKey}" projectId="${app.id}">
+  <YourApp />
+</PAAQProvider>`}</pre>
+                  </div>
+                  <div>
+                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Mobile SDK (Flutter / React Native)</p>
+                    <pre className="overflow-x-auto rounded-lg border border-border/60 bg-muted/60 p-4 font-mono text-xs text-foreground whitespace-pre-wrap">{`// flutter pub add paaq_mobile_sdk
+await PAAQ.initialize(
+  sdkToken: '${app.apiKey}',
+  projectId: '${app.id}',
 );`}</pre>
                   </div>
                   <div>
-                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Node.js / Backend</p>
-                    <pre className="overflow-x-auto rounded-lg border border-border/60 bg-muted/60 p-4 font-mono text-xs text-foreground whitespace-pre-wrap">{`const { PAAQListening } = require('paaq-listening-tool');
+                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Server SDK (Node.js / Python / Go)</p>
+                    <pre className="overflow-x-auto rounded-lg border border-border/60 bg-muted/60 p-4 font-mono text-xs text-foreground whitespace-pre-wrap">{`import { PAAQ } from '@paaq/server-sdk';
 
-PAAQListening.init({
-  apiKey: '${app.apiKey}',
-  appName: '${app.name}',
-  environment: '${app.environment.toLowerCase()}',
-});`}</pre>
+PAAQ.initialize({
+  sdkToken: '${app.apiKey}',
+  projectId: '${app.id}',
+});
+app.use(PAAQ.middleware());`}</pre>
                   </div>
                   <div>
                     <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Database Connector (PostgreSQL / Supabase)</p>

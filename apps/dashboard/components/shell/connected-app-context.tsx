@@ -8,13 +8,21 @@ import type { ConnectedApp } from '@/lib/connected-app'
 
 // ─── Map a tenant_projects DB row → ConnectedApp shape ───────────────────────
 const PLATFORM_COLOR: Record<string, string> = {
-  flutter: '#54C5F8',
-  react:   '#61DAFB',
-  nextjs:  '#51C9D3',
-  android: '#3DDC84',
-  ios:     '#007AFF',
-  nodejs:  '#68A063',
-  other:   '#51C9D3',
+  react:       '#61DAFB',
+  nextjs:      '#51C9D3',
+  vue:         '#42B883',
+  angular:     '#DD0031',
+  vanilla:     '#F7DF1E',
+  flutter:     '#54C5F8',
+  reactnative: '#61DAFB',
+  ios:         '#007AFF',
+  android:     '#3DDC84',
+  nodejs:      '#68A063',
+  python:      '#3776AB',
+  go:          '#00ADD8',
+  java:        '#ED8B00',
+  dotnet:      '#512BD4',
+  other:       '#51C9D3',
 }
 
 type ProjectRow = {
@@ -207,7 +215,7 @@ function NoProjectsShell() {
         </div>
         <h1 className="text-2xl font-black tracking-tight">Welcome to PAAQ Intelligence</h1>
         <p className="mt-3 text-base text-muted-foreground leading-relaxed">
-          You're in — now let's connect your app. The setup takes about 2 minutes.
+          You're in — now let's connect your digital product. The setup takes about 2 minutes.
         </p>
         <div className="mt-8">
           <Link

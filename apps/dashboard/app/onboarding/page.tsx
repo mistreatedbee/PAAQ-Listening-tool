@@ -24,14 +24,29 @@ const STEPS = [
   'Credentials', 'Install SDK', 'Verify', 'Done',
 ]
 
+const PRODUCT_TYPES = [
+  { id: 'website',  label: 'Website',       icon: '🌐', desc: 'React, Next.js, Vue, Angular, Vanilla JS' },
+  { id: 'mobile',   label: 'Mobile App',    icon: '📱', desc: 'Flutter, React Native, iOS, Android' },
+  { id: 'backend',  label: 'Backend API',   icon: '⚙️', desc: 'Node.js, Python, Go, Java, .NET' },
+  { id: 'platform', label: 'Full Platform', icon: '🏗️', desc: 'Web · Mobile · Backend ecosystem' },
+]
+
 const PLATFORMS = [
-  { id: 'flutter',   label: 'Flutter',    icon: '🦋', color: '#54C5F8' },
-  { id: 'react',     label: 'React',      icon: '⚛️', color: '#61DAFB' },
-  { id: 'nextjs',    label: 'Next.js',    icon: '▲',  color: '#e8f0f8' },
-  { id: 'ios',       label: 'iOS Swift',  icon: '🍎', color: '#007AFF' },
-  { id: 'android',   label: 'Android',    icon: '🤖', color: '#3DDC84' },
-  { id: 'nodejs',    label: 'Node.js',    icon: '🟢', color: '#68A063' },
-] as const
+  { id: 'react',       label: 'React',        icon: '⚛️', color: '#61DAFB', type: 'website' },
+  { id: 'nextjs',      label: 'Next.js',      icon: '▲',  color: '#e8f0f8', type: 'website' },
+  { id: 'vue',         label: 'Vue',          icon: '💚', color: '#42B883', type: 'website' },
+  { id: 'angular',     label: 'Angular',      icon: '🔺', color: '#DD0031', type: 'website' },
+  { id: 'vanilla',     label: 'Vanilla JS',   icon: '🟨', color: '#F7DF1E', type: 'website' },
+  { id: 'flutter',     label: 'Flutter',      icon: '🦋', color: '#54C5F8', type: 'mobile' },
+  { id: 'reactnative', label: 'React Native', icon: '📱', color: '#61DAFB', type: 'mobile' },
+  { id: 'ios',         label: 'iOS',          icon: '🍎', color: '#007AFF', type: 'mobile' },
+  { id: 'android',     label: 'Android',      icon: '🤖', color: '#3DDC84', type: 'mobile' },
+  { id: 'nodejs',      label: 'Node.js',      icon: '🟢', color: '#68A063', type: 'backend' },
+  { id: 'python',      label: 'Python',       icon: '🐍', color: '#3776AB', type: 'backend' },
+  { id: 'go',          label: 'Go',           icon: '🔵', color: '#00ADD8', type: 'backend' },
+  { id: 'java',        label: 'Java',         icon: '☕', color: '#ED8B00', type: 'backend' },
+  { id: 'dotnet',      label: '.NET',         icon: '💜', color: '#512BD4', type: 'backend' },
+]
 
 const INDUSTRIES = [
   'FinTech', 'HealthTech', 'EdTech', 'E-Commerce', 'SaaS',
@@ -50,22 +65,9 @@ function installSnippet(platform: string, sdkToken: string, projectId: string): 
   const p = projectId || 'proj_your_id'
 
   switch (platform) {
-    case 'flutter': return {
-      cmd: 'flutter pub add paaq_listening_sdk',
-      init: `import 'package:paaq_listening_sdk/paaq_listening_sdk.dart';
-
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await PAAQ.initialize(
-    sdkToken: '${t}',
-    projectId: '${p}',
-  );
-  runApp(const MyApp());
-}`,
-    }
     case 'react': return {
-      cmd: 'npm install @paaq/listening',
-      init: `import { PAAQProvider } from '@paaq/listening';
+      cmd: 'npm install @paaq/web-sdk',
+      init: `import { PAAQProvider } from '@paaq/web-sdk';
 
 export default function App() {
   return (
@@ -76,8 +78,8 @@ export default function App() {
 }`,
     }
     case 'nextjs': return {
-      cmd: 'npm install @paaq/listening',
-      init: `import { PAAQProvider } from '@paaq/listening';
+      cmd: 'npm install @paaq/web-sdk',
+      init: `import { PAAQProvider } from '@paaq/web-sdk';
 
 export default function RootLayout({ children }) {
   return (
@@ -88,6 +90,64 @@ export default function RootLayout({ children }) {
         </PAAQProvider>
       </body>
     </html>
+  );
+}`,
+    }
+    case 'vue': return {
+      cmd: 'npm install @paaq/web-sdk',
+      init: `import { createApp } from 'vue';
+import { PAAQPlugin } from '@paaq/web-sdk';
+
+const app = createApp(App);
+app.use(PAAQPlugin, {
+  sdkToken: '${t}',
+  projectId: '${p}',
+});
+app.mount('#app');`,
+    }
+    case 'angular': return {
+      cmd: 'npm install @paaq/web-sdk',
+      init: `import { PAAQ } from '@paaq/web-sdk';
+
+// In main.ts
+PAAQ.initialize({
+  sdkToken: '${t}',
+  projectId: '${p}',
+});`,
+    }
+    case 'vanilla': return {
+      cmd: '# Add to your HTML <head>',
+      init: `<script>
+  window.PAAQ_CONFIG = {
+    sdkToken: '${t}',
+    projectId: '${p}',
+    environment: 'production',
+  }
+</script>
+<script src="https://cdn.paaq.ai/web-sdk.js" async></script>`,
+    }
+    case 'flutter': return {
+      cmd: 'flutter pub add paaq_mobile_sdk',
+      init: `import 'package:paaq_mobile_sdk/paaq_mobile_sdk.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await PAAQ.initialize(
+    sdkToken: '${t}',
+    projectId: '${p}',
+  );
+  runApp(const MyApp());
+}`,
+    }
+    case 'reactnative': return {
+      cmd: 'npm install @paaq/mobile-sdk',
+      init: `import { PAAQProvider } from '@paaq/mobile-sdk';
+
+export default function App() {
+  return (
+    <PAAQProvider sdkToken="${t}" projectId="${p}">
+      <YourApp />
+    </PAAQProvider>
   );
 }`,
     }
@@ -130,7 +190,62 @@ PAAQ.initialize({
 // Wrap your Express app
 app.use(PAAQ.middleware());`,
     }
-    default: return { cmd: 'npm install @paaq/sdk', init: `PAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });` }
+    case 'python': return {
+      cmd: 'pip install paaq-server-sdk',
+      init: `from paaq import PAAQ
+
+PAAQ.initialize(
+    sdk_token='${t}',
+    project_id='${p}',
+)
+
+# Flask / FastAPI — add middleware
+app.add_middleware(PAAQ.middleware)`,
+    }
+    case 'go': return {
+      cmd: 'go get github.com/paaq/go-sdk',
+      init: `import "github.com/paaq/go-sdk"
+
+func main() {
+    paaq.Initialize(paaq.Config{
+        SDKToken:  "${t}",
+        ProjectID: "${p}",
+    })
+    http.Handle("/", paaq.Middleware(yourHandler))
+    http.ListenAndServe(":8080", nil)
+}`,
+    }
+    case 'java': return {
+      cmd: `// Add to pom.xml
+<dependency>
+  <groupId>ai.paaq</groupId>
+  <artifactId>paaq-java-sdk</artifactId>
+  <version>1.0.0</version>
+</dependency>`,
+      init: `import ai.paaq.PAAQ;
+
+@SpringBootApplication
+public class Application {
+  public static void main(String[] args) {
+    PAAQ.initialize(new PAAQConfig()
+      .sdkToken("${t}")
+      .projectId("${p}"));
+    SpringApplication.run(Application.class, args);
+  }
+}`,
+    }
+    case 'dotnet': return {
+      cmd: 'dotnet add package PAAQ.ServerSDK',
+      init: `using PAAQ;
+
+// In Program.cs
+builder.Services.AddPAAQ(options => {
+    options.SDKToken = "${t}";
+    options.ProjectId = "${p}";
+});
+app.UsePAAQ();`,
+    }
+    default: return { cmd: 'npm install @paaq/web-sdk', init: `PAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });` }
   }
 }
 
@@ -252,6 +367,7 @@ export default function OnboardingPage() {
 
   // Step 3 — project
   const [projectName, setProjectName] = useState('')
+  const [productType, setProductType] = useState('')
   const [platform, setPlatform] = useState('')
   const [environment, setEnvironment] = useState<'production' | 'staging'>('production')
 
@@ -432,7 +548,7 @@ export default function OnboardingPage() {
             <div className="grid gap-3 sm:grid-cols-3">
               {[
                 { step: '01', title: 'Set up your org', desc: 'Create your organisation and workspace.' },
-                { step: '02', title: 'Connect your app', desc: 'Generate credentials and install the SDK.' },
+                { step: '02', title: 'Connect your digital product', desc: 'Generate credentials and install the right SDK.' },
                 { step: '03', title: 'Start monitoring', desc: 'See your first AI insights in minutes.' },
               ].map((s) => (
                 <Card key={s.step}>
@@ -565,31 +681,50 @@ export default function OnboardingPage() {
           <div className="space-y-6">
             <div className="text-center space-y-2">
               <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background: 'rgba(81,201,211,0.1)' }}>
-                <Smartphone className="h-7 w-7" style={{ color: '#51C9D3' }} />
+                <Globe className="h-7 w-7" style={{ color: '#51C9D3' }} />
               </div>
-              <h1 className="text-2xl font-black">Create your first project</h1>
-              <p style={{ color: '#8ba0b4' }}>A project represents one app or service you want to monitor.</p>
+              <h1 className="text-2xl font-black">Connect your digital product</h1>
+              <p style={{ color: '#8ba0b4' }}>Tell us what you're connecting — we'll give you the right SDK.</p>
             </div>
 
             <div className="space-y-5">
               <div>
                 <FieldLabel required>Project name</FieldLabel>
-                <Input value={projectName} onChange={setProjectName} placeholder="My Mobile App" />
+                <Input value={projectName} onChange={setProjectName} placeholder="My Digital Product" />
               </div>
 
               <div>
-                <FieldLabel required>Platform</FieldLabel>
-                <div className="grid grid-cols-3 gap-3">
-                  {PLATFORMS.map((p) => (
-                    <button key={p.id} onClick={() => setPlatform(p.id)}
-                      className="flex flex-col items-center gap-2 rounded-xl border-2 px-3 py-4 text-center transition-all hover:scale-[1.02]"
-                      style={{ borderColor: platform === p.id ? '#51C9D3' : 'rgba(255,255,255,0.08)', background: platform === p.id ? 'rgba(81,201,211,0.08)' : 'rgba(255,255,255,0.02)' }}>
-                      <span className="text-2xl">{p.icon}</span>
-                      <span className="text-xs font-semibold" style={{ color: platform === p.id ? '#e8f0f8' : '#5a7085' }}>{p.label}</span>
+                <FieldLabel required>What are you connecting?</FieldLabel>
+                <div className="grid grid-cols-2 gap-3">
+                  {PRODUCT_TYPES.map((pt) => (
+                    <button key={pt.id} onClick={() => { setProductType(pt.id); setPlatform('') }}
+                      className="flex items-start gap-3 rounded-xl border-2 px-4 py-3 text-left transition-all hover:scale-[1.01]"
+                      style={{ borderColor: productType === pt.id ? '#51C9D3' : 'rgba(255,255,255,0.08)', background: productType === pt.id ? 'rgba(81,201,211,0.08)' : 'rgba(255,255,255,0.02)' }}>
+                      <span className="text-xl shrink-0 mt-0.5">{pt.icon}</span>
+                      <div>
+                        <p className="text-xs font-bold" style={{ color: productType === pt.id ? '#e8f0f8' : '#8ba0b4' }}>{pt.label}</p>
+                        <p className="text-[10px] leading-relaxed mt-0.5" style={{ color: '#4a5568' }}>{pt.desc}</p>
+                      </div>
                     </button>
                   ))}
                 </div>
               </div>
+
+              {productType && (
+                <div>
+                  <FieldLabel required>Technology</FieldLabel>
+                  <div className="grid grid-cols-3 gap-3">
+                    {PLATFORMS.filter((p) => productType === 'platform' || p.type === productType).map((p) => (
+                      <button key={p.id} onClick={() => setPlatform(p.id)}
+                        className="flex flex-col items-center gap-2 rounded-xl border-2 px-3 py-4 text-center transition-all hover:scale-[1.02]"
+                        style={{ borderColor: platform === p.id ? '#51C9D3' : 'rgba(255,255,255,0.08)', background: platform === p.id ? 'rgba(81,201,211,0.08)' : 'rgba(255,255,255,0.02)' }}>
+                        <span className="text-2xl">{p.icon}</span>
+                        <span className="text-xs font-semibold" style={{ color: platform === p.id ? '#e8f0f8' : '#5a7085' }}>{p.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div>
                 <FieldLabel>Environment</FieldLabel>
@@ -701,7 +836,9 @@ export default function OnboardingPage() {
               </div>
               <h1 className="text-2xl font-black">Install the SDK</h1>
               <p style={{ color: '#8ba0b4' }}>
-                Add PAAQ to your <strong style={{ color: '#e8f0f8' }}>{PLATFORMS.find((p) => p.id === platform)?.label ?? platform}</strong> app.
+                Connect PAAQ to your{' '}
+                <strong style={{ color: '#e8f0f8' }}>{PLATFORMS.find((p) => p.id === platform)?.label ?? platform}</strong>
+                {' '}{productType === 'website' ? 'website' : productType === 'backend' ? 'backend' : 'app'}.
               </p>
             </div>
 
