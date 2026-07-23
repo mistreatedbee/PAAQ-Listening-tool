@@ -40,6 +40,13 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
+  // Already logged in — send them to the dashboard instead of showing login/landing
+  if (pathname === '/login' || pathname === '/') {
+    const dashUrl = request.nextUrl.clone()
+    dashUrl.pathname = '/dashboard'
+    return NextResponse.redirect(dashUrl)
+  }
+
   // Super admin check — /admin/* requires admin_users entry
   if (pathname.startsWith('/admin')) {
     const { data: adminUser } = await supabase

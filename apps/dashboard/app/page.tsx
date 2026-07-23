@@ -133,10 +133,10 @@ export default function LandingPage() {
         <div className="flex items-center gap-3">
           <Link
             href="/login"
-            className="text-sm font-medium transition-colors"
-            style={{ color: '#8ba0b4' }}
+            className="rounded-lg border px-4 py-2 text-sm font-semibold transition-opacity hover:opacity-80"
+            style={{ color: '#e8f0f8', borderColor: 'rgba(255,255,255,0.18)' }}
           >
-            Sign in
+            Log in
           </Link>
           <Link
             href="/login?tab=signup"
