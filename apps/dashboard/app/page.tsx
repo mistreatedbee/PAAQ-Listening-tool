@@ -2,11 +2,12 @@
 
 import Link from 'next/link'
 import { useState, useEffect } from 'react'
+import { useTheme } from 'next-themes'
 import {
   Sparkles, ArrowRight, Check, ChevronDown, BrainCircuit,
   Bug, Route, Activity, Eye, Shield, Zap, BarChart3,
   Code2, Smartphone, Globe, Users, Lock, Layers, GitBranch,
-  CheckCircle, TrendingUp, Star, Cpu, Bell,
+  CheckCircle, TrendingUp, Star, Cpu, Bell, Sun, Moon, Menu, X as XIcon,
 } from 'lucide-react'
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
@@ -82,24 +83,43 @@ const FAQ_ITEMS = [
     a: 'Yes. You can create unlimited projects under your organisation (on Growth and Enterprise plans). Each project has its own credentials, events, insights, and settings.' },
 ]
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+// ─── Theme-aware color maps ────────────────────────────────────────────────────
 
-function Grain() {
-  return (
-    <div className="pointer-events-none fixed inset-0 z-0 opacity-[0.022]"
-      style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`, backgroundRepeat: 'repeat' }} />
-  )
+function useColors(isDark: boolean) {
+  return {
+    bg:          isDark ? '#060b10'              : '#f7f9fc',
+    bgAlt:       isDark ? 'rgba(81,201,211,0.03)': 'rgba(81,201,211,0.04)',
+    text:        isDark ? '#e8f0f8'              : '#0f1923',
+    textMuted:   isDark ? '#8ba0b4'              : '#4a6070',
+    textDim:     isDark ? '#4a5568'              : '#94a3b8',
+    border:      isDark ? 'rgba(255,255,255,0.07)': 'rgba(0,0,0,0.07)',
+    borderLight: isDark ? 'rgba(255,255,255,0.06)': 'rgba(0,0,0,0.05)',
+    card:        isDark ? 'rgba(255,255,255,0.02)': '#ffffff',
+    cardHover:   isDark ? 'rgba(81,201,211,0.04)' : 'rgba(81,201,211,0.06)',
+    navBg:       isDark ? 'rgba(6,11,16,0.94)'   : 'rgba(247,249,252,0.94)',
+    faqBorder:   isDark ? 'rgba(255,255,255,0.08)': 'rgba(0,0,0,0.07)',
+    cardShadow:  isDark ? 'none'                  : '0 1px 4px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.05)',
+    mockupBg:    isDark ? 'rgba(10,16,24,0.9)'   : '#ffffff',
+    mockupBorder:isDark ? 'rgba(255,255,255,0.08)': 'rgba(0,0,0,0.08)',
+    mockupShadow:isDark ? '0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(81,201,211,0.1)'
+                        : '0 24px 60px rgba(0,0,0,0.12), 0 0 0 1px rgba(81,201,211,0.15)',
+    kpiCard:     isDark ? 'rgba(255,255,255,0.02)': '#f8fafc',
+    kpiBorder:   isDark ? 'rgba(255,255,255,0.06)': 'rgba(0,0,0,0.06)',
+    sidebarItem: isDark ? '#4a5568'              : '#94a3b8',
+  }
 }
 
-function FAQItem({ q, a }: { q: string; a: string }) {
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function FAQItem({ q, a, c }: { q: string; a: string; c: ReturnType<typeof useColors> }) {
   const [open, setOpen] = useState(false)
   return (
-    <div className="border-b cursor-pointer" style={{ borderColor: 'rgba(255,255,255,0.08)' }} onClick={() => setOpen(!open)}>
+    <div className="cursor-pointer border-b" style={{ borderColor: c.faqBorder }} onClick={() => setOpen(!open)}>
       <div className="flex items-center justify-between py-5">
-        <span className="text-sm font-semibold pr-8" style={{ color: '#e8f0f8' }}>{q}</span>
+        <span className="text-sm font-semibold pr-8" style={{ color: c.text }}>{q}</span>
         <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200" style={{ color: '#51C9D3', transform: open ? 'rotate(180deg)' : 'none' }} />
       </div>
-      {open && <p className="pb-5 text-sm leading-relaxed" style={{ color: '#8ba0b4' }}>{a}</p>}
+      {open && <p className="pb-5 text-sm leading-relaxed" style={{ color: c.textMuted }}>{a}</p>}
     </div>
   )
 }
@@ -107,7 +127,7 @@ function FAQItem({ q, a }: { q: string; a: string }) {
 function SectionLabel({ children }: { children: string }) {
   return (
     <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-widest mb-4"
-      style={{ borderColor: 'rgba(81,201,211,0.3)', color: '#51C9D3', background: 'rgba(81,201,211,0.06)' }}>
+      style={{ borderColor: 'rgba(81,201,211,0.3)', color: '#51C9D3', background: 'rgba(81,201,211,0.08)' }}>
       {children}
     </div>
   )
@@ -116,27 +136,37 @@ function SectionLabel({ children }: { children: string }) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function LandingPage() {
+  const { resolvedTheme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
   const [scrolled, setScrolled] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   useEffect(() => {
+    setMounted(true)
     const fn = () => setScrolled(window.scrollY > 24)
     window.addEventListener('scroll', fn)
     return () => window.removeEventListener('scroll', fn)
   }, [])
 
+  const isDark = !mounted || resolvedTheme === 'dark'
+  const c = useColors(isDark)
+
   return (
-    <div className="min-h-screen" style={{ background: '#060b10', color: '#e8f0f8' }}>
-      <Grain />
+    <div className="min-h-screen" style={{ background: c.bg, color: c.text, transition: 'background 0.3s, color 0.3s' }}>
 
       {/* ── Nav ──────────────────────────────────────────────────────────────── */}
       <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4 transition-all duration-300"
-        style={{ background: scrolled ? 'rgba(6,11,16,0.94)' : 'transparent', backdropFilter: scrolled ? 'blur(20px)' : 'none', borderBottom: scrolled ? '1px solid rgba(255,255,255,0.06)' : 'none' }}>
+        style={{
+          background: scrolled ? c.navBg : 'transparent',
+          backdropFilter: scrolled ? 'blur(20px)' : 'none',
+          borderBottom: scrolled ? `1px solid ${c.borderLight}` : 'none',
+        }}>
         <div className="flex items-center gap-2.5">
           <div className="flex h-8 w-8 items-center justify-center rounded-xl" style={{ background: 'linear-gradient(135deg,#27A6CE,#5FDED4)' }}>
             <Sparkles className="h-4 w-4 text-white" />
           </div>
           <div className="leading-none">
-            <p className="text-sm font-black tracking-tight" style={{ color: '#e8f0f8' }}>PAAQ</p>
+            <p className="text-sm font-black tracking-tight" style={{ color: c.text }}>PAAQ</p>
             <p className="text-[9px] font-bold uppercase tracking-widest" style={{ color: '#51C9D3' }}>Intelligence</p>
           </div>
         </div>
@@ -148,34 +178,78 @@ export default function LandingPage() {
             { label: 'Pricing', href: '#pricing' },
             { label: 'FAQ', href: '#faq' },
           ].map((l) => (
-            <a key={l.href} href={l.href} className="text-sm transition-colors" style={{ color: '#8ba0b4' }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = '#e8f0f8')}
-              onMouseLeave={(e) => (e.currentTarget.style.color = '#8ba0b4')}>
+            <a key={l.href} href={l.href} className="text-sm transition-colors" style={{ color: c.textMuted }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = c.text)}
+              onMouseLeave={(e) => (e.currentTarget.style.color = c.textMuted)}>
               {l.label}
             </a>
           ))}
         </nav>
 
-        <div className="flex items-center gap-3">
-          <Link href="/login" className="rounded-lg border px-4 py-2 text-sm font-semibold transition-opacity hover:opacity-80"
-            style={{ color: '#e8f0f8', borderColor: 'rgba(255,255,255,0.18)' }}>
+        <div className="flex items-center gap-2">
+          {/* Theme toggle */}
+          {mounted && (
+            <button
+              onClick={() => setTheme(isDark ? 'light' : 'dark')}
+              className="rounded-lg p-2 transition-colors"
+              style={{ color: c.textMuted, background: c.card, border: `1px solid ${c.border}` }}
+              aria-label="Toggle theme"
+            >
+              {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </button>
+          )}
+
+          <Link href="/login" className="hidden sm:flex rounded-lg border px-4 py-2 text-sm font-semibold transition-opacity hover:opacity-80"
+            style={{ color: c.text, borderColor: c.border }}>
             Log in
           </Link>
           <Link href="/login?tab=signup" className="rounded-lg px-4 py-2 text-sm font-bold text-white transition-opacity hover:opacity-90"
             style={{ background: 'linear-gradient(135deg,#27A6CE,#51C9D3)' }}>
             Start free
           </Link>
+
+          {/* Mobile menu toggle */}
+          <button className="sm:hidden rounded-lg p-2" style={{ color: c.textMuted }}
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
+            {mobileMenuOpen ? <XIcon className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
         </div>
       </header>
 
+      {/* Mobile menu */}
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 z-40 pt-16" style={{ background: c.bg }}>
+          <nav className="flex flex-col gap-1 p-6">
+            {[
+              { label: 'Features', href: '#features' },
+              { label: 'How it works', href: '#how' },
+              { label: 'Pricing', href: '#pricing' },
+              { label: 'FAQ', href: '#faq' },
+            ].map((l) => (
+              <a key={l.href} href={l.href} onClick={() => setMobileMenuOpen(false)}
+                className="rounded-xl px-4 py-3 text-base font-semibold transition-colors"
+                style={{ color: c.text, background: c.card }}>
+                {l.label}
+              </a>
+            ))}
+            <div className="mt-4 flex flex-col gap-3">
+              <Link href="/login" onClick={() => setMobileMenuOpen(false)}
+                className="rounded-xl border px-4 py-3 text-center text-sm font-semibold"
+                style={{ color: c.text, borderColor: c.border }}>Log in</Link>
+              <Link href="/login?tab=signup" onClick={() => setMobileMenuOpen(false)}
+                className="rounded-xl px-4 py-3 text-center text-sm font-bold text-white"
+                style={{ background: 'linear-gradient(135deg,#27A6CE,#51C9D3)' }}>Start free</Link>
+            </div>
+          </nav>
+        </div>
+      )}
+
       {/* ── Hero ─────────────────────────────────────────────────────────────── */}
       <section className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-6 text-center pt-20">
-        <div className="pointer-events-none absolute left-1/2 top-1/3 h-[700px] w-[700px] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-15"
-          style={{ background: 'radial-gradient(circle,#27A6CE 0%,transparent 70%)', filter: 'blur(90px)' }} />
-        <div className="pointer-events-none absolute left-1/4 top-2/3 h-[300px] w-[300px] rounded-full opacity-10"
-          style={{ background: 'radial-gradient(circle,#5FDED4 0%,transparent 70%)', filter: 'blur(60px)' }} />
-        <div className="pointer-events-none absolute right-1/4 top-1/4 h-[200px] w-[200px] rounded-full opacity-08"
-          style={{ background: 'radial-gradient(circle,#51C9D3 0%,transparent 70%)', filter: 'blur(40px)' }} />
+        <div className="pointer-events-none absolute left-1/2 top-1/3 h-[700px] w-[700px] -translate-x-1/2 -translate-y-1/2 rounded-full"
+          style={{ background: `radial-gradient(circle,${isDark ? '#27A6CE' : '#51C9D3'} 0%,transparent 70%)`, filter: 'blur(90px)', opacity: isDark ? 0.15 : 0.12 }} />
+        <div className="pointer-events-none absolute left-1/4 top-2/3 h-[300px] w-[300px] rounded-full"
+          style={{ background: 'radial-gradient(circle,#5FDED4 0%,transparent 70%)', filter: 'blur(60px)', opacity: isDark ? 0.10 : 0.08 }} />
 
         <div className="relative z-10 max-w-4xl">
           <div className="mb-6 inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-xs font-semibold"
@@ -184,51 +258,57 @@ export default function LandingPage() {
             Now in early access
           </div>
 
-          <h1 className="mb-6 text-5xl font-black leading-[1.08] tracking-tight sm:text-6xl lg:text-7xl" style={{ color: '#e8f0f8' }}>
-            Build products your{' '}
-            <span style={{ backgroundImage: 'linear-gradient(90deg,#51C9D3,#27A6CE,#5FDED4)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-              AI understands
+          <h1 className="mb-6 text-5xl font-black leading-[1.08] tracking-tight sm:text-6xl lg:text-7xl" style={{ color: c.text }}>
+            Your app is talking.{' '}
+            <span style={{ backgroundImage: 'linear-gradient(90deg,#51C9D3,#27A6CE,#5FDED4)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
+              PAAQ is listening.
             </span>
           </h1>
 
-          <p className="mx-auto mb-10 max-w-2xl text-lg leading-relaxed" style={{ color: '#8ba0b4' }}>
-            PAAQ Intelligence continuously monitors your application, detects issues before users notice them,
+          <p className="mx-auto mb-10 max-w-2xl text-lg leading-relaxed" style={{ color: c.textMuted }}>
+            AI-powered product monitoring that detects issues before users notice them,
             explains root causes in plain language, and helps your team resolve incidents in minutes — not days.
           </p>
 
           <div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
-            <Link href="/login?tab=signup" className="flex items-center gap-2 rounded-xl px-7 py-3.5 text-sm font-bold text-white shadow-lg transition-all hover:scale-105 hover:shadow-xl"
+            <Link href="/login?tab=signup" className="flex items-center gap-2 rounded-xl px-7 py-3.5 text-sm font-bold text-white shadow-lg transition-all hover:scale-105"
               style={{ background: 'linear-gradient(135deg,#27A6CE,#51C9D3)', boxShadow: '0 0 40px rgba(81,201,211,0.25)' }}>
               Start free — no credit card <ArrowRight className="h-4 w-4" />
             </Link>
-            <a href="#how" className="flex items-center gap-2 rounded-xl border px-7 py-3.5 text-sm font-semibold transition-colors hover:bg-white/5"
-              style={{ borderColor: 'rgba(255,255,255,0.14)', color: '#8ba0b4' }}>
+            <a href="#how" className="flex items-center gap-2 rounded-xl border px-7 py-3.5 text-sm font-semibold transition-colors"
+              style={{ borderColor: c.border, color: c.textMuted }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}>
               See how it works
             </a>
           </div>
 
-          <p className="mt-5 text-xs" style={{ color: 'rgba(139,160,180,0.6)' }}>
+          <p className="mt-5 text-xs" style={{ color: c.textDim }}>
             Free tier includes 25,000 events/month · Setup in under 5 minutes
           </p>
         </div>
 
         {/* Product preview mockup */}
         <div className="relative z-10 mt-16 w-full max-w-5xl">
-          <div className="overflow-hidden rounded-2xl border" style={{ borderColor: 'rgba(255,255,255,0.08)', background: 'rgba(10,16,24,0.8)', boxShadow: '0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(81,201,211,0.1)' }}>
+          <div className="overflow-hidden rounded-2xl border" style={{
+            borderColor: c.mockupBorder,
+            background: c.mockupBg,
+            boxShadow: c.mockupShadow,
+          }}>
             {/* Window chrome */}
-            <div className="flex items-center gap-2 border-b px-4 py-3" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-              <div className="h-3 w-3 rounded-full bg-red-500/60" />
-              <div className="h-3 w-3 rounded-full bg-yellow-500/60" />
-              <div className="h-3 w-3 rounded-full bg-green-500/60" />
-              <span className="mx-auto text-xs" style={{ color: '#4a5568' }}>PAAQ Intelligence — dashboard.paaq.ai</span>
+            <div className="flex items-center gap-2 border-b px-4 py-3" style={{ borderColor: c.borderLight }}>
+              <div className="h-3 w-3 rounded-full bg-red-400/70" />
+              <div className="h-3 w-3 rounded-full bg-yellow-400/70" />
+              <div className="h-3 w-3 rounded-full bg-green-400/70" />
+              <span className="mx-auto text-xs" style={{ color: c.textDim }}>PAAQ Intelligence — dashboard.paaq.ai</span>
             </div>
             {/* Fake dashboard */}
             <div className="grid grid-cols-12 gap-0">
               {/* Sidebar */}
-              <div className="col-span-2 border-r p-3 space-y-1" style={{ borderColor: 'rgba(255,255,255,0.04)', minHeight: '280px' }}>
+              <div className="col-span-2 border-r p-3 space-y-1" style={{ borderColor: c.borderLight, minHeight: '280px', background: isDark ? 'rgba(255,255,255,0.01)' : '#f8fafc' }}>
                 {['Dashboard', 'Live Events', 'Errors', 'AI Insights', 'Journeys', 'Incidents'].map((item, i) => (
-                  <div key={item} className={`rounded-lg px-2 py-1.5 text-[10px] font-medium ${i === 0 ? 'text-white' : ''}`}
-                    style={{ background: i === 0 ? 'rgba(81,201,211,0.12)' : 'transparent', color: i === 0 ? '#51C9D3' : '#4a5568' }}>
+                  <div key={item} className="rounded-lg px-2 py-1.5 text-[10px] font-medium"
+                    style={{ background: i === 0 ? 'rgba(81,201,211,0.12)' : 'transparent', color: i === 0 ? '#51C9D3' : c.sidebarItem }}>
                     {item}
                   </div>
                 ))}
@@ -242,45 +322,45 @@ export default function LandingPage() {
                     { label: 'Error rate', value: '0.12%', color: '#27A6CE' },
                     { label: 'AI insights', value: '7 new', color: '#51C9D3' },
                   ].map((kpi) => (
-                    <div key={kpi.label} className="rounded-xl border p-3" style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
-                      <p className="text-[9px] mb-1" style={{ color: '#4a5568' }}>{kpi.label}</p>
+                    <div key={kpi.label} className="rounded-xl border p-3" style={{ borderColor: c.kpiBorder, background: c.kpiCard }}>
+                      <p className="text-[9px] mb-1" style={{ color: c.textDim }}>{kpi.label}</p>
                       <p className="text-sm font-bold" style={{ color: kpi.color }}>{kpi.value}</p>
                     </div>
                   ))}
                 </div>
                 <div className="grid grid-cols-3 gap-2">
-                  <div className="col-span-2 rounded-xl border p-3" style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
-                    <p className="text-[9px] mb-2" style={{ color: '#4a5568' }}>Event stream</p>
+                  <div className="col-span-2 rounded-xl border p-3" style={{ borderColor: c.kpiBorder, background: c.kpiCard }}>
+                    <p className="text-[9px] mb-2" style={{ color: c.textDim }}>Event stream</p>
                     <div className="space-y-1">
                       {['user_signup · 2s ago', 'payment_success · 5s ago', 'session_start · 8s ago', 'error.NullPointer · 12s ago'].map((e, i) => (
                         <div key={e} className="flex items-center gap-2 text-[9px]">
                           <div className="h-1.5 w-1.5 rounded-full" style={{ background: i === 3 ? '#ef4444' : '#51C9D3' }} />
-                          <span style={{ color: i === 3 ? '#ef4444' : '#5a7085' }}>{e}</span>
+                          <span style={{ color: i === 3 ? '#ef4444' : c.textMuted }}>{e}</span>
                         </div>
                       ))}
                     </div>
                   </div>
                   <div className="rounded-xl border p-3" style={{ borderColor: 'rgba(81,201,211,0.2)', background: 'rgba(81,201,211,0.04)' }}>
                     <p className="text-[9px] mb-2" style={{ color: '#51C9D3' }}>AI insight</p>
-                    <p className="text-[9px] leading-relaxed" style={{ color: '#8ba0b4' }}>NullPointer exception in checkout flow detected. Root cause: unhandled null in PaymentService.processCard(). Fix confidence: 94%</p>
+                    <p className="text-[9px] leading-relaxed" style={{ color: c.textMuted }}>NullPointer in checkout flow. Root cause: unhandled null in PaymentService. Fix confidence: 94%</p>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 rounded-b-2xl" style={{ background: 'linear-gradient(to top, #060b10, transparent)' }} />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 rounded-b-2xl" style={{ background: `linear-gradient(to top, ${c.bg}, transparent)` }} />
         </div>
       </section>
 
       {/* ── Trust bar ────────────────────────────────────────────────────────── */}
-      <section className="border-y py-8" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+      <section className="border-y py-8" style={{ borderColor: c.borderLight }}>
         <div className="mx-auto max-w-5xl px-6">
-          <p className="mb-6 text-center text-xs font-semibold uppercase tracking-widest" style={{ color: '#4a5568' }}>
+          <p className="mb-6 text-center text-xs font-semibold uppercase tracking-widest" style={{ color: c.textDim }}>
             Built for every platform
           </p>
           <div className="flex flex-wrap items-center justify-center gap-8">
             {PLATFORMS.map((p) => (
-              <div key={p.label} className="flex items-center gap-2 text-sm font-semibold" style={{ color: '#5a7085' }}>
+              <div key={p.label} className="flex items-center gap-2 text-sm font-semibold" style={{ color: c.textMuted }}>
                 <span className="text-lg">{p.icon}</span>
                 {p.label}
               </div>
@@ -300,10 +380,10 @@ export default function LandingPage() {
               { value: '99.98%', label: 'Platform uptime' },
             ].map((s) => (
               <div key={s.label} className="text-center">
-                <p className="text-3xl font-black mb-1" style={{ backgroundImage: 'linear-gradient(135deg,#51C9D3,#27A6CE)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                <p className="text-3xl font-black mb-1" style={{ backgroundImage: 'linear-gradient(135deg,#51C9D3,#27A6CE)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
                   {s.value}
                 </p>
-                <p className="text-xs" style={{ color: '#5a7085' }}>{s.label}</p>
+                <p className="text-xs" style={{ color: c.textDim }}>{s.label}</p>
               </div>
             ))}
           </div>
@@ -315,22 +395,22 @@ export default function LandingPage() {
         <div className="mx-auto max-w-5xl">
           <div className="mb-14 text-center">
             <SectionLabel>Platform capabilities</SectionLabel>
-            <h2 className="text-3xl font-black sm:text-4xl" style={{ color: '#e8f0f8' }}>Everything your team needs</h2>
-            <p className="mt-3 text-base max-w-xl mx-auto" style={{ color: '#8ba0b4' }}>
+            <h2 className="text-3xl font-black sm:text-4xl" style={{ color: c.text }}>Everything your team needs</h2>
+            <p className="mt-3 text-base max-w-xl mx-auto" style={{ color: c.textMuted }}>
               From real-time event capture to AI-generated incident reports — all in one platform.
             </p>
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {FEATURES.map((f) => (
-              <div key={f.title} className="group rounded-2xl border p-6 transition-all hover:border-opacity-60"
-                style={{ borderColor: 'rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.02)' }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(81,201,211,0.04)')}
-                onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.02)')}>
+              <div key={f.title} className="rounded-2xl border p-6 transition-all"
+                style={{ borderColor: c.border, background: c.card, boxShadow: c.cardShadow }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = c.cardHover)}
+                onMouseLeave={(e) => (e.currentTarget.style.background = c.card)}>
                 <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl" style={{ background: `${f.color}18` }}>
                   <f.icon className="h-5 w-5" style={{ color: f.color }} />
                 </div>
-                <h3 className="mb-2 text-sm font-bold" style={{ color: '#e8f0f8' }}>{f.title}</h3>
-                <p className="text-sm leading-relaxed" style={{ color: '#8ba0b4' }}>{f.desc}</p>
+                <h3 className="mb-2 text-sm font-bold" style={{ color: c.text }}>{f.title}</h3>
+                <p className="text-sm leading-relaxed" style={{ color: c.textMuted }}>{f.desc}</p>
               </div>
             ))}
           </div>
@@ -338,14 +418,14 @@ export default function LandingPage() {
       </section>
 
       {/* ── AI Intelligence ───────────────────────────────────────────────────── */}
-      <section className="py-20 px-6 border-y" style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(81,201,211,0.03)' }}>
+      <section className="py-20 px-6 border-y" style={{ borderColor: c.borderLight, background: c.bgAlt }}>
         <div className="mx-auto max-w-5xl">
           <div className="mb-14 text-center">
             <SectionLabel>AI Intelligence</SectionLabel>
-            <h2 className="text-3xl font-black sm:text-4xl" style={{ color: '#e8f0f8' }}>
+            <h2 className="text-3xl font-black sm:text-4xl" style={{ color: c.text }}>
               Six specialist AI agents working for you
             </h2>
-            <p className="mt-3 text-base max-w-xl mx-auto" style={{ color: '#8ba0b4' }}>
+            <p className="mt-3 text-base max-w-xl mx-auto" style={{ color: c.textMuted }}>
               Not a chatbot. Dedicated agents that continuously analyse your product and act proactively.
             </p>
           </div>
@@ -358,13 +438,14 @@ export default function LandingPage() {
               { icon: Bell, name: 'Incident Commander', desc: 'Correlates events across systems to explain incidents.' },
               { icon: Cpu, name: 'Knowledge Builder', desc: 'Continuously enriches the Knowledge Graph from new data.' },
             ].map((a) => (
-              <div key={a.name} className="flex gap-4 rounded-2xl border p-5" style={{ borderColor: 'rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.02)' }}>
+              <div key={a.name} className="flex gap-4 rounded-2xl border p-5 transition-all"
+                style={{ borderColor: c.border, background: c.card, boxShadow: c.cardShadow }}>
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl" style={{ background: 'rgba(81,201,211,0.12)' }}>
                   <a.icon className="h-4 w-4" style={{ color: '#51C9D3' }} />
                 </div>
                 <div>
-                  <p className="text-sm font-bold mb-1" style={{ color: '#e8f0f8' }}>{a.name}</p>
-                  <p className="text-xs leading-relaxed" style={{ color: '#8ba0b4' }}>{a.desc}</p>
+                  <p className="text-sm font-bold mb-1" style={{ color: c.text }}>{a.name}</p>
+                  <p className="text-xs leading-relaxed" style={{ color: c.textMuted }}>{a.desc}</p>
                 </div>
               </div>
             ))}
@@ -377,21 +458,23 @@ export default function LandingPage() {
         <div className="mx-auto max-w-4xl">
           <div className="mb-14 text-center">
             <SectionLabel>How it works</SectionLabel>
-            <h2 className="text-3xl font-black sm:text-4xl" style={{ color: '#e8f0f8' }}>Up and running in minutes</h2>
+            <h2 className="text-3xl font-black sm:text-4xl" style={{ color: c.text }}>Up and running in minutes</h2>
           </div>
-          <div className="grid gap-8 sm:grid-cols-3">
+          <div className="grid gap-8 sm:grid-cols-3 relative">
+            {/* Connector line */}
+            <div className="absolute top-7 left-1/4 right-1/4 hidden h-px sm:block" style={{ background: 'linear-gradient(90deg, rgba(81,201,211,0.3), rgba(81,201,211,0.5), rgba(81,201,211,0.3))' }} />
             {[
               { step: '01', icon: Code2, title: 'Install the SDK', desc: 'One SDK for all platforms. Flutter, React, iOS, Android, Node.js. Add two lines of code and you\'re monitoring.' },
               { step: '02', icon: BrainCircuit, title: 'AI learns your product', desc: 'Connect GitHub, import API specs, or let PAAQ infer your architecture from live events. The Knowledge Graph builds automatically.' },
               { step: '03', icon: Sparkles, title: 'Get intelligent insights', desc: 'AI agents start surfacing insights within minutes. Incidents are investigated, root causes identified, fixes ranked.' },
             ].map((s) => (
-              <div key={s.step} className="text-center">
-                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background: 'rgba(81,201,211,0.1)', border: '1px solid rgba(81,201,211,0.2)' }}>
+              <div key={s.step} className="text-center relative z-10">
+                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background: c.card, border: '2px solid rgba(81,201,211,0.35)', boxShadow: c.cardShadow }}>
                   <s.icon className="h-6 w-6" style={{ color: '#51C9D3' }} />
                 </div>
                 <div className="mb-2 text-xs font-bold uppercase tracking-widest" style={{ color: '#51C9D3' }}>{s.step}</div>
-                <h3 className="mb-2 text-base font-bold" style={{ color: '#e8f0f8' }}>{s.title}</h3>
-                <p className="text-sm leading-relaxed" style={{ color: '#8ba0b4' }}>{s.desc}</p>
+                <h3 className="mb-2 text-base font-bold" style={{ color: c.text }}>{s.title}</h3>
+                <p className="text-sm leading-relaxed" style={{ color: c.textMuted }}>{s.desc}</p>
               </div>
             ))}
           </div>
@@ -399,20 +482,20 @@ export default function LandingPage() {
       </section>
 
       {/* ── Security ─────────────────────────────────────────────────────────── */}
-      <section className="py-20 px-6 border-y" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+      <section className="py-20 px-6 border-y" style={{ borderColor: c.borderLight }}>
         <div className="mx-auto max-w-4xl">
           <div className="grid gap-10 lg:grid-cols-2 lg:items-center">
             <div>
               <SectionLabel>Security & privacy</SectionLabel>
-              <h2 className="text-3xl font-black mb-4" style={{ color: '#e8f0f8' }}>Enterprise-grade security built in</h2>
-              <p className="text-base leading-relaxed mb-6" style={{ color: '#8ba0b4' }}>
+              <h2 className="text-3xl font-black mb-4" style={{ color: c.text }}>Enterprise-grade security built in</h2>
+              <p className="text-base leading-relaxed mb-6" style={{ color: c.textMuted }}>
                 Security is not a feature — it's the foundation. Every piece of customer data is isolated, encrypted, and protected.
               </p>
               <div className="space-y-3">
                 {['Row-level security — complete tenant data isolation', 'AES-256 encryption at rest and TLS in transit', 'Audit logs for all account actions', 'SDK credential rotation without downtime', 'CSRF protection and secure session handling', 'Configurable data retention and deletion'].map((item) => (
                   <div key={item} className="flex items-start gap-3">
                     <CheckCircle className="h-4 w-4 shrink-0 mt-0.5" style={{ color: '#51C9D3' }} />
-                    <span className="text-sm" style={{ color: '#8ba0b4' }}>{item}</span>
+                    <span className="text-sm" style={{ color: c.textMuted }}>{item}</span>
                   </div>
                 ))}
               </div>
@@ -425,11 +508,11 @@ export default function LandingPage() {
                 { icon: GitBranch, label: 'Audit trail' },
               ].map((item) => (
                 <div key={item.label} className="flex flex-col items-center justify-center gap-3 rounded-2xl border p-6 text-center"
-                  style={{ borderColor: 'rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.02)' }}>
+                  style={{ borderColor: c.border, background: c.card, boxShadow: c.cardShadow }}>
                   <div className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ background: 'rgba(81,201,211,0.1)' }}>
                     <item.icon className="h-5 w-5" style={{ color: '#51C9D3' }} />
                   </div>
-                  <p className="text-xs font-semibold" style={{ color: '#8ba0b4' }}>{item.label}</p>
+                  <p className="text-xs font-semibold" style={{ color: c.textMuted }}>{item.label}</p>
                 </div>
               ))}
             </div>
@@ -442,16 +525,16 @@ export default function LandingPage() {
         <div className="mx-auto max-w-5xl">
           <div className="mb-14 text-center">
             <SectionLabel>Pricing</SectionLabel>
-            <h2 className="text-3xl font-black sm:text-4xl" style={{ color: '#e8f0f8' }}>Simple, transparent pricing</h2>
-            <p className="mt-3 text-base" style={{ color: '#8ba0b4' }}>Start free. Scale when you need to.</p>
+            <h2 className="text-3xl font-black sm:text-4xl" style={{ color: c.text }}>Simple, transparent pricing</h2>
+            <p className="mt-3 text-base" style={{ color: c.textMuted }}>Start free. Scale when you need to.</p>
           </div>
           <div className="grid gap-4 sm:grid-cols-3">
             {PRICING.map((plan) => (
-              <div key={plan.name} className="relative flex flex-col rounded-2xl border p-6"
+              <div key={plan.name} className="relative flex flex-col rounded-2xl border p-6 transition-all"
                 style={{
-                  borderColor: plan.highlight ? '#51C9D3' : 'rgba(255,255,255,0.07)',
-                  background: plan.highlight ? 'rgba(81,201,211,0.06)' : 'rgba(255,255,255,0.02)',
-                  boxShadow: plan.highlight ? '0 0 40px rgba(81,201,211,0.1)' : 'none',
+                  borderColor: plan.highlight ? '#51C9D3' : c.border,
+                  background: plan.highlight ? (isDark ? 'rgba(81,201,211,0.06)' : 'rgba(81,201,211,0.05)') : c.card,
+                  boxShadow: plan.highlight ? '0 0 40px rgba(81,201,211,0.15)' : c.cardShadow,
                 }}>
                 {plan.highlight && (
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-white"
@@ -460,23 +543,25 @@ export default function LandingPage() {
                   </div>
                 )}
                 <div className="mb-4">
-                  <p className="text-sm font-bold mb-1" style={{ color: plan.highlight ? '#51C9D3' : '#8ba0b4' }}>{plan.name}</p>
+                  <p className="text-sm font-bold mb-1" style={{ color: plan.highlight ? '#51C9D3' : c.textMuted }}>{plan.name}</p>
                   <div className="flex items-end gap-1 mb-2">
-                    <span className="text-3xl font-black" style={{ color: '#e8f0f8' }}>{plan.price}</span>
-                    {plan.period && <span className="text-sm mb-1" style={{ color: '#5a7085' }}>{plan.period}</span>}
+                    <span className="text-3xl font-black" style={{ color: c.text }}>{plan.price}</span>
+                    {plan.period && <span className="text-sm mb-1" style={{ color: c.textDim }}>{plan.period}</span>}
                   </div>
-                  <p className="text-xs" style={{ color: '#5a7085' }}>{plan.desc}</p>
+                  <p className="text-xs" style={{ color: c.textDim }}>{plan.desc}</p>
                 </div>
                 <div className="flex-1 space-y-2.5 mb-6">
                   {plan.features.map((f) => (
                     <div key={f} className="flex items-start gap-2">
                       <Check className="h-3.5 w-3.5 shrink-0 mt-0.5" style={{ color: '#51C9D3' }} />
-                      <span className="text-xs" style={{ color: '#8ba0b4' }}>{f}</span>
+                      <span className="text-xs" style={{ color: c.textMuted }}>{f}</span>
                     </div>
                   ))}
                 </div>
                 <Link href={plan.href} className="flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold transition-opacity hover:opacity-90"
-                  style={plan.highlight ? { background: 'linear-gradient(135deg,#27A6CE,#51C9D3)', color: '#fff' } : { border: '1px solid rgba(255,255,255,0.15)', color: '#e8f0f8' }}>
+                  style={plan.highlight
+                    ? { background: 'linear-gradient(135deg,#27A6CE,#51C9D3)', color: '#fff' }
+                    : { border: `1px solid ${c.border}`, color: c.text }}>
                   {plan.cta} {plan.highlight && <ArrowRight className="h-3.5 w-3.5" />}
                 </Link>
               </div>
@@ -486,25 +571,31 @@ export default function LandingPage() {
       </section>
 
       {/* ── Testimonials ─────────────────────────────────────────────────────── */}
-      <section className="py-20 px-6 border-y" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+      <section className="py-20 px-6 border-y" style={{ borderColor: c.borderLight }}>
         <div className="mx-auto max-w-5xl">
           <div className="mb-14 text-center">
             <SectionLabel>Customer stories</SectionLabel>
-            <h2 className="text-3xl font-black sm:text-4xl" style={{ color: '#e8f0f8' }}>Loved by engineering teams</h2>
+            <h2 className="text-3xl font-black sm:text-4xl" style={{ color: c.text }}>Loved by engineering teams</h2>
           </div>
           <div className="grid gap-4 sm:grid-cols-3">
             {TESTIMONIALS.map((t) => (
               <div key={t.name} className="flex flex-col rounded-2xl border p-6"
-                style={{ borderColor: 'rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.02)' }}>
+                style={{ borderColor: c.border, background: c.card, boxShadow: c.cardShadow }}>
                 <div className="flex gap-0.5 mb-4">
                   {Array.from({ length: t.stars }).map((_, i) => (
                     <Star key={i} className="h-3.5 w-3.5 fill-current" style={{ color: '#51C9D3' }} />
                   ))}
                 </div>
-                <p className="flex-1 text-sm leading-relaxed mb-4" style={{ color: '#8ba0b4' }}>"{t.quote}"</p>
-                <div>
-                  <p className="text-sm font-bold" style={{ color: '#e8f0f8' }}>{t.name}</p>
-                  <p className="text-xs" style={{ color: '#5a7085' }}>{t.role}</p>
+                <p className="flex-1 text-sm leading-relaxed mb-5" style={{ color: c.textMuted }}>"{t.quote}"</p>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold text-white"
+                    style={{ background: 'linear-gradient(135deg,#27A6CE,#51C9D3)' }}>
+                    {t.name.split(' ').map(n => n[0]).join('')}
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold" style={{ color: c.text }}>{t.name}</p>
+                    <p className="text-xs" style={{ color: c.textDim }}>{t.role}</p>
+                  </div>
                 </div>
               </div>
             ))}
@@ -517,9 +608,9 @@ export default function LandingPage() {
         <div className="mx-auto max-w-2xl">
           <div className="mb-12 text-center">
             <SectionLabel>FAQ</SectionLabel>
-            <h2 className="text-3xl font-black" style={{ color: '#e8f0f8' }}>Common questions</h2>
+            <h2 className="text-3xl font-black" style={{ color: c.text }}>Common questions</h2>
           </div>
-          {FAQ_ITEMS.map((item) => <FAQItem key={item.q} {...item} />)}
+          {FAQ_ITEMS.map((item) => <FAQItem key={item.q} q={item.q} a={item.a} c={c} />)}
         </div>
       </section>
 
@@ -527,11 +618,11 @@ export default function LandingPage() {
       <section className="py-24 px-6">
         <div className="mx-auto max-w-2xl text-center">
           <div className="relative rounded-3xl border p-12 overflow-hidden"
-            style={{ borderColor: 'rgba(81,201,211,0.2)', background: 'rgba(81,201,211,0.04)' }}>
-            <div className="pointer-events-none absolute inset-0" style={{ background: 'radial-gradient(ellipse at 50% 0%, rgba(81,201,211,0.12) 0%, transparent 70%)' }} />
+            style={{ borderColor: 'rgba(81,201,211,0.25)', background: isDark ? 'rgba(81,201,211,0.04)' : 'rgba(81,201,211,0.05)', boxShadow: c.cardShadow }}>
+            <div className="pointer-events-none absolute inset-0" style={{ background: 'radial-gradient(ellipse at 50% 0%, rgba(81,201,211,0.14) 0%, transparent 70%)' }} />
             <Sparkles className="mx-auto mb-4 h-8 w-8 relative z-10" style={{ color: '#51C9D3' }} />
-            <h2 className="text-3xl font-black mb-3 relative z-10" style={{ color: '#e8f0f8' }}>Start monitoring in 5 minutes</h2>
-            <p className="mb-8 text-base relative z-10" style={{ color: '#8ba0b4' }}>
+            <h2 className="text-3xl font-black mb-3 relative z-10" style={{ color: c.text }}>Start monitoring in 5 minutes</h2>
+            <p className="mb-8 text-base relative z-10" style={{ color: c.textMuted }}>
               Free tier, no credit card required. See your first AI insight before you finish your coffee.
             </p>
             <div className="flex flex-col gap-3 sm:flex-row sm:justify-center relative z-10">
@@ -539,8 +630,10 @@ export default function LandingPage() {
                 style={{ background: 'linear-gradient(135deg,#27A6CE,#51C9D3)', boxShadow: '0 0 30px rgba(81,201,211,0.3)' }}>
                 Create free account <ArrowRight className="h-4 w-4" />
               </Link>
-              <a href="mailto:hello@paaq.ai" className="flex items-center justify-center gap-2 rounded-xl border px-8 py-3.5 text-sm font-semibold transition-colors hover:bg-white/5"
-                style={{ borderColor: 'rgba(255,255,255,0.15)', color: '#8ba0b4' }}>
+              <a href="mailto:hello@paaq.ai" className="flex items-center justify-center gap-2 rounded-xl border px-8 py-3.5 text-sm font-semibold transition-colors"
+                style={{ borderColor: c.border, color: c.textMuted }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)' }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}>
                 Talk to us
               </a>
             </div>
@@ -549,7 +642,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── Footer ───────────────────────────────────────────────────────────── */}
-      <footer className="border-t py-16 px-6" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+      <footer className="border-t py-16 px-6" style={{ borderColor: c.borderLight }}>
         <div className="mx-auto max-w-5xl">
           <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-5 mb-12">
             <div className="lg:col-span-2">
@@ -557,11 +650,9 @@ export default function LandingPage() {
                 <div className="flex h-8 w-8 items-center justify-center rounded-xl" style={{ background: 'linear-gradient(135deg,#27A6CE,#5FDED4)' }}>
                   <Sparkles className="h-4 w-4 text-white" />
                 </div>
-                <div className="leading-none">
-                  <p className="text-sm font-black" style={{ color: '#e8f0f8' }}>PAAQ Intelligence</p>
-                </div>
+                <p className="text-sm font-black" style={{ color: c.text }}>PAAQ Intelligence</p>
               </div>
-              <p className="text-sm leading-relaxed" style={{ color: '#5a7085' }}>
+              <p className="text-sm leading-relaxed" style={{ color: c.textDim }}>
                 AI-powered product monitoring for modern engineering teams.
               </p>
             </div>
@@ -571,12 +662,12 @@ export default function LandingPage() {
               { title: 'Legal', links: ['Privacy', 'Terms', 'Security', 'Cookies'] },
             ].map((col) => (
               <div key={col.title}>
-                <p className="text-xs font-bold uppercase tracking-widest mb-4" style={{ color: '#4a5568' }}>{col.title}</p>
+                <p className="text-xs font-bold uppercase tracking-widest mb-4" style={{ color: c.textDim }}>{col.title}</p>
                 <div className="space-y-2.5">
                   {col.links.map((link) => (
-                    <a key={link} href="#" className="block text-sm transition-colors" style={{ color: '#5a7085' }}
-                      onMouseEnter={(e) => (e.currentTarget.style.color = '#e8f0f8')}
-                      onMouseLeave={(e) => (e.currentTarget.style.color = '#5a7085')}>
+                    <a key={link} href="#" className="block text-sm transition-colors" style={{ color: c.textMuted }}
+                      onMouseEnter={(e) => (e.currentTarget.style.color = c.text)}
+                      onMouseLeave={(e) => (e.currentTarget.style.color = c.textMuted)}>
                       {link}
                     </a>
                   ))}
@@ -584,9 +675,9 @@ export default function LandingPage() {
               </div>
             ))}
           </div>
-          <div className="flex flex-col items-center justify-between gap-4 border-t pt-8 sm:flex-row" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-            <p className="text-xs" style={{ color: '#4a5568' }}>© 2025 PAAQ Intelligence. All rights reserved.</p>
-            <p className="text-xs" style={{ color: '#4a5568' }}>Built for teams that care about their products.</p>
+          <div className="flex flex-col items-center justify-between gap-4 border-t pt-8 sm:flex-row" style={{ borderColor: c.borderLight }}>
+            <p className="text-xs" style={{ color: c.textDim }}>© 2025 PAAQ Intelligence. All rights reserved.</p>
+            <p className="text-xs" style={{ color: c.textDim }}>Built for teams that care about their products.</p>
           </div>
         </div>
       </footer>
