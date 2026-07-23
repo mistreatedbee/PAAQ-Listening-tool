@@ -263,6 +263,11 @@ export default function OnboardingPage() {
   // Step 6 — verification
   const [verifyStatus, setVerifyStatus] = useState<'waiting' | 'connected' | 'skipped'>('waiting')
 
+  function genToken(prefix: string, len = 32): string {
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
+    return prefix + Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+  }
+
   const createWorkspace = async () => {
     if (!projectName.trim() || !platform) return
     setSubmitting(true)
@@ -273,29 +278,87 @@ export default function OnboardingPage() {
       const { data: { user }, error: userErr } = await sb.auth.getUser()
       if (userErr || !user) { router.push('/login?next=/onboarding'); return }
 
-      const { data: { session } } = await sb.auth.getSession()
-      if (!session) throw new Error('Session expired — please sign in again.')
+      // Check if user already belongs to a tenant
+      const { data: existing } = await sb
+        .from('tenant_users')
+        .select('tenant_id')
+        .eq('auth_user_id', user.id)
+        .limit(1)
+        .maybeSingle()
 
-      const res = await sb.functions.invoke('client-onboard', {
-        body: { companyName, workspaceName: workspaceName || `${companyName} Workspace`, website, industry, teamSize, country, projectName, platform, environment },
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      })
+      let tenantId: string
 
-      if (res.error) {
-        let msg = 'Something went wrong'
-        try {
-          const body = await (res.error as { context?: Response }).context?.json?.()
-          msg = body?.error ?? body?.detail ?? body?.message ?? res.error.message
-        } catch { msg = res.error.message ?? JSON.stringify(res.error) }
-        throw new Error(msg)
+      if (existing?.tenant_id) {
+        tenantId = existing.tenant_id
+      } else {
+        // Create organisation
+        const slug = companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40)
+          + '-' + Math.random().toString(36).slice(2, 6)
+
+        const { data: tenant, error: tenantErr } = await sb.from('tenants').insert({
+          company_name: companyName.trim(),
+          slug,
+          website: website?.trim() || null,
+          industry: industry?.trim() || null,
+          status: 'trial',
+          subscription_plan: 'starter',
+        }).select().single()
+
+        if (tenantErr || !tenant) throw new Error('Failed to create organisation: ' + tenantErr?.message)
+        tenantId = tenant.id
+
+        // Add user as admin member
+        const { error: memberErr } = await sb.from('tenant_users').insert({
+          tenant_id: tenantId,
+          auth_user_id: user.id,
+          email: user.email,
+          role: 'admin',
+        })
+        if (memberErr) throw new Error('Failed to add member: ' + memberErr.message)
       }
 
-      if (!res.data) throw new Error('No response from server.')
-      const { project: proj, tokens, workspace: ws } = res.data as { project: Project; tokens: Creds; workspace: Workspace }
-      if (!proj || !tokens) throw new Error('Incomplete response — please try again.')
+      // Create workspace
+      const wsName = workspaceName?.trim() || `${companyName.trim()} Workspace`
+      const { data: ws, error: wsErr } = await sb.from('workspaces').insert({
+        tenant_id: tenantId,
+        name: wsName,
+        status: 'active',
+      }).select().single()
+      if (wsErr || !ws) throw new Error('Failed to create workspace: ' + wsErr?.message)
+
+      // Create project
+      const projectKey = 'proj_' + Math.random().toString(36).slice(2, 10)
+      const { data: proj, error: projErr } = await sb.from('tenant_projects').insert({
+        tenant_id: tenantId,
+        workspace_id: ws.id,
+        name: projectName.trim(),
+        platform,
+        environment: environment ?? 'production',
+        project_id_key: projectKey,
+        status: 'active',
+      }).select().single()
+      if (projErr || !proj) throw new Error('Failed to create project: ' + projErr?.message)
+
+      // Generate SDK credentials
+      const tokenRows = [
+        { token_type: 'sdk_token',      prefix: 'sdk_live_' },
+        { token_type: 'public_key',     prefix: 'pk_live_' },
+        { token_type: 'secret_key',     prefix: 'sk_live_' },
+        { token_type: 'webhook_secret', prefix: 'whsec_' },
+      ].map(({ token_type, prefix }) => {
+        const t = genToken(prefix)
+        return { tenant_id: tenantId, project_id: proj.id, token_type, token: t, token_hint: t.slice(-4), status: 'active' }
+      })
+
+      await sb.from('access_tokens').insert(tokenRows)
 
       setProject(proj)
-      setCreds(tokens)
+      setCreds({
+        sdkToken:      tokenRows[0].token,
+        publicKey:     tokenRows[1].token,
+        secretKey:     tokenRows[2].token,
+        webhookSecret: tokenRows[3].token,
+      })
       setWorkspace(ws)
       setStep(4)
     } catch (e: unknown) {
