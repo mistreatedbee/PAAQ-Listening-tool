@@ -6,7 +6,7 @@ import { createClient } from '@/utils/supabase/client'
 import {
   Building2, Smartphone, Key, Code2, CheckCircle2,
   ArrowRight, ArrowLeft, Copy, Check, Loader2, Sparkles,
-  Globe, Layers, Wifi,
+  Globe, Layers, Wifi, Download,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -505,6 +505,34 @@ export default function OnboardingPage() {
             <div className="rounded-xl border border-warning/30 bg-warning/5 px-4 py-3 text-sm text-warning">
               <strong>Important:</strong> Store your Secret Key and Webhook Secret in a secure location (e.g. environment variables). They cannot be retrieved again.
             </div>
+
+            <button
+              onClick={() => {
+                const content = [
+                  `PAAQ Credentials — ${project.name}`,
+                  `Generated: ${new Date().toISOString()}`,
+                  '',
+                  `Project ID:       ${project.project_id_key}`,
+                  `SDK Token:        ${creds.sdkToken}`,
+                  `Public Key:       ${creds.publicKey}`,
+                  `Secret Key:       ${creds.secretKey}`,
+                  `Webhook Secret:   ${creds.webhookSecret}`,
+                  '',
+                  'IMPORTANT: Keep the Secret Key and Webhook Secret secure.',
+                  'Never commit them to source control or expose them client-side.',
+                ].join('\n')
+                const blob = new Blob([content], { type: 'text/plain' })
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                a.download = `paaq-credentials-${project.project_id_key}.txt`
+                a.click()
+                URL.revokeObjectURL(url)
+              }}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-muted py-3 text-sm font-semibold hover:bg-accent transition-colors"
+            >
+              <Download className="h-4 w-4" /> Download all credentials as .txt
+            </button>
 
             <button
               onClick={() => setStep(3)}
