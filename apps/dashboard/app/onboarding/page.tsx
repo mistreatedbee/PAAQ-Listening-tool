@@ -240,17 +240,31 @@ export default function OnboardingPage() {
     const timeout = setTimeout(() => controller.abort(), 30000)
     try {
       const sb = createClient()
+      // Use getUser() — makes a server call so we always get a fresh, verified token
+      const { data: { user }, error: userErr } = await sb.auth.getUser()
+      if (userErr || !user) {
+        router.push('/login?next=/onboarding')
+        return
+      }
+      // Get fresh session (includes the refreshed access_token after getUser())
       const { data: { session } } = await sb.auth.getSession()
-      if (!session) throw new Error('Not authenticated — please sign in again.')
+      if (!session) throw new Error('Session expired — please sign in again.')
 
       const res = await sb.functions.invoke('client-onboard', {
         body: { companyName, website, industry, projectName, platform, environment },
+        headers: { Authorization: `Bearer ${session.access_token}` },
       })
 
       if (res.error) {
-        const msg = typeof res.error === 'object' && 'message' in res.error
-          ? String(res.error.message)
-          : JSON.stringify(res.error)
+        // Try to get the actual body from the edge function response
+        let msg = 'Edge function error'
+        try {
+          // FunctionsHttpError exposes the response body via .context
+          const body = await (res.error as { context?: Response }).context?.json?.()
+          msg = body?.error ?? body?.detail ?? body?.message ?? JSON.stringify(body) ?? res.error.message
+        } catch {
+          msg = res.error.message ?? JSON.stringify(res.error)
+        }
         throw new Error(msg)
       }
       if (!res.data) throw new Error('No response from server — please try again.')
