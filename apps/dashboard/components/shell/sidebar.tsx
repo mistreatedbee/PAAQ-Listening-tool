@@ -25,17 +25,18 @@ export function Sidebar({
   const [aiInsights, setAiInsights] = useState(0)
 
   useEffect(() => {
+    if (app.id === '__loading__') return
     const sb = createClient()
     Promise.all([
-      sb.from('incidents').select('*', { count: 'exact', head: true }).neq('status', 'resolved'),
-      sb.from('errors').select('*', { count: 'exact', head: true }).eq('status', 'open'),
-      sb.from('ai_insights').select('*', { count: 'exact', head: true }),
+      sb.from('incidents').select('*', { count: 'exact', head: true }).eq('project_id', app.id).neq('status', 'resolved'),
+      sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', app.id).eq('status', 'open'),
+      sb.from('ai_insights').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
     ]).then(([{ count: inc }, { count: err }, { count: ai }]) => {
       setOpenIncidents(inc ?? 0)
       setOpenErrors(err ?? 0)
       setAiInsights(ai ?? 0)
     })
-  }, [])
+  }, [app.id])
 
   function liveBadge(href: string) {
     if (href === '/incidents' && openIncidents > 0)

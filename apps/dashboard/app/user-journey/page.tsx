@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { PageHeader, Card, CardHead, ToneBadge } from '@/components/kit'
 import { Route, RefreshCw, CheckCircle2, XCircle } from 'lucide-react'
 
@@ -18,6 +19,7 @@ type Journey = {
 }
 
 export default function UserJourneyPage() {
+  const { app } = useConnectedApp()
   const [journeys, setJourneys] = useState<Journey[]>([])
   const [loading, setLoading] = useState(true)
   const [analysing, setAnalysing] = useState(false)
@@ -29,16 +31,19 @@ export default function UserJourneyPage() {
     setTimeout(() => setToast(null), 4000)
   }
 
-  const fetchJourneys = async () => {
+  const fetchJourneys = async (projectId: string) => {
     const sb = createClient()
-    const { data } = await sb.from('user_journeys').select('*').order('created_at', { ascending: false }).limit(50)
+    const { data } = await sb.from('user_journeys').select('*').eq('project_id', projectId).order('created_at', { ascending: false }).limit(50)
     const rows = (data ?? []) as Journey[]
     setJourneys(rows)
     if (rows.length > 0 && !selected) setSelected(rows[0])
     setLoading(false)
   }
 
-  useEffect(() => { fetchJourneys() }, [])
+  useEffect(() => {
+    if (app.id === '__loading__') return
+    fetchJourneys(app.id)
+  }, [app.id])
 
   const runAnalysis = async () => {
     setAnalysing(true)
@@ -48,7 +53,7 @@ export default function UserJourneyPage() {
     if (error) {
       showToast('Analysis failed — check ANTHROPIC_API_KEY is set in Supabase')
     } else {
-      await fetchJourneys()
+      await fetchJourneys(app.id)
       showToast(`Analysis complete — ${data?.journeys ?? 0} journeys reconstructed`)
     }
     setAnalysing(false)

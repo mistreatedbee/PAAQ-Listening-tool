@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import { createClient } from '@/utils/supabase/client'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { flatNav } from '@/lib/nav'
 import { cn } from '@/lib/utils'
 import { toneBg, toneText } from '@/lib/tones'
@@ -49,6 +50,7 @@ export function Topbar({
 }) {
   const router = useRouter()
   const { resolvedTheme, setTheme } = useTheme()
+  const { app } = useConnectedApp()
   const [search, setSearch] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
@@ -57,24 +59,28 @@ export function Topbar({
   const [sessionCount, setSessionCount] = useState<number | null>(null)
 
   useEffect(() => {
+    if (app.id === '__loading__') return
     const sb = createClient()
     Promise.all([
       sb.from('notifications')
         .select('id, message, type, created_at')
+        .eq('project_id', app.id)
         .order('created_at', { ascending: false })
         .limit(10),
       sb.from('incidents')
         .select('*', { count: 'exact', head: true })
+        .eq('project_id', app.id)
         .eq('severity', 'critical')
         .neq('status', 'resolved'),
       sb.from('sessions')
-        .select('*', { count: 'exact', head: true }),
+        .select('*', { count: 'exact', head: true })
+        .eq('project_id', app.id),
     ]).then(([{ data }, { count: critical }, { count: sessions }]) => {
       setNotifications((data ?? []) as DbNotification[])
       setCriticalCount(critical ?? 0)
       setSessionCount(sessions ?? 0)
     })
-  }, [])
+  }, [app.id])
 
   const results = search
     ? flatNav.filter((n) => n.label.toLowerCase().includes(search.toLowerCase())).slice(0, 6)

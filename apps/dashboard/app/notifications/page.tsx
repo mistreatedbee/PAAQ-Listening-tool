@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { Card, CardHead, ToneBadge } from '@/components/kit'
 import { Bell, CheckCircle2, XCircle, Clock, MessageSquare, Mail, Smartphone } from 'lucide-react'
 import type { Tone } from '@/lib/data'
@@ -47,21 +48,24 @@ function timeAgo(ts: string) {
 }
 
 export default function NotificationsPage() {
+  const { app } = useConnectedApp()
   const [stats, setStats] = useState<NotifStat[]>([])
   const [logs, setLogs] = useState<NotifLog[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (app.id === '__loading__') return
     const sb = createClient()
     Promise.all([
-      sb.from('notifications').select('*', { count: 'exact', head: true }),
-      sb.from('notifications').select('*', { count: 'exact', head: true }).eq('status', 'delivered'),
-      sb.from('notifications').select('*', { count: 'exact', head: true }).eq('status', 'failed'),
-      sb.from('notifications').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
-      sb.from('notifications').select('*', { count: 'exact', head: true }).eq('channel', 'email'),
-      sb.from('notifications').select('*', { count: 'exact', head: true }).eq('channel', 'push'),
+      sb.from('notifications').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
+      sb.from('notifications').select('*', { count: 'exact', head: true }).eq('project_id', app.id).eq('status', 'delivered'),
+      sb.from('notifications').select('*', { count: 'exact', head: true }).eq('project_id', app.id).eq('status', 'failed'),
+      sb.from('notifications').select('*', { count: 'exact', head: true }).eq('project_id', app.id).eq('status', 'pending'),
+      sb.from('notifications').select('*', { count: 'exact', head: true }).eq('project_id', app.id).eq('channel', 'email'),
+      sb.from('notifications').select('*', { count: 'exact', head: true }).eq('project_id', app.id).eq('channel', 'push'),
       sb.from('notifications')
         .select('id, type, channel, status, recipient, created_at, error_message')
+        .eq('project_id', app.id)
         .order('created_at', { ascending: false })
         .limit(20),
     ]).then(([
@@ -110,7 +114,7 @@ export default function NotificationsPage() {
       setLogs((logData ?? []) as NotifLog[])
       setLoading(false)
     })
-  }, [])
+  }, [app.id])
 
   return (
     <div className="space-y-5">
