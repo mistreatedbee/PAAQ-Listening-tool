@@ -8,6 +8,11 @@ import {
   Check, Copy, Loader2, ArrowRight, Key, AlertTriangle,
   Download, CheckCircle2, BarChart3, Activity, Flame, X,
 } from 'lucide-react'
+import {
+  SiReact, SiNextdotjs, SiVuedotjs, SiAngular, SiJavascript,
+  SiFlutter, SiApple, SiAndroid,
+  SiNodedotjs, SiPython, SiGo, SiOpenjdk, SiDotnet,
+} from 'react-icons/si'
 
 // ─── Theme tokens (designer's light theme) ────────────────────────────────────
 
@@ -40,37 +45,37 @@ interface Credentials { projectId: string; sdkToken: string; publicKey: string; 
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
-type TechOption = { emoji: string; label: string; platformId: string }
+type TechOption = { Icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; color: string; label: string; platformId: string }
 
 const TECH: Record<string, TechOption[]> = {
   website: [
-    { emoji: '⚛️', label: 'React',      platformId: 'react' },
-    { emoji: '▲',  label: 'Next.js',    platformId: 'nextjs' },
-    { emoji: '💚', label: 'Vue',         platformId: 'vue' },
-    { emoji: '🔺', label: 'Angular',     platformId: 'angular' },
-    { emoji: '🟨', label: 'Vanilla JS',  platformId: 'vanilla' },
+    { Icon: SiReact,     color: '#61DAFB', label: 'React',      platformId: 'react' },
+    { Icon: SiNextdotjs, color: '#111827', label: 'Next.js',    platformId: 'nextjs' },
+    { Icon: SiVuedotjs,  color: '#42B883', label: 'Vue',        platformId: 'vue' },
+    { Icon: SiAngular,   color: '#DD0031', label: 'Angular',    platformId: 'angular' },
+    { Icon: SiJavascript,color: '#F7DF1E', label: 'Vanilla JS', platformId: 'vanilla' },
   ],
   mobile: [
-    { emoji: '🦋', label: 'Flutter',      platformId: 'flutter' },
-    { emoji: '📱', label: 'React Native', platformId: 'reactnative' },
-    { emoji: '🍎', label: 'iOS',          platformId: 'ios' },
-    { emoji: '🤖', label: 'Android',      platformId: 'android' },
+    { Icon: SiFlutter,   color: '#02569B', label: 'Flutter',      platformId: 'flutter' },
+    { Icon: SiReact,     color: '#61DAFB', label: 'React Native', platformId: 'reactnative' },
+    { Icon: SiApple,     color: '#111827', label: 'iOS',          platformId: 'ios' },
+    { Icon: SiAndroid,   color: '#3DDC84', label: 'Android',      platformId: 'android' },
   ],
   backend: [
-    { emoji: '🟢', label: 'Node.js', platformId: 'nodejs' },
-    { emoji: '🐍', label: 'Python',  platformId: 'python' },
-    { emoji: '🔵', label: 'Go',      platformId: 'go' },
-    { emoji: '☕', label: 'Java',    platformId: 'java' },
-    { emoji: '💜', label: '.NET',    platformId: 'dotnet' },
+    { Icon: SiNodedotjs, color: '#5FA04E', label: 'Node.js', platformId: 'nodejs' },
+    { Icon: SiPython,    color: '#3776AB', label: 'Python',  platformId: 'python' },
+    { Icon: SiGo,        color: '#00ADD8', label: 'Go',      platformId: 'go' },
+    { Icon: SiOpenjdk,   color: '#ED8B00', label: 'Java',    platformId: 'java' },
+    { Icon: SiDotnet,    color: '#512BD4', label: '.NET',    platformId: 'dotnet' },
   ],
   platform: [
-    { emoji: '⚛️', label: 'React',      platformId: 'react' },
-    { emoji: '▲',  label: 'Next.js',    platformId: 'nextjs' },
-    { emoji: '💚', label: 'Vue',         platformId: 'vue' },
-    { emoji: '🦋', label: 'Flutter',     platformId: 'flutter' },
-    { emoji: '🟢', label: 'Node.js',    platformId: 'nodejs' },
-    { emoji: '🐍', label: 'Python',     platformId: 'python' },
-    { emoji: '🔵', label: 'Go',         platformId: 'go' },
+    { Icon: SiReact,     color: '#61DAFB', label: 'React',   platformId: 'react' },
+    { Icon: SiNextdotjs, color: '#111827', label: 'Next.js', platformId: 'nextjs' },
+    { Icon: SiVuedotjs,  color: '#42B883', label: 'Vue',     platformId: 'vue' },
+    { Icon: SiFlutter,   color: '#02569B', label: 'Flutter', platformId: 'flutter' },
+    { Icon: SiNodedotjs, color: '#5FA04E', label: 'Node.js', platformId: 'nodejs' },
+    { Icon: SiPython,    color: '#3776AB', label: 'Python',  platformId: 'python' },
+    { Icon: SiGo,        color: '#00ADD8', label: 'Go',      platformId: 'go' },
   ],
 }
 
@@ -610,6 +615,7 @@ export default function OnboardingPage() {
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                   {(TECH[product.productType] ?? []).map((tech) => {
                     const active = product.technology === tech.label
+                    const Icon = tech.Icon
                     return (
                       <button key={tech.label} type="button"
                         onClick={() => setProduct({ ...product, technology: tech.label })}
@@ -620,8 +626,8 @@ export default function OnboardingPage() {
                           boxShadow: active ? '0 8px 18px rgba(39,166,206,0.10)' : '0 1px 2px rgba(15,27,42,0.02)',
                         }}
                         className="group relative flex min-h-[112px] flex-col items-center justify-center rounded-2xl border p-4 transition-all hover:border-slate-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-100">
-                        <span className="mb-2.5 flex h-10 w-10 items-center justify-center rounded-xl bg-slate-50 text-2xl transition-colors group-hover:bg-slate-100">
-                          {tech.emoji}
+                        <span className="mb-2.5 flex h-10 w-10 items-center justify-center rounded-xl bg-slate-50 transition-colors group-hover:bg-slate-100">
+                          <Icon className="h-6 w-6" style={{ color: tech.color }} />
                         </span>
                         <span className="text-xs font-semibold" style={{ color: active ? C.textPrimary : C.textSecondary }}>
                           {tech.label}
