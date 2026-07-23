@@ -1,4 +1,4 @@
-import { createClient } from 'npm:@supabase/supabase-js'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -16,45 +16,46 @@ function slugify(name: string): string {
     + '-' + Math.random().toString(36).slice(2, 6)
 }
 
-export default async function handler(req: Request): Promise<Response> {
+Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
 
   try {
-    // ── Auth: verify the calling user ────────────────────────────────────────
     const authHeader = req.headers.get('authorization')
-    if (!authHeader) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: cors })
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
 
-    // Use anon client with user's JWT to verify identity
     const anonClient = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_ANON_KEY')!,
       { global: { headers: { authorization: authHeader } } },
     )
     const { data: { user }, error: authError } = await anonClient.auth.getUser()
-    if (authError || !user) return new Response(JSON.stringify({ error: 'Invalid session' }), { status: 401, headers: cors })
+    if (authError || !user) {
+      return new Response(JSON.stringify({ error: 'Invalid session' }), { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
 
-    // ── Service-role client for all writes ────────────────────────────────────
     const sb = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     )
 
-    const { companyName, website, industry, projectName, platform, environment } = await req.json()
+    const body = await req.json()
+    const { companyName, website, industry, projectName, platform, environment } = body
     if (!companyName?.trim() || !projectName?.trim() || !platform) {
-      return new Response(JSON.stringify({ error: 'companyName, projectName, and platform are required' }), { status: 400, headers: cors })
+      return new Response(JSON.stringify({ error: 'companyName, projectName, and platform are required' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } })
     }
 
-    // ── Idempotency: check if user already has a tenant ──────────────────────
     const { data: existing } = await sb
       .from('tenant_users')
       .select('tenant_id')
       .eq('auth_user_id', user.id)
       .limit(1)
-      .single()
+      .maybeSingle()
 
     if (existing?.tenant_id) {
       const projectKey = 'proj_' + Math.random().toString(36).slice(2, 10)
-      const { data: project } = await sb.from('tenant_projects').insert({
+      const { data: project, error: projErr } = await sb.from('tenant_projects').insert({
         tenant_id: existing.tenant_id,
         name: projectName.trim(),
         platform,
@@ -63,7 +64,9 @@ export default async function handler(req: Request): Promise<Response> {
         status: 'active',
       }).select().single()
 
-      if (!project) return new Response(JSON.stringify({ error: 'Failed to create project' }), { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } })
+      if (projErr || !project) {
+        return new Response(JSON.stringify({ error: 'Failed to create project', detail: projErr?.message }), { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } })
+      }
 
       const tokens = await createTokens(sb, existing.tenant_id, project.id)
       return new Response(JSON.stringify({ tenantId: existing.tenant_id, project, tokens, isNew: false }), {
@@ -71,7 +74,6 @@ export default async function handler(req: Request): Promise<Response> {
       })
     }
 
-    // ── 1. Create tenant ─────────────────────────────────────────────────────
     const { data: tenant, error: tenantErr } = await sb.from('tenants').insert({
       company_name: companyName.trim(),
       slug: slugify(companyName),
@@ -85,7 +87,6 @@ export default async function handler(req: Request): Promise<Response> {
       return new Response(JSON.stringify({ error: 'Failed to create tenant', detail: tenantErr?.message }), { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } })
     }
 
-    // ── 2. Link auth user to tenant ──────────────────────────────────────────
     await sb.from('tenant_users').insert({
       tenant_id: tenant.id,
       auth_user_id: user.id,
@@ -93,7 +94,6 @@ export default async function handler(req: Request): Promise<Response> {
       role: 'admin',
     })
 
-    // ── 3. Create first project ───────────────────────────────────────────────
     const projectKey = 'proj_' + Math.random().toString(36).slice(2, 10)
     const { data: project, error: projErr } = await sb.from('tenant_projects').insert({
       tenant_id: tenant.id,
@@ -108,10 +108,8 @@ export default async function handler(req: Request): Promise<Response> {
       return new Response(JSON.stringify({ error: 'Failed to create project', detail: projErr?.message }), { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } })
     }
 
-    // ── 4. Generate credentials ───────────────────────────────────────────────
     const tokens = await createTokens(sb, tenant.id, project.id)
 
-    // ── 5. Log audit ─────────────────────────────────────────────────────────
     await sb.from('admin_audit_log').insert({
       action: `Self-serve onboarding: "${companyName}" created project "${projectName}"`,
       resource_type: 'tenant',
@@ -127,7 +125,7 @@ export default async function handler(req: Request): Promise<Response> {
       headers: { ...cors, 'Content-Type': 'application/json' },
     })
   }
-}
+})
 
 async function createTokens(sb: ReturnType<typeof createClient>, tenantId: string, projectId: string) {
   const rows = [
