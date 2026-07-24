@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { createClient } from '@/utils/supabase/client'
 import { Sparkles, ArrowRight, Loader2, Eye, EyeOff, Check, X } from 'lucide-react'
 
@@ -163,9 +164,7 @@ export default function LoginPage() {
         {/* Logo */}
         <div className="relative px-10 pt-10">
           <div className="flex items-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl text-white shadow-md" style={{ background: TEAL_GRADIENT }}>
-              <Sparkles className="h-4 w-4" />
-            </span>
+            <Image src="/logo.png" alt="PAAQ Intelligence" width={36} height={36} className="rounded-xl shadow-md" />
             <div className="leading-none">
               <p className="text-sm font-black tracking-tight text-white">PAAQ Intelligence</p>
               <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: '#51C9D3' }}>AI Digital Product Platform</p>
@@ -210,9 +209,7 @@ export default function LoginPage() {
 
           {/* Mobile logo */}
           <div className="mb-8 flex items-center gap-2.5 lg:hidden">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg text-white" style={{ background: TEAL_GRADIENT }}>
-              <Sparkles className="h-4 w-4" />
-            </span>
+            <Image src="/logo.png" alt="PAAQ Intelligence" width={32} height={32} className="rounded-lg" />
             <span className="text-sm font-bold" style={{ color: C.textPrimary }}>PAAQ Intelligence</span>
           </div>
 

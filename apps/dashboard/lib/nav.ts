@@ -44,7 +44,7 @@ export const navGroups: NavGroup[] = [
     title: 'Operations',
     items: [
       { label: 'User Experience',   href: '/user-journey',     icon: Route },
-      { label: 'Workflow Health',   href: '/errors',           icon: Activity },
+      { label: 'Error Tracking',    href: '/errors',           icon: Activity },
       { label: 'Performance',       href: '/performance',      icon: Gauge },
       { label: 'Security',          href: '/security',         icon: Shield },
       { label: 'Deployments',       href: '/deployments',      icon: Rocket },

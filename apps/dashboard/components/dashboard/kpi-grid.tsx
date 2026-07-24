@@ -21,7 +21,7 @@ const placeholder: KpiData[] = [
   { label: 'Org Health',       sub: 'AI score',         value: '—', tone: 'healthy',  spark: Array(8).fill(0) },
   { label: 'Active Users',     sub: 'last 24h',         value: '—', tone: 'intel',    spark: Array(8).fill(0) },
   { label: 'AI Coverage',      sub: 'entities learned', value: '—', tone: 'ai',       spark: Array(8).fill(0) },
-  { label: 'Workflow Health',  sub: 'sessions OK',      value: '—', tone: 'healthy',  spark: Array(8).fill(0) },
+  { label: 'Error Tracking',  sub: 'sessions OK',      value: '—', tone: 'healthy',  spark: Array(8).fill(0) },
   { label: 'Emerging Risks',   sub: 'active',           value: '—', tone: 'warning',  spark: Array(8).fill(0) },
   { label: 'AI Insights',      sub: 'generated',        value: '—', tone: 'ai',       spark: Array(8).fill(0) },
 ]
@@ -65,7 +65,7 @@ export function KpiGrid() {
       // AI coverage: knowledge entities as % of a target (100 entities = comprehensive)
       const coverage = kn > 0 ? Math.min(100, Math.round((kn / 100) * 100)) : 0
 
-      // Workflow health: error-free sessions as %
+      // Error tracking: open errors as primary signal
       const workflowHealth = ses > 0
         ? Math.max(0, Math.min(100, Math.round(((ses - Math.min(er, ses)) / ses) * 100)))
         : 100
@@ -95,7 +95,7 @@ export function KpiGrid() {
           pulse: 'ai',
         },
         {
-          label: 'Workflow Health',
+          label: 'Error Tracking',
           sub: 'sessions OK',
           value: `${workflowHealth}%`,
           tone: workflowHealth >= 90 ? 'healthy' : workflowHealth >= 70 ? 'warning' : 'critical',

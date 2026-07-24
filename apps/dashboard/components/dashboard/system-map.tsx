@@ -137,8 +137,8 @@ export function SystemMap() {
           tone: kn > 0 ? 'ai' : 'intel',
         },
         {
-          id: 'workflows',
-          label: 'Workflow Health',
+          id: 'errors',
+          label: 'Error Tracking',
           sub: er > 0 ? `${er} issues detected` : 'No issues detected',
           Icon: Activity,
           status: er > 0 ? (er > 5 ? 'offline' : 'learning') : 'active',

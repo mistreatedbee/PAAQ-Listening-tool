@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import { useState, useEffect } from 'react'
 import { useTheme } from 'next-themes'
 import {
@@ -647,9 +648,7 @@ export default function LandingPage() {
           <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-5 mb-12">
             <div className="lg:col-span-2">
               <div className="flex items-center gap-2.5 mb-4">
-                <div className="flex h-8 w-8 items-center justify-center rounded-xl" style={{ background: 'linear-gradient(135deg,#27A6CE,#5FDED4)' }}>
-                  <Sparkles className="h-4 w-4 text-white" />
-                </div>
+                <Image src="/logo.png" alt="PAAQ Intelligence" width={32} height={32} className="rounded-xl" />
                 <p className="text-sm font-black" style={{ color: c.text }}>PAAQ Intelligence</p>
               </div>
               <p className="text-sm leading-relaxed" style={{ color: c.textDim }}>

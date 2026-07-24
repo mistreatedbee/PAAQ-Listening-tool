@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { createClient } from '@/utils/supabase/client'
 import {
   Sparkles, Building2, Globe, Server, Smartphone, Boxes,
@@ -417,10 +418,7 @@ export default function OnboardingPage() {
         style={{ background: 'rgba(255,255,255,0.85)', borderColor: C.border }}>
         <div className="mx-auto flex h-full max-w-2xl items-center justify-between px-6">
           <div className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg text-white shadow-sm"
-              style={{ background: TEAL_GRADIENT }}>
-              <Sparkles className="h-4 w-4" />
-            </span>
+            <Image src="/logo.png" alt="PAAQ Intelligence" width={32} height={32} className="rounded-lg shadow-sm" />
             <span className="text-sm font-bold" style={{ color: C.textPrimary }}>PAAQ Intelligence</span>
           </div>
           {screen !== 'welcome' && (
@@ -438,10 +436,7 @@ export default function OnboardingPage() {
         {screen === 'welcome' && (
           <div className="space-y-8">
             <div className="flex flex-col items-center text-center">
-              <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl"
-                style={{ background: C.tealSoft, color: C.teal, border: `1px solid rgba(39,166,206,0.25)` }}>
-                <Sparkles className="h-8 w-8" />
-              </div>
+              <Image src="/logo.png" alt="PAAQ Intelligence" width={64} height={64} className="mb-6 rounded-2xl" />
               <h1 className="text-3xl font-black tracking-tight sm:text-4xl" style={{ color: C.textPrimary }}>
                 Welcome to PAAQ Intelligence
               </h1>

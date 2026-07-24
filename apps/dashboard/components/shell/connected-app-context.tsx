@@ -3,7 +3,8 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import Link from 'next/link'
-import { Sparkles, Plus, Loader2 } from 'lucide-react'
+import Image from 'next/image'
+import { Plus, Loader2 } from 'lucide-react'
 import type { ConnectedApp } from '@/lib/connected-app'
 
 // ─── Map a tenant_projects DB row → ConnectedApp shape ───────────────────────
@@ -210,9 +211,7 @@ function NoProjectsShell() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6">
       <div className="mx-auto max-w-md text-center">
-        <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
-          <Sparkles className="h-8 w-8 text-primary" />
-        </div>
+        <Image src="/logo.png" alt="PAAQ Intelligence" width={64} height={64} className="mx-auto mb-6 rounded-2xl" />
         <h1 className="text-2xl font-black tracking-tight">Welcome to PAAQ Intelligence</h1>
         <p className="mt-3 text-base text-muted-foreground leading-relaxed">
           You're in — now let's connect your digital product. The setup takes about 2 minutes.
