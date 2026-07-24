@@ -124,7 +124,9 @@ export function Sidebar({
               </p>
               <ul className="space-y-0.5">
                 {group.items.map((item) => {
-                  const active = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
+                  const active = pathname === item.href
+                    || (item.href !== '/dashboard' && pathname.startsWith(item.href))
+                    || (item.href === '/setup' && pathname.startsWith('/apps/'))
                   const Icon = item.icon
                   const badge = liveBadge(item.href) ?? (item.badge ? { value: item.badge, tone: item.badgeTone ?? 'intel' as const } : null)
                   return (

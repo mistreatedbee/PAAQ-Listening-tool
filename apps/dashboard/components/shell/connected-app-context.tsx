@@ -35,16 +35,43 @@ type ProjectRow = {
   description: string | null
   project_id_key: string
   status: string
+  created_at: string
 }
 
-function toConnectedApp(project: ProjectRow, sdkActive: boolean): ConnectedApp {
+type InstallRow = {
+  project_id: string
+  platform: string
+  last_seen: string
+  status: string
+}
+
+// Platforms that indicate a frontend SDK is present
+const FRONTEND_PLATFORMS = new Set(['react', 'nextjs', 'vue', 'angular', 'vanilla'])
+// Platforms that indicate a mobile SDK is present (counts as frontend layer)
+const MOBILE_PLATFORMS   = new Set(['flutter', 'reactnative', 'ios', 'android'])
+// Platforms that indicate a backend SDK is present
+const BACKEND_PLATFORMS  = new Set(['nodejs', 'python', 'go', 'java', 'dotnet', 'ruby', 'other'])
+
+function toConnectedApp(project: ProjectRow, installs: InstallRow[]): ConnectedApp {
   const env = project.environment === 'production'
     ? 'Production'
     : project.environment === 'staging'
     ? 'Staging'
     : 'Development'
 
-  const status = sdkActive ? 'connected' : ('disconnected' as const)
+  const projectInstalls = installs.filter(
+    (i) => i.project_id === project.id && i.status === 'active',
+  )
+  const platforms = new Set(projectInstalls.map((i) => i.platform))
+
+  const hasFrontend = [...FRONTEND_PLATFORMS, ...MOBILE_PLATFORMS].some((p) => platforms.has(p))
+  const hasBackend  = [...BACKEND_PLATFORMS].some((p) => platforms.has(p))
+
+  // Derive most-recent last_seen from any active installation
+  const lastSeenMs = projectInstalls.map((i) => new Date(i.last_seen).getTime())
+  const lastSeen = lastSeenMs.length > 0
+    ? new Date(Math.max(...lastSeenMs)).toISOString()
+    : project.created_at
 
   return {
     id: project.id,
@@ -61,9 +88,13 @@ function toConnectedApp(project: ProjectRow, sdkActive: boolean): ConnectedApp {
     alertRules: [],
     team: [],
     markets: [],
-    connectedSince: new Date().toISOString(),
-    lastSeen: new Date().toISOString(),
-    sdkStatus: { frontend: status, backend: status, database: status },
+    connectedSince: project.created_at,
+    lastSeen,
+    sdkStatus: {
+      frontend: hasFrontend ? 'connected' : 'disconnected',
+      backend:  hasBackend  ? 'connected' : 'disconnected',
+      database: 'disconnected', // Database connector tracked separately — not via sdk_installations
+    },
   }
 }
 
@@ -132,7 +163,7 @@ export function ConnectedAppProvider({ children }: { children: ReactNode }) {
       // 3. Load all active projects for those tenants
       const { data: projects } = await sb
         .from('tenant_projects')
-        .select('id, tenant_id, name, platform, environment, description, project_id_key, status')
+        .select('id, tenant_id, name, platform, environment, description, project_id_key, status, created_at')
         .in('tenant_id', tenantIds)
         .eq('status', 'active')
         .order('created_at', { ascending: true })
@@ -144,17 +175,14 @@ export function ConnectedAppProvider({ children }: { children: ReactNode }) {
         return
       }
 
-      // 4. Check SDK installation status for each project
+      // 4. Fetch per-platform SDK installation status for each project
       const { data: installs } = await sb
         .from('sdk_installations')
-        .select('project_id')
+        .select('project_id, platform, last_seen, status')
         .in('project_id', projects.map((p) => p.id))
-        .eq('status', 'active')
 
-      const activeProjectIds = new Set((installs ?? []).map((i) => i.project_id))
-
-      // 5. Map to ConnectedApp shape
-      const mapped = projects.map((p) => toConnectedApp(p as ProjectRow, activeProjectIds.has(p.id)))
+      // 5. Map to ConnectedApp shape — with granular per-layer status
+      const mapped = projects.map((p) => toConnectedApp(p as ProjectRow, (installs ?? []) as InstallRow[]))
 
       if (!cancelled) {
         setApps(mapped)

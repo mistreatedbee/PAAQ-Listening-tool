@@ -215,7 +215,7 @@ function AppCard({ app }: { app: ConnectedApp }) {
           Intelligence
         </Link>
         <Link
-          href="/settings"
+          href={`/apps/${app.id}`}
           className="flex items-center justify-center gap-1.5 rounded-lg border border-border/60 bg-card/60 px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
         >
           <Settings className="h-3.5 w-3.5" />
