@@ -1,18 +1,19 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/utils/supabase/client'
 import { ToneBadge } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import {
-  ArrowLeft, CheckCircle2, XCircle, Loader2, Copy, Check,
+  ArrowLeft, CheckCircle2, Loader2, Copy, Check,
   Eye, EyeOff, RefreshCw, Globe, Server, Database, Sparkles,
   LayoutDashboard, Clock, Users, Activity, AlertTriangle,
-  GitBranch, Zap, Package, ArrowRight, Terminal, Shield,
-  BrainCircuit, TrendingUp,
+  GitBranch, Zap, Package, ArrowRight, Shield,
+  BrainCircuit, TrendingUp, X, Link2, CloudCog,
 } from 'lucide-react'
+import { SiGithub, SiGitlab, SiBitbucket } from 'react-icons/si'
 import type { Tone } from '@/lib/data'
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -46,6 +47,7 @@ type AppLifecycle =
   | 'disconnected'
 
 type SdkStatus = 'connected' | 'disconnected' | 'degraded'
+type LayerKey = 'frontend' | 'backend' | 'database'
 
 // ── Lifecycle derivation ──────────────────────────────────────────────
 const FRONTEND_PLATFORMS = new Set(['react', 'nextjs', 'vue', 'angular', 'vanilla'])
@@ -70,7 +72,7 @@ function deriveLifecycle(
 const LIFECYCLE_META: Record<AppLifecycle, { label: string; tone: Tone; desc: string }> = {
   not_connected:      { label: 'Not Connected',      tone: 'intel',    desc: 'No SDK has authenticated yet. Follow the setup steps below.' },
   sdk_installed:      { label: 'SDK Installed',      tone: 'ai',       desc: 'SDK is installed and authenticated. Waiting for first events.' },
-  connection_verified: { label: 'Connection Verified', tone: 'ai',      desc: 'Events are being received. AI discovery is starting.' },
+  connection_verified: { label: 'Connection Verified', tone: 'ai',     desc: 'Events are being received. AI discovery is starting.' },
   discovery_running:  { label: 'Discovery Running',  tone: 'warning',  desc: 'AI agents are actively learning your application.' },
   monitoring_active:  { label: 'Monitoring Active',  tone: 'healthy',  desc: 'Fully operational — AI is continuously monitoring and learning.' },
   disconnected:       { label: 'Disconnected',       tone: 'critical', desc: 'Was connected but no events received in the last 24 hours.' },
@@ -113,10 +115,11 @@ function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) 
 
 // ── SDK status row ─────────────────────────────────────────────────────
 function SdkRow({
-  label, desc, icon: Icon, status, detail,
+  label, desc, icon: Icon, status, detail, layerKey, onSetup,
 }: {
   label: string; desc: string; icon: typeof Globe
-  status: SdkStatus; detail?: string
+  status: SdkStatus; detail?: string; layerKey: LayerKey
+  onSetup: (layer: LayerKey) => void
 }) {
   return (
     <div className="flex items-start gap-4 py-3.5 border-b border-border/40 last:border-0">
@@ -138,12 +141,12 @@ function SdkRow({
         <p className="text-[10px] text-muted-foreground mt-0.5">{status === 'connected' && detail ? detail : desc}</p>
       </div>
       {status === 'disconnected' && (
-        <Link
-          href="#setup"
+        <button
+          onClick={() => onSetup(layerKey)}
           className="shrink-0 flex items-center gap-1 rounded-lg border border-ai/30 bg-ai/10 px-2.5 py-1.5 text-[10px] font-semibold text-ai hover:bg-ai/20 transition-colors"
         >
           Setup <ArrowRight className="h-3 w-3" />
-        </Link>
+        </button>
       )}
     </div>
   )
@@ -173,10 +176,19 @@ function DiscoveryRow({ layer }: { layer: DiscoverLayer }) {
   )
 }
 
+// ── Repo provider config ───────────────────────────────────────────────
+const REPO_PROVIDERS = [
+  { id: 'github',    label: 'GitHub',       Icon: SiGithub,   iconColor: 'text-foreground',    description: 'Connect your GitHub repositories' },
+  { id: 'gitlab',    label: 'GitLab',       Icon: SiGitlab,   iconColor: 'text-[#FC6D26]',     description: 'Connect your GitLab repositories' },
+  { id: 'azure',     label: 'Azure DevOps', Icon: GitBranch,  iconColor: 'text-[#0078D4]',     description: 'Connect Azure DevOps repositories' },
+  { id: 'bitbucket', label: 'Bitbucket',    Icon: SiBitbucket, iconColor: 'text-[#0052CC]',   description: 'Connect your Bitbucket repositories' },
+]
+
 // ── Main Page ─────────────────────────────────────────────────────────
 export default function AppManagementPage() {
   const { id } = useParams<{ id: string }>()
   const router  = useRouter()
+  const searchParams = useSearchParams()
 
   const [project,  setProject]  = useState<ProjectRow | null>(null)
   const [installs, setInstalls] = useState<InstallRow[]>([])
@@ -191,48 +203,64 @@ export default function AppManagementPage() {
   const [showKey, setShowKey] = useState(false)
   const [notFound, setNotFound] = useState(false)
 
+  // Setup layer expansion
+  const [setupLayer, setSetupLayer] = useState<LayerKey | null>(null)
+
+  // Repository connection state
+  const [connectedRepos, setConnectedRepos] = useState<Set<string>>(new Set())
+  const [repoConnecting, setRepoConnecting] = useState<string | null>(null)
+  const [repoNotice, setRepoNotice] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
+
+  // Handle OAuth callback params (e.g. ?repo_connected=github or ?repo_error=not_configured)
+  useEffect(() => {
+    const connected = searchParams.get('repo_connected')
+    const repoError = searchParams.get('repo_error')
+    if (connected) {
+      setConnectedRepos((prev) => new Set([...prev, connected]))
+      const provider = REPO_PROVIDERS.find((p) => p.id === connected)
+      setRepoNotice({ type: 'success', msg: `${provider?.label ?? connected} connected successfully` })
+      router.replace(`/apps/${id}`, { scroll: false })
+    }
+    if (repoError) {
+      const msg = repoError === 'not_configured' ? 'Integration not configured — contact your admin'
+        : repoError === 'auth_failed' ? 'Authentication failed — please try again'
+        : 'Connection failed — please try again'
+      setRepoNotice({ type: 'error', msg })
+      router.replace(`/apps/${id}`, { scroll: false })
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Scroll to setup panel when a layer is selected via "Setup →"
+  useEffect(() => {
+    if (setupLayer) {
+      setTimeout(() => {
+        document.getElementById('setup')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 80)
+    }
+  }, [setupLayer])
+
+  // Load project data
   useEffect(() => {
     if (!id) return
     const sb = createClient()
     const since24h = new Date(Date.now() - 86400000).toISOString()
 
     Promise.all([
-      // Project details
       sb.from('tenant_projects')
         .select('id, tenant_id, name, platform, environment, description, project_id_key, status, created_at')
-        .eq('id', id)
-        .single(),
-
-      // SDK installations
+        .eq('id', id).single(),
       sb.from('sdk_installations')
         .select('id, platform, sdk_version, last_seen, first_seen, status')
-        .eq('project_id', id)
-        .order('last_seen', { ascending: false }),
-
-      // Events: total count
+        .eq('project_id', id).order('last_seen', { ascending: false }),
       sb.from('events').select('*', { count: 'exact', head: true }).eq('project_id', id),
-
-      // Events: last 24h count
-      sb.from('events').select('*', { count: 'exact', head: true })
-        .eq('project_id', id).gte('created_at', since24h),
-
-      // Knowledge nodes
+      sb.from('events').select('*', { count: 'exact', head: true }).eq('project_id', id).gte('created_at', since24h),
       sb.from('knowledge_nodes').select('*', { count: 'exact', head: true }).eq('project_id', id),
-
-      // Open errors
-      sb.from('errors').select('*', { count: 'exact', head: true })
-        .eq('project_id', id).eq('status', 'open'),
-
-      // Sessions
+      sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', id).eq('status', 'open'),
       sb.from('sessions').select('*', { count: 'exact', head: true }).eq('project_id', id),
-
-      // Active users (distinct user_id from events in last 24h)
-      sb.from('events').select('user_id', { count: 'exact', head: true })
-        .eq('project_id', id).gte('created_at', since24h).not('user_id', 'is', null),
-
-      // Most recent event
-      sb.from('events').select('created_at').eq('project_id', id)
-        .order('created_at', { ascending: false }).limit(1),
+      sb.from('events').select('user_id', { count: 'exact', head: true }).eq('project_id', id).gte('created_at', since24h).not('user_id', 'is', null),
+      sb.from('events').select('created_at').eq('project_id', id).order('created_at', { ascending: false }).limit(1),
+      // Load connected repository providers
+      sb.from('project_repositories').select('provider').eq('project_id', id).eq('status', 'active'),
     ]).then(([
       { data: proj, error },
       { data: insts },
@@ -243,6 +271,7 @@ export default function AppManagementPage() {
       { count: ses },
       { count: au },
       { data: lastEv },
+      { data: repos },
     ]) => {
       if (error || !proj) { setNotFound(true); setLoading(false); return }
       setProject(proj as ProjectRow)
@@ -254,6 +283,7 @@ export default function AppManagementPage() {
       setSessionCount(ses ?? 0)
       setActiveUsers(au ?? 0)
       setLastEventAt((lastEv ?? [])[0]?.created_at ?? null)
+      if (repos) setConnectedRepos(new Set(repos.map((r: { provider: string }) => r.provider)))
       setLoading(false)
     })
   }, [id])
@@ -278,7 +308,6 @@ export default function AppManagementPage() {
   const sdkStatus = sdkLayerStatus(installs)
   const apiKey    = project.project_id_key
 
-  // Derive AI discovery coverage from real data
   const webCoverage = sdkStatus.frontend === 'connected'
     ? Math.min(100, totalEvents > 0 ? Math.round((Math.min(totalEvents, 500) / 500) * 100) : 5) : 0
   const apiCoverage = sdkStatus.backend === 'connected'
@@ -289,34 +318,65 @@ export default function AppManagementPage() {
     ? Math.min(100, Math.round((Math.min(sessionCount, 100) / 100) * 100)) : 0
 
   const discoveryLayers: DiscoverLayer[] = [
-    { label: 'Frontend',          coverage: webCoverage,     detail: sdkStatus.frontend === 'connected' ? `${totalEvents.toLocaleString()} interactions captured` : 'SDK not connected' },
-    { label: 'Backend / APIs',    coverage: apiCoverage,     detail: sdkStatus.backend  === 'connected' ? `${knowledgeCount} service patterns discovered` : 'SDK not connected' },
-    { label: 'User Journeys',     coverage: journeyCoverage, detail: sessionCount > 0 ? `${sessionCount.toLocaleString()} sessions analysed` : 'Awaiting session data' },
-    { label: 'Knowledge Base',    coverage: knCoverage,      detail: knowledgeCount > 0 ? `${knowledgeCount} entities indexed` : 'Awaiting discovery' },
-    { label: 'Database',          coverage: 0,               detail: 'Connector not configured — connect in setup' },
+    { label: 'Frontend',       coverage: webCoverage,     detail: sdkStatus.frontend === 'connected' ? `${totalEvents.toLocaleString()} interactions captured` : 'SDK not connected' },
+    { label: 'Backend / APIs', coverage: apiCoverage,     detail: sdkStatus.backend  === 'connected' ? `${knowledgeCount} service patterns discovered` : 'SDK not connected' },
+    { label: 'User Journeys',  coverage: journeyCoverage, detail: sessionCount > 0 ? `${sessionCount.toLocaleString()} sessions analysed` : 'Awaiting session data' },
+    { label: 'Knowledge Base', coverage: knCoverage,      detail: knowledgeCount > 0 ? `${knowledgeCount} entities indexed` : 'Awaiting discovery' },
+    { label: 'Database',       coverage: 0,               detail: 'Connector not configured' },
   ]
 
   const activeInstall = installs.find((i) => i.status === 'active')
   const lastSeen = activeInstall?.last_seen ?? lastEventAt
 
-  // SDK install snippet generation
   const platform = project.platform
-  const isWeb  = ['react', 'nextjs', 'vue', 'angular', 'vanilla'].includes(platform)
+  const isWeb    = ['react', 'nextjs', 'vue', 'angular', 'vanilla'].includes(platform)
   const isMobile = ['flutter', 'reactnative', 'ios', 'android'].includes(platform)
-  const isBack = ['nodejs', 'python', 'go', 'java', 'dotnet'].includes(platform)
+  const isBack   = ['nodejs', 'python', 'go', 'java', 'dotnet'].includes(platform)
 
-  const installCmd = platform === 'python' ? 'pip install paaq-server-sdk'
-    : platform === 'flutter' ? 'flutter pub add paaq_mobile_sdk'
-    : isBack ? 'npm install @paaq/server-sdk'
-    : 'npm install @paaq/web-sdk'
+  // Which layer to show instructions for in the setup panel
+  const activeSetupLayer: LayerKey = setupLayer ?? (isBack ? 'backend' : 'frontend')
 
-  const initCode = platform === 'python'
-    ? `from paaq import PAAQ\nPAAQ.initialize(sdk_token="${apiKey}", project_id="${project.id}")`
-    : platform === 'flutter'
-    ? `await PAAQ.initialize(sdkToken: '${apiKey}', projectId: '${project.id}');`
-    : isBack
-    ? `import { PAAQ } from '@paaq/server-sdk';\nPAAQ.initialize({ sdkToken: '${apiKey}', projectId: '${project.id}' });\napp.use(PAAQ.middleware());`
-    : `import { PAAQProvider } from '@paaq/web-sdk';\n\n<PAAQProvider sdkToken="${apiKey}" projectId="${project.id}">\n  <YourApp />\n</PAAQProvider>`
+  // Per-layer setup content
+  const LAYER_SETUP: Record<LayerKey, { installCmd: string | null; initCode: string | null }> = {
+    frontend: {
+      installCmd: platform === 'flutter'
+        ? 'flutter pub add paaq_mobile_sdk'
+        : platform === 'reactnative'
+        ? 'npm install @paaq/react-native-sdk'
+        : 'npm install @paaq/web-sdk',
+      initCode: platform === 'flutter'
+        ? `import 'package:paaq_mobile_sdk/paaq.dart';\n\nawait PAAQ.initialize(\n  sdkToken: '${apiKey}',\n  projectId: '${project.id}',\n);`
+        : platform === 'reactnative'
+        ? `import { PAAQProvider } from '@paaq/react-native-sdk';\n\n<PAAQProvider sdkToken="${apiKey}" projectId="${project.id}">\n  <YourApp />\n</PAAQProvider>`
+        : `import { PAAQProvider } from '@paaq/web-sdk';\n\n<PAAQProvider sdkToken="${apiKey}" projectId="${project.id}">\n  <YourApp />\n</PAAQProvider>`,
+    },
+    backend: {
+      installCmd: platform === 'python'
+        ? 'pip install paaq-server-sdk'
+        : platform === 'go'
+        ? 'go get github.com/paaqintelligence/go-sdk'
+        : 'npm install @paaq/server-sdk',
+      initCode: platform === 'python'
+        ? `from paaq import PAAQ\n\nPAAQ.initialize(\n  sdk_token="${apiKey}",\n  project_id="${project.id}",\n)\n\n# FastAPI / Flask middleware\napp.add_middleware(PAAQ.middleware())`
+        : platform === 'go'
+        ? `import paaq "github.com/paaqintelligence/go-sdk"\n\npaaq.Initialize(paaq.Config{\n  SDKToken:  "${apiKey}",\n  ProjectID: "${project.id}",\n})\n\n// Gin / Echo / Chi — add middleware\nr.Use(paaq.Middleware())`
+        : `import { PAAQ } from '@paaq/server-sdk';\n\nPAAQ.initialize({\n  sdkToken: '${apiKey}',\n  projectId: '${project.id}',\n});\n\n// Express / Fastify / Hono — add middleware\napp.use(PAAQ.middleware());`,
+    },
+    database: {
+      installCmd: null,
+      initCode: null,
+    },
+  }
+
+  const layerConfig = LAYER_SETUP[activeSetupLayer]
+  const showSetup = lifecycle === 'not_connected' || lifecycle === 'sdk_installed' || setupLayer !== null
+
+  // Initiate OAuth for a repository provider
+  function handleRepoConnect(providerId: string) {
+    if (!project || connectedRepos.has(providerId)) return
+    setRepoConnecting(providerId)
+    window.location.href = `/api/auth/${providerId}?project_id=${project.id}`
+  }
 
   return (
     <div className="space-y-6 max-w-4xl">
@@ -360,6 +420,7 @@ export default function AppManagementPage() {
 
       <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
         <div className="space-y-5">
+
           {/* Connection Status */}
           <div className="rounded-2xl border border-border/70 bg-card">
             <div className="border-b border-border/60 px-5 py-4">
@@ -377,6 +438,8 @@ export default function AppManagementPage() {
                 desc="Captures user events, navigation flows, errors, and performance signals"
                 icon={Globe}
                 status={sdkStatus.frontend}
+                layerKey="frontend"
+                onSetup={setSetupLayer}
                 detail={activeInstall ? `${activeInstall.platform} v${activeInstall.sdk_version} · last seen ${timeAgo(activeInstall.last_seen)}` : undefined}
               />
               <SdkRow
@@ -384,6 +447,8 @@ export default function AppManagementPage() {
                 desc="Server-side errors, API response times, deployment events, and log signals"
                 icon={Server}
                 status={sdkStatus.backend}
+                layerKey="backend"
+                onSetup={setSetupLayer}
                 detail={activeInstall ? `Middleware active · ${events24h.toLocaleString()} events in last 24h` : undefined}
               />
               <SdkRow
@@ -391,6 +456,8 @@ export default function AppManagementPage() {
                 desc="Read-only access to monitored tables — AI uses this for schema understanding"
                 icon={Database}
                 status={sdkStatus.database}
+                layerKey="database"
+                onSetup={setSetupLayer}
               />
             </div>
           </div>
@@ -426,64 +493,159 @@ export default function AppManagementPage() {
             </div>
           </div>
 
-          {/* SDK Setup */}
-          {(lifecycle === 'not_connected' || lifecycle === 'sdk_installed') && (
+          {/* SDK Setup — shown when not yet connected OR when a layer is explicitly selected */}
+          {showSetup && (
             <div id="setup" className="rounded-2xl border border-ai/20 bg-ai/5">
               <div className="border-b border-ai/15 px-5 py-4 flex items-center gap-2">
                 <Package className="h-4 w-4 text-ai" />
                 <h2 className="text-sm font-semibold text-foreground">SDK Setup</h2>
                 {lifecycle === 'not_connected' && (
-                  <span className="ml-auto rounded-full bg-warning/15 px-2 py-0.5 text-[9px] font-bold text-warning">Action required</span>
+                  <span className="ml-1 rounded-full bg-warning/15 px-2 py-0.5 text-[9px] font-bold text-warning">Action required</span>
+                )}
+                {setupLayer && (
+                  <button
+                    onClick={() => setSetupLayer(null)}
+                    className="ml-auto rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                    aria-label="Close setup panel"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
                 )}
               </div>
+
+              {/* Layer selector tabs */}
+              <div className="px-5 pt-4 flex gap-2 flex-wrap">
+                {([
+                  { key: 'frontend' as LayerKey, label: 'Frontend SDK', icon: Globe },
+                  { key: 'backend'  as LayerKey, label: 'Backend SDK',  icon: Server },
+                  { key: 'database' as LayerKey, label: 'Database',     icon: Database },
+                ] as const).map(({ key, label, icon: Icon }) => (
+                  <button
+                    key={key}
+                    onClick={() => setSetupLayer(key)}
+                    className={cn(
+                      'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors',
+                      activeSetupLayer === key
+                        ? 'bg-ai/20 text-ai border border-ai/30'
+                        : 'text-muted-foreground border border-border/40 hover:bg-muted/40 hover:text-foreground',
+                    )}
+                  >
+                    <Icon className="h-3 w-3" />
+                    {label}
+                  </button>
+                ))}
+              </div>
+
               <div className="px-5 py-4 space-y-4">
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
-                    1. Install
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <pre className="flex-1 overflow-x-auto rounded-lg border border-border/50 bg-muted/50 px-3 py-2 font-mono text-xs text-foreground">
-                      {installCmd}
-                    </pre>
-                    <CopyButton text={installCmd} />
-                  </div>
-                </div>
+                {/* Frontend or Backend SDK */}
+                {activeSetupLayer !== 'database' && layerConfig.installCmd && layerConfig.initCode && (
+                  <>
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                        1. Install
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <pre className="flex-1 overflow-x-auto rounded-lg border border-border/50 bg-muted/50 px-3 py-2 font-mono text-xs text-foreground">
+                          {layerConfig.installCmd}
+                        </pre>
+                        <CopyButton text={layerConfig.installCmd} />
+                      </div>
+                    </div>
 
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
-                    2. Your API Key
-                  </p>
-                  <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-muted/50 px-3 py-2">
-                    <code className="flex-1 font-mono text-xs text-foreground">
-                      {showKey ? apiKey : `${apiKey.slice(0, 14)}${'•'.repeat(16)}`}
-                    </code>
-                    <button onClick={() => setShowKey((s) => !s)} className="text-muted-foreground hover:text-foreground">
-                      {showKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                    </button>
-                    <CopyButton text={apiKey} />
-                  </div>
-                </div>
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                        2. Your API Key
+                      </p>
+                      <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-muted/50 px-3 py-2">
+                        <code className="flex-1 font-mono text-xs text-foreground">
+                          {showKey ? apiKey : `${apiKey.slice(0, 14)}${'•'.repeat(16)}`}
+                        </code>
+                        <button onClick={() => setShowKey((s) => !s)} className="text-muted-foreground hover:text-foreground">
+                          {showKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        </button>
+                        <CopyButton text={apiKey} />
+                      </div>
+                    </div>
 
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
-                    3. Initialise
-                  </p>
-                  <div className="relative">
-                    <pre className="overflow-x-auto rounded-lg border border-border/50 bg-muted/50 p-3 font-mono text-[11px] text-foreground whitespace-pre-wrap">
-                      {initCode}
-                    </pre>
-                    <div className="absolute right-2 top-2">
-                      <CopyButton text={initCode} />
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                        3. Initialise
+                      </p>
+                      <div className="relative">
+                        <pre className="overflow-x-auto rounded-lg border border-border/50 bg-muted/50 p-3 font-mono text-[11px] text-foreground whitespace-pre-wrap">
+                          {layerConfig.initCode}
+                        </pre>
+                        <div className="absolute right-2 top-2">
+                          <CopyButton text={layerConfig.initCode} />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-2.5 rounded-lg border border-healthy/25 bg-healthy/5 px-3 py-2.5">
+                      <CheckCircle2 className="h-4 w-4 text-healthy shrink-0 mt-0.5" />
+                      <p className="text-[10px] text-muted-foreground">
+                        Once your app starts, this page will automatically update to show the connection as verified. You do not need to refresh.
+                      </p>
+                    </div>
+                  </>
+                )}
+
+                {/* Database connector instructions */}
+                {activeSetupLayer === 'database' && (
+                  <div className="space-y-4">
+                    <div className="flex items-start gap-3 rounded-lg border border-ai/20 bg-ai/5 p-4">
+                      <Database className="h-5 w-5 text-ai shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">Read-Only Database Connector</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          PAAQ uses read-only access to understand your schema and data patterns. No data is stored — only structure and relationship metadata is indexed.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                        Supported databases
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {['PostgreSQL', 'MySQL', 'MongoDB', 'SQLite', 'Redis', 'Supabase'].map((db) => (
+                          <span key={db} className="rounded-md border border-border/50 bg-muted/40 px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                            {db}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                        Connection string format
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <pre className="flex-1 overflow-x-auto rounded-lg border border-border/50 bg-muted/50 px-3 py-2 font-mono text-xs text-muted-foreground">
+                          postgresql://readonly_user:password@host:5432/dbname
+                        </pre>
+                        <CopyButton text="postgresql://readonly_user:password@host:5432/dbname" />
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                        Your project ID (for the connector config)
+                      </p>
+                      <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-muted/50 px-3 py-2">
+                        <code className="flex-1 truncate font-mono text-xs text-foreground">{project.id}</code>
+                        <CopyButton text={project.id} label="ID" />
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-2.5 rounded-lg border border-warning/25 bg-warning/5 px-3 py-2.5">
+                      <CloudCog className="h-4 w-4 text-warning shrink-0 mt-0.5" />
+                      <p className="text-[10px] text-muted-foreground">
+                        Create a read-only database user before connecting. PAAQ only needs SELECT permissions. Database connector configuration is managed in Settings.
+                      </p>
                     </div>
                   </div>
-                </div>
-
-                <div className="flex items-start gap-2.5 rounded-lg border border-healthy/25 bg-healthy/5 px-3 py-2.5">
-                  <CheckCircle2 className="h-4 w-4 text-healthy shrink-0 mt-0.5" />
-                  <p className="text-[10px] text-muted-foreground">
-                    Once your app starts, this page will automatically update to show the connection as verified. You do not need to refresh.
-                  </p>
-                </div>
+                )}
               </div>
             </div>
           )}
@@ -493,28 +655,72 @@ export default function AppManagementPage() {
             <div className="border-b border-border/60 px-5 py-4 flex items-center gap-2">
               <GitBranch className="h-4 w-4 text-muted-foreground" />
               <h2 className="text-sm font-semibold text-foreground">Repository</h2>
+              {connectedRepos.size > 0 && (
+                <span className="ml-auto text-[10px] text-healthy font-semibold">
+                  {connectedRepos.size} connected
+                </span>
+              )}
             </div>
-            <div className="grid gap-2 p-5 sm:grid-cols-2">
-              {[
-                { label: 'GitHub',          id: 'github' },
-                { label: 'GitLab',          id: 'gitlab' },
-                { label: 'Azure DevOps',    id: 'azure' },
-                { label: 'Bitbucket',       id: 'bitbucket' },
-              ].map((repo) => (
-                <button
-                  key={repo.id}
-                  className="flex items-center gap-3 rounded-xl border border-border/50 bg-background/30 px-4 py-3 text-left hover:border-border hover:bg-accent/30 transition-all"
-                >
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border/50 bg-muted/50">
-                    <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold text-foreground">{repo.label}</p>
-                    <p className="text-[10px] text-muted-foreground">Click to connect</p>
-                  </div>
+
+            {/* OAuth notice (success / error) */}
+            {repoNotice && (
+              <div className={cn(
+                'mx-5 mt-4 flex items-center gap-2.5 rounded-lg border px-3 py-2.5',
+                repoNotice.type === 'success'
+                  ? 'border-healthy/25 bg-healthy/5 text-healthy'
+                  : 'border-critical/25 bg-critical/5 text-critical',
+              )}>
+                {repoNotice.type === 'success'
+                  ? <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  : <X className="h-4 w-4 shrink-0" />
+                }
+                <p className="flex-1 text-xs font-medium">{repoNotice.msg}</p>
+                <button onClick={() => setRepoNotice(null)} className="text-current/50 hover:text-current">
+                  <X className="h-3.5 w-3.5" />
                 </button>
-              ))}
+              </div>
+            )}
+
+            <div className="grid gap-2 p-5 sm:grid-cols-2">
+              {REPO_PROVIDERS.map((repo) => {
+                const isConnected = connectedRepos.has(repo.id)
+                const isConnecting = repoConnecting === repo.id
+                const Icon = repo.Icon
+                return (
+                  <button
+                    key={repo.id}
+                    onClick={() => !isConnected && handleRepoConnect(repo.id)}
+                    disabled={isConnecting}
+                    className={cn(
+                      'flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all',
+                      isConnected
+                        ? 'border-healthy/30 bg-healthy/5 cursor-default'
+                        : 'border-border/50 bg-background/30 hover:border-border hover:bg-accent/30 cursor-pointer',
+                    )}
+                  >
+                    <div className={cn(
+                      'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border',
+                      isConnected ? 'border-healthy/30 bg-healthy/10' : 'border-border/50 bg-muted/50',
+                    )}>
+                      <Icon className={cn('h-4 w-4', isConnected ? 'text-healthy' : repo.iconColor)} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-foreground">{repo.label}</p>
+                      <p className="text-[10px] text-muted-foreground truncate">
+                        {isConnected ? 'Connected' : isConnecting ? 'Connecting…' : 'Click to connect'}
+                      </p>
+                    </div>
+                    {isConnected && <CheckCircle2 className="h-4 w-4 shrink-0 text-healthy" />}
+                    {isConnecting && <Loader2 className="h-4 w-4 shrink-0 text-muted-foreground animate-spin" />}
+                    {!isConnected && !isConnecting && <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />}
+                  </button>
+                )
+              })}
             </div>
+
+            <p className="px-5 pb-4 text-[10px] text-muted-foreground/60">
+              Connecting your repository lets PAAQ correlate deployments with error spikes and performance changes.
+            </p>
           </div>
         </div>
 
