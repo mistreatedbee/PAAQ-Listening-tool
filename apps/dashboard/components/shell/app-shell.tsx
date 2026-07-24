@@ -8,6 +8,7 @@ import { Topbar } from './topbar'
 import { AIAssistant } from './ai-assistant'
 import { ConnectedAppProvider } from './connected-app-context'
 import { AdminShell } from '@/components/admin/admin-shell'
+import { ConnectWelcomeModal } from './connect-welcome-modal'
 
 const AUTH_PATHS = ['/', '/login', '/signup', '/onboarding']
 
@@ -50,6 +51,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
 
         <AIAssistant open={assistant} onClose={() => setAssistant(false)} />
+        <ConnectWelcomeModal />
       </div>
     </ConnectedAppProvider>
   )

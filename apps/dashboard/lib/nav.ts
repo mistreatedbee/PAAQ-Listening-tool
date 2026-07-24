@@ -16,6 +16,7 @@ import {
   Brain,
   Cable,
   SlidersHorizontal,
+  Plug2,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -65,6 +66,7 @@ export const navGroups: NavGroup[] = [
     title: 'System',
     items: [
       { label: 'Setup & Integrations', href: '/setup',    icon: Cable },
+      { label: 'Connect',              href: '/connect',  icon: Plug2, badge: 'MCP', badgeTone: 'ai' },
       { label: 'Settings',             href: '/settings', icon: SlidersHorizontal },
     ],
   },
