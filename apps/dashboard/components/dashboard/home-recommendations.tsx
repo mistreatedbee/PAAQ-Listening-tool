@@ -48,7 +48,7 @@ export function HomeRecommendations() {
     <Card className="flex flex-col">
       <CardHead
         title="AI Recommendations"
-        desc="Top actions surfaced by PAAQ AI agents"
+        desc="Suggested actions with business impact — requires approval before execution"
         icon={<Sparkles className="h-4 w-4 text-ai" />}
         action={
           <Link href="/recommendations" className="flex items-center gap-1 text-xs font-medium text-intel hover:underline">
@@ -66,7 +66,7 @@ export function HomeRecommendations() {
             <Lightbulb className="mb-2 h-8 w-8 text-muted-foreground/30" />
             <p className="text-sm text-muted-foreground">No recommendations yet</p>
             <p className="mt-0.5 text-xs text-muted-foreground/70">
-              Run an investigation to generate AI recommendations
+              AI agents will surface actionable recommendations as they learn your organisation
             </p>
           </div>
         ) : (

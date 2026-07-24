@@ -1,5 +1,5 @@
 // Configuration types and definitions for all connected apps.
-// The PAAQ Listening Tool shell never changes — only this config layer does.
+// The PAAQ Intelligence shell never changes — only this config layer does.
 
 export type FeatureArea = {
   id: string

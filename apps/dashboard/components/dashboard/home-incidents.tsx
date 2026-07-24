@@ -61,8 +61,8 @@ export function HomeIncidents() {
   return (
     <Card className="flex flex-col">
       <CardHead
-        title="Active Incidents"
-        desc="Open incidents requiring attention"
+        title="Emerging Risks"
+        desc="Potential issues detected before they become critical incidents"
         action={
           <Link href="/incidents" className="flex items-center gap-1 text-xs font-medium text-intel hover:underline">
             All {total > 0 ? `(${total})` : ''} <ArrowRight className="h-3.5 w-3.5" />
@@ -79,8 +79,8 @@ export function HomeIncidents() {
             <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-healthy/10">
               <AlertTriangle className="h-5 w-5 text-healthy" />
             </div>
-            <p className="text-sm font-semibold text-foreground">All clear</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">No open incidents</p>
+            <p className="text-sm font-semibold text-foreground">No risks detected</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">Your organisation is operating normally</p>
           </div>
         ) : (
           incidents.map((inc) => {

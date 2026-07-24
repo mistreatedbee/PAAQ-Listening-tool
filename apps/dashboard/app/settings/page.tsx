@@ -444,7 +444,7 @@ ${app.schemaMappings.map((m) => `    ${m.category.toLowerCase()}: '${m.tables[0]
               <Card>
                 <CardHead
                   title="Notification Channels"
-                  desc="Where the PAAQ Listening Tool sends alerts. Each channel can be scoped to specific severity levels."
+                  desc="Where PAAQ Intelligence sends alerts. Each channel can be scoped to specific severity levels."
                   icon={<Bell className="h-4 w-4 text-intel" />}
                 />
                 <div className="divide-y divide-border/40 px-5 pb-5">

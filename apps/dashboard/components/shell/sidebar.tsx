@@ -45,6 +45,8 @@ export function Sidebar({
       return { value: String(openErrors), tone: 'warning' as const }
     if (href === '/ai-insights' && aiInsights > 0)
       return { value: String(aiInsights), tone: 'ai' as const }
+    if (href === '/recommendations' && aiInsights > 0)
+      return { value: String(aiInsights), tone: 'ai' as const }
     return null
   }
 
@@ -67,12 +69,12 @@ export function Sidebar({
           mobileOpen ? 'translate-x-0' : '-translate-x-full',
         )}
       >
-        {/* Tool identity — always PAAQ Listening Tool */}
+        {/* Tool identity */}
         <div className="flex h-14 items-center justify-between gap-2 border-b border-sidebar-border px-4">
           <Link href="/dashboard" className="flex items-center gap-3" onClick={onClose}>
             <Image
               src="/logo.png"
-              alt="PAAQ Listening Tool"
+              alt="PAAQ Intelligence"
               width={32}
               height={32}
               className="shrink-0 rounded-lg"
@@ -80,7 +82,7 @@ export function Sidebar({
             />
             <span className="flex flex-col leading-none">
               <span className="paaq-gradient-text text-sm font-black tracking-tight">PAAQ</span>
-              <span className="text-[10px] font-semibold tracking-widest text-muted-foreground/70 uppercase">Listening Tool</span>
+              <span className="text-[10px] font-semibold tracking-widest text-muted-foreground/70 uppercase">Intelligence</span>
             </span>
           </Link>
           <button
@@ -192,7 +194,7 @@ export function Sidebar({
               )} />
             </span>
             <p className={cn('flex-1 truncate text-xs font-semibold', openIncidents > 0 ? 'text-critical' : 'text-sidebar-foreground')}>
-              {openIncidents > 0 ? `${openIncidents} open incident${openIncidents !== 1 ? 's' : ''}` : 'All systems healthy'}
+              {openIncidents > 0 ? `${openIncidents} risk${openIncidents !== 1 ? 's' : ''} detected` : 'Organisation operating normally'}
             </p>
             {allConnected
               ? <Wifi className="h-3.5 w-3.5 shrink-0 text-healthy/70" />

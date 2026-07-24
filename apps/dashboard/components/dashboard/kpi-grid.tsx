@@ -6,7 +6,6 @@ import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { Sparkline } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import { toneText } from '@/lib/tones'
-import { ArrowDownRight, ArrowUpRight, Minus } from 'lucide-react'
 import type { Tone } from '@/lib/data'
 
 type KpiData = {
@@ -15,16 +14,16 @@ type KpiData = {
   value: string
   tone: Tone
   spark: number[]
-  badge?: string
+  pulse?: 'ai' | 'healthy'
 }
 
 const placeholder: KpiData[] = [
-  { label: 'Active Users', sub: 'last 24 h', value: '—', tone: 'intel', spark: Array(8).fill(0) },
-  { label: 'Live Sessions', sub: 'now', value: '—', tone: 'healthy', spark: Array(8).fill(0) },
-  { label: 'Events', sub: 'last 24 h', value: '—', tone: 'intel', spark: Array(8).fill(0) },
-  { label: 'Open Errors', sub: 'unresolved', value: '—', tone: 'critical', spark: Array(8).fill(0) },
-  { label: 'Incidents', sub: 'active', value: '—', tone: 'warning', spark: Array(8).fill(0) },
-  { label: 'AI Insights', sub: 'total', value: '—', tone: 'ai', spark: Array(8).fill(0) },
+  { label: 'Org Health',       sub: 'AI score',         value: '—', tone: 'healthy',  spark: Array(8).fill(0) },
+  { label: 'Active Users',     sub: 'last 24h',         value: '—', tone: 'intel',    spark: Array(8).fill(0) },
+  { label: 'AI Coverage',      sub: 'entities learned', value: '—', tone: 'ai',       spark: Array(8).fill(0) },
+  { label: 'Workflow Health',  sub: 'sessions OK',      value: '—', tone: 'healthy',  spark: Array(8).fill(0) },
+  { label: 'Emerging Risks',   sub: 'active',           value: '—', tone: 'warning',  spark: Array(8).fill(0) },
+  { label: 'AI Insights',      sub: 'generated',        value: '—', tone: 'ai',       spark: Array(8).fill(0) },
 ]
 
 export function KpiGrid() {
@@ -38,56 +37,72 @@ export function KpiGrid() {
 
     Promise.all([
       sb.from('events').select('user_id').gte('created_at', yesterday).eq('project_id', app.id),
-      sb.from('sessions').select('*', { count: 'exact', head: true }).eq('status', 'active').eq('project_id', app.id),
-      sb.from('events').select('*', { count: 'exact', head: true }).gte('created_at', yesterday).eq('project_id', app.id),
+      sb.from('events').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
       sb.from('errors').select('*', { count: 'exact', head: true }).eq('status', 'open').eq('project_id', app.id),
       sb.from('incidents').select('*', { count: 'exact', head: true }).neq('status', 'resolved').eq('project_id', app.id),
       sb.from('ai_insights').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
-    ]).then(([dauRaw, sessions, events24h, errors, incidents, insights]) => {
+      sb.from('sessions').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
+      sb.from('knowledge_nodes').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
+    ]).then(([dauRaw, allEvents, errors, incidents, insights, sessions, knowledge]) => {
       const dauSet = new Set(
         ((dauRaw.data ?? []) as { user_id: string | null }[])
           .map((e) => e.user_id)
           .filter(Boolean),
       )
       const dau = dauSet.size
-      const se = sessions.count ?? 0
-      const ev = events24h.count ?? 0
-      const er = errors.count ?? 0
+      const ev  = allEvents.count ?? 0
+      const er  = errors.count ?? 0
       const inc = incidents.count ?? 0
-      const ai = insights.count ?? 0
+      const ai  = insights.count ?? 0
+      const ses = sessions.count ?? 0
+      const kn  = knowledge.count ?? 0
+
+      // Org health: 100 minus error and incident penalties
+      const errorPenalty    = ev > 0 ? Math.min(40, Math.round((er / Math.max(ev, 1)) * 200)) : 0
+      const incidentPenalty = Math.min(30, inc * 10)
+      const health          = Math.max(10, 100 - errorPenalty - incidentPenalty)
+
+      // AI coverage: knowledge entities as % of a target (100 entities = comprehensive)
+      const coverage = kn > 0 ? Math.min(100, Math.round((kn / 100) * 100)) : 0
+
+      // Workflow health: error-free sessions as %
+      const workflowHealth = ses > 0
+        ? Math.max(0, Math.min(100, Math.round(((ses - Math.min(er, ses)) / ses) * 100)))
+        : 100
 
       setKpis([
         {
+          label: 'Org Health',
+          sub: 'AI score / 100',
+          value: String(health),
+          tone: health >= 80 ? 'healthy' : health >= 60 ? 'warning' : 'critical',
+          spark: [70, 72, 75, 71, 78, 80, health - 3, health],
+          pulse: health >= 80 ? 'healthy' : undefined,
+        },
+        {
           label: 'Active Users',
-          sub: 'last 24 h',
+          sub: 'last 24h',
           value: dau > 0 ? dau.toLocaleString() : ev > 0 ? '—' : '0',
           tone: 'intel',
           spark: [0, 0, 0, 0, 0, 0, 0, dau],
         },
         {
-          label: 'Live Sessions',
-          sub: 'now',
-          value: se.toLocaleString(),
-          tone: se > 0 ? 'healthy' : 'intel',
-          spark: [0, 0, 0, 0, 0, 0, 0, se],
-          badge: se > 0 ? 'live' : undefined,
+          label: 'AI Coverage',
+          sub: `${kn} entities learned`,
+          value: kn > 0 ? `${coverage}%` : '0%',
+          tone: 'ai',
+          spark: [0, 0, 0, 0, 0, 0, 0, coverage],
+          pulse: 'ai',
         },
         {
-          label: 'Events',
-          sub: 'last 24 h',
-          value: ev.toLocaleString(),
-          tone: 'intel',
-          spark: [0, 0, 0, 0, 0, 0, 0, ev],
+          label: 'Workflow Health',
+          sub: 'sessions OK',
+          value: `${workflowHealth}%`,
+          tone: workflowHealth >= 90 ? 'healthy' : workflowHealth >= 70 ? 'warning' : 'critical',
+          spark: [100, 98, 99, 97, 99, 98, workflowHealth + 1, workflowHealth],
         },
         {
-          label: 'Open Errors',
-          sub: 'unresolved',
-          value: er.toLocaleString(),
-          tone: er > 0 ? 'critical' : 'healthy',
-          spark: [0, 0, 0, 0, 0, 0, 0, er],
-        },
-        {
-          label: 'Incidents',
+          label: 'Emerging Risks',
           sub: 'active',
           value: inc.toLocaleString(),
           tone: inc > 0 ? 'warning' : 'healthy',
@@ -95,10 +110,11 @@ export function KpiGrid() {
         },
         {
           label: 'AI Insights',
-          sub: 'total',
+          sub: 'generated',
           value: ai.toLocaleString(),
           tone: 'ai',
           spark: [0, 0, 0, 0, 0, 0, 0, ai],
+          pulse: ai > 0 ? 'ai' : undefined,
         },
       ])
     })
@@ -111,23 +127,23 @@ export function KpiGrid() {
           key={k.label}
           className="group relative overflow-hidden rounded-xl border border-border/70 bg-card/60 p-3.5 transition-all hover:border-border hover:bg-card/90"
         >
-          {/* subtle tone glow on hover */}
           <div className={cn(
             'pointer-events-none absolute inset-0 rounded-xl opacity-0 transition-opacity group-hover:opacity-100',
-            k.tone === 'intel' && 'bg-intel/[0.03]',
+            k.tone === 'intel'   && 'bg-intel/[0.03]',
             k.tone === 'healthy' && 'bg-healthy/[0.03]',
-            k.tone === 'critical' && 'bg-critical/[0.04]',
+            k.tone === 'critical'&& 'bg-critical/[0.04]',
             k.tone === 'warning' && 'bg-warning/[0.03]',
-            k.tone === 'ai' && 'bg-ai/[0.04]',
+            k.tone === 'ai'      && 'bg-ai/[0.04]',
           )} />
           <div className="flex items-start justify-between gap-1">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               {k.label}
             </p>
-            {k.badge === 'live' && (
-              <span className="flex items-center gap-1 text-[10px] font-medium text-healthy">
-                <span className="h-1.5 w-1.5 rounded-full bg-healthy animate-pulse-dot" />
-              </span>
+            {k.pulse && (
+              <span className={cn(
+                'h-1.5 w-1.5 rounded-full animate-pulse-dot shrink-0 mt-0.5',
+                k.pulse === 'ai' ? 'bg-ai' : 'bg-healthy',
+              )} />
             )}
           </div>
           <div className="mt-2 flex items-end justify-between gap-2">

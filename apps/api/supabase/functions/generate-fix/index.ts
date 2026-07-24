@@ -1,5 +1,5 @@
 /**
- * PAAQ Listening Tool — Generate Fix
+ * PAAQ Intelligence — Generate Fix
  *
  * Accepts an error payload, sends it to Claude, and returns a structured fix:
  *   rootCause, fix, codeExample, confidence, affectedArea, prevention
@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
 
   const stackBlock = stackTrace ? `\nStack trace:\n${stackTrace.slice(0, 2000)}` : ''
 
-  const prompt = `You are the Incident Investigator AI agent for the PAAQ Listening Tool. A production error has been captured. Analyse it and return a structured JSON fix — no markdown, no explanation, JSON only.
+  const prompt = `You are the Incident Investigator AI agent for the PAAQ Intelligence. A production error has been captured. Analyse it and return a structured JSON fix — no markdown, no explanation, JSON only.
 
 Error details:
   Type: ${errorType ?? 'unknown'}

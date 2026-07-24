@@ -5,7 +5,7 @@ import { createClient } from '@/utils/supabase/client'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { cn } from '@/lib/utils'
 import { toneText, toneSoft } from '@/lib/tones'
-import { AlertCircle, BarChart2, CheckCircle2, Shield, Gauge, FileText } from 'lucide-react'
+import { Globe, Network, Route, BookOpen, Gauge, Shield } from 'lucide-react'
 import type { Tone } from '@/lib/data'
 
 type AgentDef = {
@@ -13,16 +13,16 @@ type AgentDef = {
   shortName: string
   focus: string
   tone: Tone
-  Icon: typeof AlertCircle
+  Icon: typeof Globe
 }
 
 const AGENTS: AgentDef[] = [
-  { id: 'incident', shortName: 'Incident', focus: 'Monitoring all active incidents in real time', tone: 'critical', Icon: AlertCircle },
-  { id: 'product', shortName: 'Product', focus: 'Analysing usage patterns across Ask, Book, Attend, Learn', tone: 'intel', Icon: BarChart2 },
-  { id: 'qa', shortName: 'QA', focus: 'Tracking test coverage and regression signals', tone: 'healthy', Icon: CheckCircle2 },
-  { id: 'security', shortName: 'Security', focus: 'Monitoring auth anomalies, OTP patterns, device tokens', tone: 'warning', Icon: Shield },
-  { id: 'performance', shortName: 'Perf', focus: 'Tracking API latency, DB query times, Agora session health', tone: 'intel', Icon: Gauge },
-  { id: 'executive', shortName: 'Reporter', focus: 'Composing executive-ready summaries for leadership', tone: 'ai', Icon: FileText },
+  { id: 'discovery',    shortName: 'Discovery',    focus: 'Exploring application structure, navigation flows, and feature areas',            tone: 'intel',    Icon: Globe },
+  { id: 'api',          shortName: 'API Intel',     focus: 'Mapping API endpoints, schemas, request patterns, and service dependencies',      tone: 'healthy',  Icon: Network },
+  { id: 'journey',      shortName: 'User Journey',  focus: 'Observing user interactions, drop-offs, frustration signals, and workflow gaps',  tone: 'ai',       Icon: Route },
+  { id: 'knowledge',    shortName: 'Knowledge',     focus: 'Building and indexing organisational knowledge, docs, and operational memory',    tone: 'warning',  Icon: BookOpen },
+  { id: 'performance',  shortName: 'Performance',   focus: 'Monitoring response times, slow pages, API latency, and infrastructure health',   tone: 'intel',    Icon: Gauge },
+  { id: 'security',     shortName: 'Security',      focus: 'Detecting anomalies, access pattern changes, and emerging security signals',      tone: 'critical', Icon: Shield },
 ]
 
 export function AgentStatusBar() {
@@ -47,15 +47,15 @@ export function AgentStatusBar() {
       {/* Status indicator */}
       <div className="flex items-center gap-2 shrink-0">
         <span className="relative flex h-2 w-2">
-          <span className="absolute inline-flex h-full w-full rounded-full bg-healthy opacity-70 animate-pulse-dot" />
-          <span className="relative h-2 w-2 rounded-full bg-healthy" />
+          <span className="absolute inline-flex h-full w-full rounded-full bg-ai opacity-70 animate-pulse-dot" />
+          <span className="relative h-2 w-2 rounded-full bg-ai" />
         </span>
         <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-          AI Agents
+          AI Agents Learning
         </span>
         {insightCount !== null && (
           <span className="rounded-full border border-border/60 bg-background/50 px-2 py-0 text-[10px] font-medium text-muted-foreground">
-            {insightCount} insights
+            {insightCount} insights generated
           </span>
         )}
       </div>
@@ -82,10 +82,10 @@ export function AgentStatusBar() {
         })}
       </div>
 
-      {/* Mobile: just badge count */}
+      {/* Mobile: brief status */}
       <div className="xl:hidden ml-auto">
-        <span className="flex items-center gap-1.5 text-[11px] font-medium text-healthy">
-          <span className="h-1.5 w-1.5 rounded-full bg-healthy" />
+        <span className="flex items-center gap-1.5 text-[11px] font-medium text-ai">
+          <span className="h-1.5 w-1.5 rounded-full bg-ai animate-pulse-dot" />
           6 agents active
         </span>
       </div>
