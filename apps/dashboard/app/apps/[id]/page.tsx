@@ -199,8 +199,10 @@ export default function AppManagementPage() {
   const [sessionCount, setSessionCount] = useState(0)
   const [activeUsers,  setActiveUsers]  = useState(0)
   const [lastEventAt,  setLastEventAt]  = useState<string | null>(null)
+  const [sdkToken, setSdkToken] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [showKey, setShowKey] = useState(false)
+  const [showSdkToken, setShowSdkToken] = useState(false)
   const [notFound, setNotFound] = useState(false)
 
   // Setup layer expansion
@@ -261,6 +263,8 @@ export default function AppManagementPage() {
       sb.from('events').select('created_at').eq('project_id', id).order('created_at', { ascending: false }).limit(1),
       // Load connected repository providers
       sb.from('project_repositories').select('provider').eq('project_id', id).eq('status', 'active'),
+      // Load SDK token for this project
+      sb.from('access_tokens').select('token').eq('project_id', id).eq('token_type', 'sdk_token').eq('status', 'active').limit(1),
     ]).then(([
       { data: proj, error },
       { data: insts },
@@ -272,6 +276,7 @@ export default function AppManagementPage() {
       { count: au },
       { data: lastEv },
       { data: repos },
+      { data: tokens },
     ]) => {
       if (error || !proj) { setNotFound(true); setLoading(false); return }
       setProject(proj as ProjectRow)
@@ -284,6 +289,7 @@ export default function AppManagementPage() {
       setActiveUsers(au ?? 0)
       setLastEventAt((lastEv ?? [])[0]?.created_at ?? null)
       if (repos) setConnectedRepos(new Set(repos.map((r: { provider: string }) => r.provider)))
+      if (tokens?.[0]) setSdkToken((tokens[0] as { token: string }).token)
       setLoading(false)
     })
   }, [id])
@@ -337,6 +343,8 @@ export default function AppManagementPage() {
   const activeSetupLayer: LayerKey = setupLayer ?? (isBack ? 'backend' : 'frontend')
 
   // Per-layer setup content
+  const tok = sdkToken ?? 'sdk_live_••••••••••••••••••••••••••••••••'
+
   const LAYER_SETUP: Record<LayerKey, { installCmd: string | null; initCode: string | null }> = {
     frontend: {
       installCmd: platform === 'flutter'
@@ -345,10 +353,10 @@ export default function AppManagementPage() {
         ? 'npm install @paaq/react-native-sdk'
         : 'npm install @paaq/web-sdk',
       initCode: platform === 'flutter'
-        ? `import 'package:paaq_mobile_sdk/paaq.dart';\n\nawait PAAQ.initialize(\n  sdkToken: '${apiKey}',\n  projectId: '${project.id}',\n);`
+        ? `import 'package:paaq_mobile_sdk/paaq.dart';\n\nawait PAAQ.initialize(\n  sdkToken: '${tok}',\n  projectId: '${apiKey}',\n);`
         : platform === 'reactnative'
-        ? `import { PAAQProvider } from '@paaq/react-native-sdk';\n\n<PAAQProvider sdkToken="${apiKey}" projectId="${project.id}">\n  <YourApp />\n</PAAQProvider>`
-        : `import { PAAQProvider } from '@paaq/web-sdk';\n\n<PAAQProvider sdkToken="${apiKey}" projectId="${project.id}">\n  <YourApp />\n</PAAQProvider>`,
+        ? `import { PAAQProvider } from '@paaq/react-native-sdk';\n\n<PAAQProvider sdkToken="${tok}" projectId="${apiKey}">\n  <YourApp />\n</PAAQProvider>`
+        : `import { PAAQProvider } from '@paaq/web-sdk';\n\n<PAAQProvider sdkToken="${tok}" projectId="${apiKey}">\n  <YourApp />\n</PAAQProvider>`,
     },
     backend: {
       installCmd: platform === 'python'
@@ -357,10 +365,10 @@ export default function AppManagementPage() {
         ? 'go get github.com/paaqintelligence/go-sdk'
         : 'npm install @paaq/server-sdk',
       initCode: platform === 'python'
-        ? `from paaq import PAAQ\n\nPAAQ.initialize(\n  sdk_token="${apiKey}",\n  project_id="${project.id}",\n)\n\n# FastAPI / Flask middleware\napp.add_middleware(PAAQ.middleware())`
+        ? `from paaq import PAAQ\n\nPAAQ.initialize(\n  sdk_token="${tok}",\n  project_id="${apiKey}",\n)\n\n# FastAPI / Flask middleware\napp.add_middleware(PAAQ.middleware())`
         : platform === 'go'
-        ? `import paaq "github.com/paaqintelligence/go-sdk"\n\npaaq.Initialize(paaq.Config{\n  SDKToken:  "${apiKey}",\n  ProjectID: "${project.id}",\n})\n\n// Gin / Echo / Chi — add middleware\nr.Use(paaq.Middleware())`
-        : `import { PAAQ } from '@paaq/server-sdk';\n\nPAAQ.initialize({\n  sdkToken: '${apiKey}',\n  projectId: '${project.id}',\n});\n\n// Express / Fastify / Hono — add middleware\napp.use(PAAQ.middleware());`,
+        ? `import paaq "github.com/paaqintelligence/go-sdk"\n\npaaq.Initialize(paaq.Config{\n  SDKToken:  "${tok}",\n  ProjectID: "${apiKey}",\n})\n\n// Gin / Echo / Chi — add middleware\nr.Use(paaq.Middleware())`
+        : `import { PAAQ } from '@paaq/server-sdk';\n\nPAAQ.initialize({\n  sdkToken: '${tok}',\n  projectId: '${apiKey}',\n});\n\n// Express / Fastify / Hono — add middleware\napp.use(PAAQ.middleware());`,
     },
     database: {
       installCmd: null,
@@ -552,18 +560,42 @@ export default function AppManagementPage() {
                       </div>
                     </div>
 
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
-                        2. Your API Key
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        2. Your Credentials
                       </p>
-                      <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-muted/50 px-3 py-2">
-                        <code className="flex-1 font-mono text-xs text-foreground">
-                          {showKey ? apiKey : `${apiKey.slice(0, 14)}${'•'.repeat(16)}`}
-                        </code>
-                        <button onClick={() => setShowKey((s) => !s)} className="text-muted-foreground hover:text-foreground">
-                          {showKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                        </button>
-                        <CopyButton text={apiKey} />
+                      {/* SDK Token */}
+                      <div>
+                        <p className="text-[10px] text-muted-foreground/70 mb-1">SDK Token <span className="text-muted-foreground/40">(Authorization header)</span></p>
+                        <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-muted/50 px-3 py-2">
+                          <code className="flex-1 font-mono text-xs text-foreground truncate">
+                            {sdkToken
+                              ? (showSdkToken ? sdkToken : `${sdkToken.slice(0, 18)}${'•'.repeat(14)}`)
+                              : <span className="text-muted-foreground/50 italic">Not found — regenerate from admin</span>
+                            }
+                          </code>
+                          {sdkToken && (
+                            <>
+                              <button onClick={() => setShowSdkToken((s) => !s)} className="text-muted-foreground hover:text-foreground shrink-0">
+                                {showSdkToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                              </button>
+                              <CopyButton text={sdkToken} />
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      {/* Project Key */}
+                      <div>
+                        <p className="text-[10px] text-muted-foreground/70 mb-1">Project Key <span className="text-muted-foreground/40">(X-Project-ID header)</span></p>
+                        <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-muted/50 px-3 py-2">
+                          <code className="flex-1 font-mono text-xs text-foreground">
+                            {showKey ? apiKey : `${apiKey.slice(0, 14)}${'•'.repeat(10)}`}
+                          </code>
+                          <button onClick={() => setShowKey((s) => !s)} className="text-muted-foreground hover:text-foreground shrink-0">
+                            {showKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                          </button>
+                          <CopyButton text={apiKey} />
+                        </div>
                       </div>
                     </div>
 
@@ -770,7 +802,16 @@ export default function AppManagementPage() {
                 </div>
               </div>
               <div>
-                <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground/60">API Key</p>
+                <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground/60">SDK Token</p>
+                <div className="mt-1 flex items-center gap-2">
+                  <code className="flex-1 truncate text-[10px] font-mono text-muted-foreground">
+                    {sdkToken ? `${sdkToken.slice(0, 12)}••••` : '—'}
+                  </code>
+                  {sdkToken && <CopyButton text={sdkToken} label="Token" />}
+                </div>
+              </div>
+              <div>
+                <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground/60">Project Key</p>
                 <div className="mt-1 flex items-center gap-2">
                   <code className="flex-1 truncate text-[10px] font-mono text-muted-foreground">
                     {apiKey.slice(0, 10)}••••
