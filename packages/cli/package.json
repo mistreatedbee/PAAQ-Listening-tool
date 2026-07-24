@@ -1,0 +1,12 @@
+{
+  "name": "@paaq/cli",
+  "version": "0.1.0",
+  "description": "PAAQ Intelligence CLI — connect any app or website to PAAQ with one command",
+  "type": "module",
+  "bin": {
+    "paaq": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js"
+  }
+}

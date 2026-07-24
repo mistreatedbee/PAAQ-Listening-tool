@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "paaq": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["packages/mcp-server/index.js"],
+      "description": "PAAQ Intelligence — connect any app or website automatically"
+    }
+  }
+}

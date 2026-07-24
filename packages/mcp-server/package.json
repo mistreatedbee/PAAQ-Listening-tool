@@ -1,0 +1,15 @@
+{
+  "name": "@paaq/mcp-server",
+  "version": "0.1.0",
+  "description": "PAAQ Intelligence MCP server — lets AI agents connect any app to PAAQ automatically",
+  "type": "module",
+  "bin": {
+    "paaq-mcp": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  }
+}
