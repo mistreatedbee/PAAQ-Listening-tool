@@ -10,6 +10,7 @@ import {
   Code2, Smartphone, Globe, Users, Lock, Layers, GitBranch,
   CheckCircle, TrendingUp, Star, Cpu, Bell, Sun, Moon, Menu, X as XIcon,
 } from 'lucide-react'
+import { SiFlutter, SiReact, SiNextdotjs, SiSwift, SiAndroid, SiNodedotjs } from 'react-icons/si'
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
@@ -29,12 +30,12 @@ const FEATURES = [
 ]
 
 const PLATFORMS = [
-  { label: 'Flutter', icon: '🦋' },
-  { label: 'React', icon: '⚛️' },
-  { label: 'Next.js', icon: '▲' },
-  { label: 'iOS Swift', icon: '🍎' },
-  { label: 'Android', icon: '🤖' },
-  { label: 'Node.js', icon: '🟢' },
+  { label: 'Flutter',   Icon: SiFlutter,   color: '#54C5F8' },
+  { label: 'React',     Icon: SiReact,     color: '#61DAFB' },
+  { label: 'Next.js',   Icon: SiNextdotjs, color: null },
+  { label: 'iOS Swift', Icon: SiSwift,     color: '#F05138' },
+  { label: 'Android',   Icon: SiAndroid,   color: '#3DDC84' },
+  { label: 'Node.js',   Icon: SiNodedotjs, color: '#68A063' },
 ]
 
 const PRICING = [
@@ -360,7 +361,7 @@ export default function LandingPage() {
           <div className="flex flex-wrap items-center justify-center gap-8">
             {PLATFORMS.map((p) => (
               <div key={p.label} className="flex items-center gap-2 text-sm font-semibold" style={{ color: c.textMuted }}>
-                <span className="text-lg">{p.icon}</span>
+                <p.Icon className="h-5 w-5 shrink-0" style={{ color: p.color ?? (isDark ? '#e8f0f8' : '#0f1923') }} />
                 {p.label}
               </div>
             ))}
