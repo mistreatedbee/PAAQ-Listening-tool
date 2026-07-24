@@ -14,6 +14,8 @@ import {
   Activity,
   Lightbulb,
   Brain,
+  Cable,
+  SlidersHorizontal,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -62,7 +64,8 @@ export const navGroups: NavGroup[] = [
   {
     title: 'System',
     items: [
-      { label: 'Settings',          href: '/settings',         icon: Settings },
+      { label: 'Setup & Integrations', href: '/setup',    icon: Cable },
+      { label: 'Settings',             href: '/settings', icon: SlidersHorizontal },
     ],
   },
 ]
