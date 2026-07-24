@@ -6,7 +6,7 @@ import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { Card } from '@/components/kit'
 import { useRouter } from 'next/navigation'
 import {
-  Upload, Github, FileText, Network, Cpu, Route, Server, Rocket, Users,
+  Upload, GitBranch, FileText, Network, Cpu, Route, Server, Rocket, Users,
   CheckCircle, ArrowRight, ArrowLeft, Sparkles, Loader2,
 } from 'lucide-react'
 

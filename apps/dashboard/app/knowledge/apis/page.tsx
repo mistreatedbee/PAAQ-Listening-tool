@@ -167,7 +167,7 @@ export default function ApisPage() {
                 </span>
                 <span className="flex-1 truncate font-mono text-sm">{api.endpoint}</span>
                 <div className="flex shrink-0 items-center gap-2">
-                  {api.requires_auth && <Shield className="h-3.5 w-3.5 text-muted-foreground/60" title="Auth required" />}
+                  {api.requires_auth && <Shield className="h-3.5 w-3.5 text-muted-foreground/60" aria-label="Auth required" />}
                   {api.expected_latency_ms && (
                     <span className="flex items-center gap-1 text-xs text-muted-foreground">
                       <Clock className="h-3 w-3" />{api.expected_latency_ms}ms

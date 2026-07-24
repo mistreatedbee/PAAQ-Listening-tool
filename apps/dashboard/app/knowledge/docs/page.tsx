@@ -167,7 +167,7 @@ export default function DocsPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold">{doc.title}</span>
-                    {doc.ai_processed && <Sparkles className="h-3.5 w-3.5 text-ai" title="AI processed" />}
+                    {doc.ai_processed && <Sparkles className="h-3.5 w-3.5 text-ai" aria-label="AI processed" />}
                   </div>
                   <div className="flex items-center gap-2 mt-0.5">
                     <span className="text-[10px] font-semibold rounded px-1.5 py-0.5"

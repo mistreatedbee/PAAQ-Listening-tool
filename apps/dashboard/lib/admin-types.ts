@@ -62,6 +62,7 @@ export type Subscription = {
   plan: SubscriptionPlan
   billing_status: BillingStatus
   stripe_customer_id: string | null
+  stripe_subscription_id: string | null
   renewal_date: string | null
   max_projects: number
   max_events_per_month: number

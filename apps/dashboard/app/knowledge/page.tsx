@@ -94,7 +94,7 @@ export default function KnowledgePage() {
       <Card className="border-ai/20 bg-ai/5">
         <CardHead
           title="Knowledge Search"
-          subtitle="Ask any question about your application's architecture, features, or APIs"
+          desc="Ask any question about your application's architecture, features, or APIs"
           icon={<Sparkles className="h-4 w-4 text-ai" />}
         />
         <form onSubmit={handleSearch} className="flex gap-3 px-5 pb-4">
