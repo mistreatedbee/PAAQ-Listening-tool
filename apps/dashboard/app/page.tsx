@@ -163,9 +163,7 @@ export default function LandingPage() {
           borderBottom: scrolled ? `1px solid ${c.borderLight}` : 'none',
         }}>
         <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl" style={{ background: 'linear-gradient(135deg,#27A6CE,#5FDED4)' }}>
-            <Sparkles className="h-4 w-4 text-white" />
-          </div>
+          <Image src="/logo.png" alt="PAAQ Intelligence" width={32} height={32} className="rounded-xl" />
           <div className="leading-none">
             <p className="text-sm font-black tracking-tight" style={{ color: c.text }}>PAAQ</p>
             <p className="text-[9px] font-bold uppercase tracking-widest" style={{ color: '#51C9D3' }}>Intelligence</p>

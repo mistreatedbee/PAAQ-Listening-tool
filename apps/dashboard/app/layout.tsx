@@ -12,6 +12,10 @@ export const metadata: Metadata = {
   title: 'PAAQ Intelligence',
   description:
     'AI Digital Product Intelligence Platform. Connect your website, mobile app, backend API, or full platform — monitor, understand, predict, and resolve everything across your digital product ecosystem.',
+  icons: {
+    icon: '/logo.png',
+    apple: '/logo.png',
+  },
 }
 
 export const viewport: Viewport = {
