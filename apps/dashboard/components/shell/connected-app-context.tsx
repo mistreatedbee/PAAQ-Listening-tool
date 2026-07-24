@@ -59,21 +59,16 @@ const MS_24HR  = 24  * 60 * 60 * 1000
 const MS_25HR  = 25  * 60 * 60 * 1000
 const MS_7DAY  = 7   * 24 * 60 * 60 * 1000
 
-// Frontend SDKs are browser-based: each page visit resets the clock → 5-min window.
-// Server-side SDKs (backend, database) rely on cron heartbeats (≥ daily) → 25-hr window.
+// All layers use a 25-hour connected window — refreshed by SDK visits (frontend)
+// or by the scheduled database heartbeat (backend/database). This keeps status
+// green 24/7 as long as at least one heartbeat runs per day.
 function layerStatus(
   lastSeenStr: string | null,
-  type: 'frontend' | 'server' = 'frontend',
 ): 'connected' | 'degraded' | 'disconnected' {
   if (!lastSeenStr) return 'disconnected'
   const ageMs = Date.now() - new Date(lastSeenStr).getTime()
-  if (type === 'server') {
-    if (ageMs < MS_25HR)  return 'connected'
-    if (ageMs < MS_7DAY)  return 'degraded'
-    return 'disconnected'
-  }
-  if (ageMs < MS_5MIN)  return 'connected'
-  if (ageMs < MS_24HR)  return 'degraded'
+  if (ageMs < MS_25HR)  return 'connected'
+  if (ageMs < MS_7DAY)  return 'degraded'
   return 'disconnected'
 }
 
@@ -125,9 +120,9 @@ function toConnectedApp(project: ProjectRow, installs: InstallRow[]): ConnectedA
     connectedSince: project.created_at,
     lastSeen,
     sdkStatus: {
-      frontend:           layerStatus(latestLastSeen(frontendInstalls), 'frontend'),
-      backend:            layerStatus(latestLastSeen(backendInstalls),  'server'),
-      database:           layerStatus(latestLastSeen(databaseInstalls), 'server'),
+      frontend:           layerStatus(latestLastSeen(frontendInstalls)),
+      backend:            layerStatus(latestLastSeen(backendInstalls)),
+      database:           layerStatus(latestLastSeen(databaseInstalls)),
       frontendLastSeen:   latestLastSeen(frontendInstalls),
       backendLastSeen:    latestLastSeen(backendInstalls),
       databaseLastSeen:   latestLastSeen(databaseInstalls),
