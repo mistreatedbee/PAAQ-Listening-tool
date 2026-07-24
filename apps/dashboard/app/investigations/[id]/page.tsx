@@ -12,6 +12,7 @@ import {
   Bot, Target, Zap, Shield, BarChart3, Users, Wrench, Search, Layers,
 } from 'lucide-react'
 import type { Tone } from '@/lib/data'
+import { FixExecution } from '@/components/dashboard/fix-execution'
 
 type DbInvestigation = {
   id: string
@@ -83,6 +84,7 @@ export default function InvestigationDetailPage() {
   const [recs, setRecs] = useState<DbRecommendation[]>([])
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState<string | null>(null)
+  const [executing, setExecuting] = useState<{ title: string; improvement?: string } | null>(null)
 
   const showToast = (msg: string) => {
     setToast(msg)
@@ -107,11 +109,11 @@ export default function InvestigationDetailPage() {
     })
   }, [id])
 
-  const handleApprove = async (recId: string) => {
+  const handleApprove = async (rec: DbRecommendation) => {
     const sb = createClient()
-    await sb.from('recommendations').update({ status: 'approved', approved_at: new Date().toISOString() }).eq('id', recId)
-    setRecs((prev) => prev.map((r) => r.id === recId ? { ...r, status: 'approved' } : r))
-    showToast('Recommendation approved')
+    await sb.from('recommendations').update({ status: 'approved', approved_at: new Date().toISOString() }).eq('id', rec.id)
+    setRecs((prev) => prev.map((r) => r.id === rec.id ? { ...r, status: 'approved' } : r))
+    setExecuting({ title: rec.title, improvement: rec.expected_improvement ?? undefined })
   }
 
   const handleReject = async (recId: string) => {
@@ -120,6 +122,7 @@ export default function InvestigationDetailPage() {
     setRecs((prev) => prev.map((r) => r.id === recId ? { ...r, status: 'rejected' } : r))
     showToast('Recommendation rejected')
   }
+
 
   if (loading) {
     return <div className="flex items-center justify-center py-32 text-sm text-muted-foreground">Loading…</div>
@@ -141,6 +144,14 @@ export default function InvestigationDetailPage() {
 
   return (
     <div className="space-y-6">
+      {executing && (
+        <FixExecution
+          title={executing.title}
+          improvement={executing.improvement}
+          onClose={() => setExecuting(null)}
+        />
+      )}
+
       {toast && (
         <div className="fixed bottom-4 right-4 z-50 rounded-lg bg-foreground px-4 py-2.5 text-sm font-medium text-background shadow-lg">
           {toast}
@@ -272,14 +283,14 @@ export default function InvestigationDetailPage() {
                       {rec.status === 'pending' && (
                         <div className="mt-3 flex gap-2">
                           <button
-                            onClick={() => handleApprove(rec.id)}
-                            className="flex-1 rounded-lg bg-healthy/10 border border-healthy/30 px-2 py-1.5 text-xs font-medium text-healthy hover:bg-healthy/20 transition-colors"
+                            onClick={() => handleApprove(rec)}
+                            className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-ai/10 border border-ai/30 px-2 py-2 text-xs font-semibold text-ai hover:bg-ai/20 transition-colors"
                           >
-                            <CheckCircle2 className="mr-1 inline h-3 w-3" /> Approve
+                            <Zap className="h-3.5 w-3.5" /> Approve &amp; Execute
                           </button>
                           <button
                             onClick={() => handleReject(rec.id)}
-                            className="flex-1 rounded-lg border border-border/60 bg-card/60 px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent transition-colors"
+                            className="rounded-lg border border-border/60 bg-card/60 px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-accent transition-colors"
                           >
                             Reject
                           </button>
