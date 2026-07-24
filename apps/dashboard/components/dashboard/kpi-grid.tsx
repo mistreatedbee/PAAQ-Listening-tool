@@ -32,18 +32,21 @@ export function KpiGrid() {
 
   useEffect(() => {
     if (app.id === '__loading__') return
+    let cancelled = false
     const sb = createClient()
-    const yesterday = new Date(Date.now() - 86_400_000).toISOString()
 
-    Promise.all([
-      sb.from('events').select('user_id').gte('created_at', yesterday).eq('project_id', app.id),
-      sb.from('events').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
-      sb.from('errors').select('*', { count: 'exact', head: true }).eq('status', 'open').eq('project_id', app.id),
-      sb.from('incidents').select('*', { count: 'exact', head: true }).neq('status', 'resolved').eq('project_id', app.id),
-      sb.from('ai_insights').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
-      sb.from('sessions').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
-      sb.from('knowledge_nodes').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
-    ]).then(([dauRaw, allEvents, errors, incidents, insights, sessions, knowledge]) => {
+    function load() {
+      const yesterday = new Date(Date.now() - 86_400_000).toISOString()
+      Promise.all([
+        sb.from('events').select('user_id').gte('created_at', yesterday).eq('project_id', app.id),
+        sb.from('events').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
+        sb.from('errors').select('*', { count: 'exact', head: true }).eq('status', 'open').eq('project_id', app.id),
+        sb.from('incidents').select('*', { count: 'exact', head: true }).neq('status', 'resolved').eq('project_id', app.id),
+        sb.from('ai_insights').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
+        sb.from('sessions').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
+        sb.from('knowledge_nodes').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
+      ]).then(([dauRaw, allEvents, errors, incidents, insights, sessions, knowledge]) => {
+      if (cancelled) return
       const dauSet = new Set(
         ((dauRaw.data ?? []) as { user_id: string | null }[])
           .map((e) => e.user_id)
@@ -118,6 +121,24 @@ export function KpiGrid() {
         },
       ])
     })
+    }  // end load()
+
+    load()
+
+    const channel = sb
+      .channel(`kpi-refresh-${app.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'events', filter: `project_id=eq.${app.id}` }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'errors', filter: `project_id=eq.${app.id}` }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'incidents', filter: `project_id=eq.${app.id}` }, load)
+      .subscribe()
+
+    const timer = setInterval(load, 30_000)
+
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+      sb.removeChannel(channel)
+    }
   }, [app.id])
 
   return (

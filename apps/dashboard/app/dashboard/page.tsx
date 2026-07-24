@@ -12,6 +12,7 @@ import { JourneyHealth } from '@/components/dashboard/journey-health'
 import { KnowledgeCoverage } from '@/components/dashboard/knowledge-coverage'
 import { AiDiscoveries } from '@/components/dashboard/ai-discoveries'
 import { PredictedRisks } from '@/components/dashboard/predicted-risks'
+import { LiveUsers } from '@/components/dashboard/live-users'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { WifiOff } from 'lucide-react'
 import Link from 'next/link'
@@ -83,7 +84,10 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* 1 — AI Summary (most prominent, full width) */}
+      {/* 1 — Live Users + Connection Status */}
+      <LiveUsers />
+
+      {/* 2 — AI Summary (most prominent, full width) */}
       <AiSummary />
 
       {/* 2 — KPI strip */}

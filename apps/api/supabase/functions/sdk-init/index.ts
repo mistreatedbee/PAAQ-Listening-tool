@@ -34,6 +34,12 @@ const sb = createClient(
 )
 
 Deno.serve(async (req) => {
+  try { return await _handle(req) } catch (e) {
+    return new Response(JSON.stringify({ ok: false, caught: String(e) }), { status: 500, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } })
+  }
+})
+
+async function _handle(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response(null, { headers: cors() })
   if (req.method !== 'POST') return respond({ ok: false, error: 'Method not allowed' }, 405)
 
@@ -109,19 +115,21 @@ Deno.serve(async (req) => {
   const deviceId = body.deviceId ?? crypto.randomUUID()
   const now = new Date().toISOString()
 
-  await sb.from('sdk_installations').upsert(
-    {
-      tenant_id:   tokenRow.tenant_id,
-      project_id:  project.id,
-      sdk_version: sdkVersion,
-      platform,
-      device_id:   deviceId,
-      app_version: body.appVersion ?? null,
-      last_seen:   now,
-      status:      'active',
-    },
-    { onConflict: 'tenant_id,project_id,device_id', ignoreDuplicates: false },
-  )
+  try {
+    await sb.from('sdk_installations').upsert(
+      {
+        tenant_id:   tokenRow.tenant_id,
+        project_id:  project.id,
+        sdk_version: sdkVersion,
+        platform,
+        device_id:   deviceId,
+        app_version: body.appVersion ?? null,
+        last_seen:   now,
+        status:      'active',
+      },
+      { onConflict: 'tenant_id,project_id,device_id,platform', ignoreDuplicates: false },
+    )
+  } catch (_e) { /* non-fatal */ }
 
   // ── 7. Build remote config (plan-aware) ───────────────────────
   const isPaidPlan = tenant.subscription_plan !== 'starter'
@@ -166,15 +174,17 @@ Deno.serve(async (req) => {
       serverTime:  now,
     },
   })
-})
+}
 
 async function logEvent(action: string, projectKey: string, details: Record<string, unknown>) {
-  await sb.from('admin_audit_log').insert({
-    action,
-    resource_type: 'sdk',
-    resource_name: projectKey,
-    details,
-  }).catch(() => {/* non-blocking */})
+  try {
+    await sb.from('admin_audit_log').insert({
+      action,
+      resource_type: 'sdk',
+      resource_name: projectKey,
+      details,
+    })
+  } catch (_e) { /* non-blocking */ }
 }
 
 function cors() {

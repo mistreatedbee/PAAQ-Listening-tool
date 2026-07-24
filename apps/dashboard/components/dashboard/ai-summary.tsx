@@ -78,41 +78,62 @@ export function AiSummary() {
 
   useEffect(() => {
     if (app.id === '__loading__') return
+    let cancelled = false
     const sb = createClient()
-    const yesterday = new Date(Date.now() - 86_400_000).toISOString()
 
-    Promise.all([
-      sb.from('events').select('user_id').gte('created_at', yesterday).eq('project_id', app.id),
-      sb.from('events').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
-      sb.from('errors').select('*', { count: 'exact', head: true }).eq('status', 'open').eq('project_id', app.id),
-      sb.from('incidents').select('*', { count: 'exact', head: true }).neq('status', 'resolved').eq('project_id', app.id),
-      sb.from('knowledge_nodes').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
-      sb.from('sessions').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
-      sb.from('ai_insights').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
-    ]).then(([dauRaw, allEvents, errors, incidents, knowledge, sessions, insights]) => {
-      const dauSet = new Set(
-        ((dauRaw.data ?? []) as { user_id: string | null }[])
-          .map((e) => e.user_id).filter(Boolean),
-      )
-      const dau = dauSet.size
-      const ev  = allEvents.count ?? 0
-      const er  = errors.count ?? 0
-      const inc = incidents.count ?? 0
-      const kn  = knowledge.count ?? 0
-      const ses = sessions.count ?? 0
-      const ai  = insights.count ?? 0
+    function load() {
+      const yesterday = new Date(Date.now() - 86_400_000).toISOString()
+      Promise.all([
+        sb.from('events').select('user_id').gte('created_at', yesterday).eq('project_id', app.id),
+        sb.from('events').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
+        sb.from('errors').select('*', { count: 'exact', head: true }).eq('status', 'open').eq('project_id', app.id),
+        sb.from('incidents').select('*', { count: 'exact', head: true }).neq('status', 'resolved').eq('project_id', app.id),
+        sb.from('knowledge_nodes').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
+        sb.from('sessions').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
+        sb.from('ai_insights').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
+      ]).then(([dauRaw, allEvents, errors, incidents, knowledge, sessions, insights]) => {
+        if (cancelled) return
+        const dauSet = new Set(
+          ((dauRaw.data ?? []) as { user_id: string | null }[])
+            .map((e) => e.user_id).filter(Boolean),
+        )
+        const dau = dauSet.size
+        const ev  = allEvents.count ?? 0
+        const er  = errors.count ?? 0
+        const inc = incidents.count ?? 0
+        const kn  = knowledge.count ?? 0
+        const ses = sessions.count ?? 0
+        const ai  = insights.count ?? 0
 
-      const errorPenalty    = ev > 0 ? Math.min(40, Math.round((er / Math.max(ev, 1)) * 200)) : 0
-      const incidentPenalty = Math.min(30, inc * 10)
-      const health          = Math.max(10, 100 - errorPenalty - incidentPenalty)
-      const healthTone: Tone = health >= 80 ? 'healthy' : health >= 60 ? 'warning' : 'critical'
-      const healthLabel = health >= 85 ? 'Excellent' : health >= 70 ? 'Good' : health >= 55 ? 'Fair' : 'Needs attention'
+        const errorPenalty    = ev > 0 ? Math.min(40, Math.round((er / Math.max(ev, 1)) * 200)) : 0
+        const incidentPenalty = Math.min(30, inc * 10)
+        const health          = Math.max(10, 100 - errorPenalty - incidentPenalty)
+        const healthTone: Tone = health >= 80 ? 'healthy' : health >= 60 ? 'warning' : 'critical'
+        const healthLabel = health >= 85 ? 'Excellent' : health >= 70 ? 'Good' : health >= 55 ? 'Fair' : 'Needs attention'
 
-      const s: Stats = { health, healthLabel, healthTone, activeUsers: dau, sessions: ses, errors: er, incidents: inc, knowledge: kn, insights: ai }
-      setStats(s)
-      setSummary(buildSummary(s, app.name))
-      setLoading(false)
-    })
+        const s: Stats = { health, healthLabel, healthTone, activeUsers: dau, sessions: ses, errors: er, incidents: inc, knowledge: kn, insights: ai }
+        setStats(s)
+        setSummary(buildSummary(s, app.name))
+        setLoading(false)
+      })
+    }
+
+    load()
+
+    const channel = sb
+      .channel(`ai-summary-refresh-${app.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'events', filter: `project_id=eq.${app.id}` }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'errors', filter: `project_id=eq.${app.id}` }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'incidents', filter: `project_id=eq.${app.id}` }, load)
+      .subscribe()
+
+    const timer = setInterval(load, 30_000)
+
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+      sb.removeChannel(channel)
+    }
   }, [app.id])
 
   return (

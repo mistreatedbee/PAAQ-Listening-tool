@@ -46,11 +46,13 @@ type InstallRow = {
 }
 
 // Platforms that indicate a frontend SDK is present
-const FRONTEND_PLATFORMS = new Set(['react', 'nextjs', 'vue', 'angular', 'vanilla'])
+const FRONTEND_PLATFORMS  = new Set(['react', 'nextjs', 'vue', 'angular', 'vanilla'])
 // Platforms that indicate a mobile SDK is present (counts as frontend layer)
-const MOBILE_PLATFORMS   = new Set(['flutter', 'reactnative', 'ios', 'android'])
+const MOBILE_PLATFORMS    = new Set(['flutter', 'reactnative', 'ios', 'android'])
 // Platforms that indicate a backend SDK is present
-const BACKEND_PLATFORMS  = new Set(['nodejs', 'python', 'go', 'java', 'dotnet', 'ruby', 'other'])
+const BACKEND_PLATFORMS   = new Set(['nodejs', 'python', 'go', 'java', 'dotnet', 'ruby', 'other'])
+// Platforms that indicate a database connector is present
+const DATABASE_PLATFORMS  = new Set(['postgres', 'mysql', 'supabase', 'mongodb', 'database', 'sqlite', 'redis'])
 
 const MS_5MIN  = 5  * 60 * 1000
 const MS_24HR  = 24 * 60 * 60 * 1000
@@ -81,10 +83,11 @@ function toConnectedApp(project: ProjectRow, installs: InstallRow[]): ConnectedA
     (i) => i.project_id === project.id && i.status === 'active',
   )
 
-  const frontendInstalls = projectInstalls.filter(
+  const frontendInstalls  = projectInstalls.filter(
     (i) => FRONTEND_PLATFORMS.has(i.platform) || MOBILE_PLATFORMS.has(i.platform),
   )
-  const backendInstalls = projectInstalls.filter((i) => BACKEND_PLATFORMS.has(i.platform))
+  const backendInstalls   = projectInstalls.filter((i) => BACKEND_PLATFORMS.has(i.platform))
+  const databaseInstalls  = projectInstalls.filter((i) => DATABASE_PLATFORMS.has(i.platform))
 
   // Derive most-recent last_seen from any active installation
   const lastSeenMs = projectInstalls.map((i) => new Date(i.last_seen).getTime())
@@ -110,9 +113,12 @@ function toConnectedApp(project: ProjectRow, installs: InstallRow[]): ConnectedA
     connectedSince: project.created_at,
     lastSeen,
     sdkStatus: {
-      frontend: layerStatus(latestLastSeen(frontendInstalls)),
-      backend:  layerStatus(latestLastSeen(backendInstalls)),
-      database: 'disconnected', // Database connector tracked separately
+      frontend:           layerStatus(latestLastSeen(frontendInstalls)),
+      backend:            layerStatus(latestLastSeen(backendInstalls)),
+      database:           layerStatus(latestLastSeen(databaseInstalls)),
+      frontendLastSeen:   latestLastSeen(frontendInstalls),
+      backendLastSeen:    latestLastSeen(backendInstalls),
+      databaseLastSeen:   latestLastSeen(databaseInstalls),
     },
   }
 }
@@ -161,10 +167,9 @@ export function ConnectedAppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false
+    const sb = createClient()
 
     async function load() {
-      const sb = createClient()
-
       // 1. Get current auth user
       const { data: { user } } = await sb.auth.getUser()
       if (!user || cancelled) { setLoading(false); return }
@@ -205,16 +210,32 @@ export function ConnectedAppProvider({ children }: { children: ReactNode }) {
 
       if (!cancelled) {
         setApps(mapped)
-        // Restore last-used project from localStorage, else default to first
-        const saved = localStorage.getItem('paaq_active_project')
-        const initial = mapped.find((a) => a.id === saved) ?? mapped[0]
-        setActiveId(initial.id)
+        // Preserve current selection on refresh; restore from localStorage on first load
+        setActiveId((prev) => {
+          if (prev) return prev
+          const saved = localStorage.getItem('paaq_active_project')
+          return (mapped.find((a) => a.id === saved) ?? mapped[0])?.id ?? null
+        })
         setLoading(false)
       }
     }
 
     load()
-    return () => { cancelled = true }
+
+    // Refresh status in real-time whenever an SDK installation is updated/inserted
+    const channel = sb
+      .channel('sdk-installations-status-refresh')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sdk_installations' }, () => { if (!cancelled) load() })
+      .subscribe()
+
+    // 60s interval fallback in case Realtime is unavailable
+    const timer = setInterval(() => { if (!cancelled) load() }, 60_000)
+
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+      sb.removeChannel(channel)
+    }
   }, [])
 
   const setApp = useCallback((id: string) => {

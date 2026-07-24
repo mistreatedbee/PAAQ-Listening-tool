@@ -78,6 +78,9 @@ export type ConnectedApp = {
     frontend: SdkStatus
     backend: SdkStatus
     database: SdkStatus
+    frontendLastSeen?: string | null
+    backendLastSeen?: string | null
+    databaseLastSeen?: string | null
   }
 }
 
