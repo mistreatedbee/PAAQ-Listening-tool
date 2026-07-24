@@ -52,6 +52,24 @@ const MOBILE_PLATFORMS   = new Set(['flutter', 'reactnative', 'ios', 'android'])
 // Platforms that indicate a backend SDK is present
 const BACKEND_PLATFORMS  = new Set(['nodejs', 'python', 'go', 'java', 'dotnet', 'ruby', 'other'])
 
+const MS_5MIN  = 5  * 60 * 1000
+const MS_24HR  = 24 * 60 * 60 * 1000
+
+function layerStatus(lastSeenStr: string | null): 'connected' | 'degraded' | 'disconnected' {
+  if (!lastSeenStr) return 'disconnected'
+  const ageMs = Date.now() - new Date(lastSeenStr).getTime()
+  if (ageMs < MS_5MIN)  return 'connected'
+  if (ageMs < MS_24HR)  return 'degraded'
+  return 'disconnected'
+}
+
+function latestLastSeen(rows: InstallRow[]): string | null {
+  if (!rows.length) return null
+  return rows.reduce((best, r) =>
+    new Date(r.last_seen) > new Date(best.last_seen) ? r : best,
+  ).last_seen
+}
+
 function toConnectedApp(project: ProjectRow, installs: InstallRow[]): ConnectedApp {
   const env = project.environment === 'production'
     ? 'Production'
@@ -62,10 +80,11 @@ function toConnectedApp(project: ProjectRow, installs: InstallRow[]): ConnectedA
   const projectInstalls = installs.filter(
     (i) => i.project_id === project.id && i.status === 'active',
   )
-  const platforms = new Set(projectInstalls.map((i) => i.platform))
 
-  const hasFrontend = [...FRONTEND_PLATFORMS, ...MOBILE_PLATFORMS].some((p) => platforms.has(p))
-  const hasBackend  = [...BACKEND_PLATFORMS].some((p) => platforms.has(p))
+  const frontendInstalls = projectInstalls.filter(
+    (i) => FRONTEND_PLATFORMS.has(i.platform) || MOBILE_PLATFORMS.has(i.platform),
+  )
+  const backendInstalls = projectInstalls.filter((i) => BACKEND_PLATFORMS.has(i.platform))
 
   // Derive most-recent last_seen from any active installation
   const lastSeenMs = projectInstalls.map((i) => new Date(i.last_seen).getTime())
@@ -91,9 +110,9 @@ function toConnectedApp(project: ProjectRow, installs: InstallRow[]): ConnectedA
     connectedSince: project.created_at,
     lastSeen,
     sdkStatus: {
-      frontend: hasFrontend ? 'connected' : 'disconnected',
-      backend:  hasBackend  ? 'connected' : 'disconnected',
-      database: 'disconnected', // Database connector tracked separately — not via sdk_installations
+      frontend: layerStatus(latestLastSeen(frontendInstalls)),
+      backend:  layerStatus(latestLastSeen(backendInstalls)),
+      database: 'disconnected', // Database connector tracked separately
     },
   }
 }
