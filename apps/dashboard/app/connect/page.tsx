@@ -131,8 +131,8 @@ export default function ConnectPage() {
   "mcpServers": {
     "paaq": {
       "type": "stdio",
-      "command": "node",
-      "args": ["packages/mcp-server/index.js"]
+      "command": "npx",
+      "args": ["-y", "@paaq/mcp-server"]
     }
   }
 }`
@@ -146,19 +146,97 @@ export default function ConnectPage() {
 
   const agentPrompt = `Connect my ${FRAMEWORK_LABELS[framework]} app to PAAQ Intelligence.
 
+═══════════════════════════════════════════
+CREDENTIALS
+═══════════════════════════════════════════
 SDK Token:   ${tok}
 Project Key: ${key}
 
-Steps:
-1. Detect my framework from package.json
-2. Generate the PAAQ integration snippet
-3. Add it to my app entry point
-4. Send a test event to verify the connection
+These credentials are already valid — do NOT ask me to get them from anywhere else.
 
-Use the paaq_verify_credentials and paaq_generate_snippet MCP tools if available.`
+═══════════════════════════════════════════
+WHAT PAAQ INTELLIGENCE IS
+═══════════════════════════════════════════
+PAAQ Intelligence is a product analytics and AI monitoring platform.
+Connecting this app means:
+- All user events (page views, clicks, errors) are captured and analysed
+- The PAAQ dashboard shows real-time connection status, sessions, and AI insights
+- The connection is confirmed when a test event is received successfully
+
+═══════════════════════════════════════════
+STEP-BY-STEP INSTRUCTIONS
+═══════════════════════════════════════════
+Follow these steps exactly, in order:
+
+STEP 1 — Detect the framework
+  Read the file package.json (or requirements.txt for Python projects).
+  If the PAAQ MCP server is available, call:
+    paaq_detect_framework(packageJsonContent: <contents of package.json>)
+  Otherwise, inspect the dependencies yourself to identify the framework.
+  Supported: nextjs, react, vue, vanilla, nodejs, python
+
+STEP 2 — Verify credentials
+  Before writing any code, confirm the credentials work.
+  Call: paaq_verify_credentials(sdkToken: "${tok}", projectKey: "${key}")
+  If this fails, stop and tell me the error message.
+  Do NOT continue to the next step if verification fails.
+
+STEP 3 — Generate the integration code
+  Call: paaq_generate_snippet(sdkToken: "${tok}", projectKey: "${key}", framework: <detected>)
+  The tool returns the exact file contents to write.
+
+STEP 4 — Write the integration file
+  Use your own file tools to write the file to the project.
+  The snippet output tells you the exact filename and location.
+  Common locations:
+    Next.js  → lib/paaq.ts
+    React    → src/paaq.js
+    Vue      → src/paaq.js
+    Node.js  → paaq.js (project root)
+    Python   → paaq.py (project root)
+    Vanilla  → add the <script> block to the main HTML file
+
+STEP 5 — Add the init call to the app entry point
+  The snippet contains comments showing exactly where to add the import and init call.
+  Make that edit now so the SDK initialises when the app starts.
+
+STEP 6 — Send a test event to confirm the connection
+  Call: paaq_send_test_event(sdkToken: "${tok}", projectKey: "${key}")
+  A successful response means PAAQ Intelligence is now receiving data.
+  Tell me the result.
+
+═══════════════════════════════════════════
+IF THE MCP SERVER IS NOT AVAILABLE
+═══════════════════════════════════════════
+Generate the integration code directly. The API endpoints are:
+
+  Handshake:  POST https://mookyonwpovxscsbqwwl.supabase.co/functions/v1/sdk-init
+  Events:     POST https://mookyonwpovxscsbqwwl.supabase.co/functions/v1/events
+
+Auth headers for BOTH endpoints:
+  Authorization: Bearer ${tok}
+  X-Project-ID:  ${key}
+  X-SDK-Version: 1.0.0
+  X-Platform:    <framework name>
+  X-Environment: production
+
+Events endpoint accepts a JSON array of event objects:
+  [{ event_name, session_id, screen_name, properties, timestamp }]
+
+After writing the file and adding the init call, send a test event manually
+to confirm the connection is working.
+
+═══════════════════════════════════════════
+DONE WHEN
+═══════════════════════════════════════════
+✓ paaq_verify_credentials returned ok: true
+✓ Integration file written to the project
+✓ Init call added to the app entry point
+✓ paaq_send_test_event returned ok: true (or manual test event sent)
+✓ You have told me the project name returned by the API`
 
   const snippets: Record<Framework, string> = {
-    nextjs: `// lib/paaq.ts — add to your Next.js project
+    nextjs: `// lib/paaq.ts — create this file in your Next.js project
 export const paaq = {
   sdkToken:   '${tok}',
   projectKey: '${key}',
@@ -166,7 +244,7 @@ export const paaq = {
   sessionId:  typeof crypto !== 'undefined' ? crypto.randomUUID() : '',
 
   async init() {
-    await fetch(\`\${this.base}/sdk-init\`, {
+    const res = await fetch(\`\${this.base}/sdk-init\`, {
       method: 'POST',
       headers: {
         'Content-Type':  'application/json',
@@ -178,20 +256,35 @@ export const paaq = {
       },
       body: JSON.stringify({ sessionId: this.sessionId }),
     }).catch(() => null)
+    const data = await res?.json().catch(() => null)
+    if (data?.ok) { this.sessionId = data.sessionId; console.log('[PAAQ] Connected') }
   },
 
   async track(event: string, props: Record<string, unknown> = {}) {
     await fetch(\`\${this.base}/events\`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': this.projectKey },
-      body: JSON.stringify({ event_name: event, session_id: this.sessionId, properties: props }),
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': \`Bearer \${this.sdkToken}\`,
+        'X-Project-ID':  this.projectKey,
+      },
+      body: JSON.stringify([{ event_name: event, session_id: this.sessionId,
+        screen_name: typeof window !== 'undefined' ? window.location.pathname : '/',
+        properties: props, timestamp: new Date().toISOString() }]),
     }).catch(() => null)
   },
 }
 
-// In app/layout.tsx — call paaq.init() inside a useEffect`,
+// app/providers.tsx — wrap your layout with this
+// 'use client'
+// import { useEffect } from 'react'
+// import { paaq } from '@/lib/paaq'
+// export function PaaqProvider({ children }: { children: React.ReactNode }) {
+//   useEffect(() => { paaq.init() }, [])
+//   return <>{children}</>
+// }`,
 
-    react: `// src/paaq.js — add to your React project
+    react: `// src/paaq.js — create this file in your React project
 export const paaq = {
   sdkToken:   '${tok}',
   projectKey: '${key}',
@@ -199,7 +292,7 @@ export const paaq = {
   sessionId:  crypto.randomUUID(),
 
   async init() {
-    await fetch(\`\${this.base}/sdk-init\`, {
+    const res = await fetch(\`\${this.base}/sdk-init\`, {
       method: 'POST',
       headers: {
         'Content-Type':  'application/json',
@@ -207,25 +300,32 @@ export const paaq = {
         'X-Project-ID':  this.projectKey,
         'X-SDK-Version': '1.0.0',
         'X-Platform':    'react',
-        'X-Environment': import.meta.env.MODE ?? 'production',
+        'X-Environment': import.meta.env?.MODE ?? 'production',
       },
       body: JSON.stringify({ sessionId: this.sessionId }),
     }).catch(() => null)
+    const data = await res?.json().catch(() => null)
+    if (data?.ok) console.log('[PAAQ] Connected')
   },
 
   async track(event, props = {}) {
     await fetch(\`\${this.base}/events\`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': this.projectKey },
-      body: JSON.stringify({ event_name: event, session_id: this.sessionId,
-        screen_name: window.location.pathname, properties: props }),
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': \`Bearer \${this.sdkToken}\`,
+        'X-Project-ID':  this.projectKey,
+      },
+      body: JSON.stringify([{ event_name: event, session_id: this.sessionId,
+        screen_name: window.location.pathname, properties: props,
+        timestamp: new Date().toISOString() }]),
     }).catch(() => null)
   },
 }
 
-// In src/main.jsx: import { paaq } from './paaq'; paaq.init()`,
+// src/main.jsx: import { paaq } from './paaq'; paaq.init()`,
 
-    vue: `// src/paaq.js — add to your Vue 3 project
+    vue: `// src/paaq.js — create this file in your Vue 3 project
 export const paaq = {
   sdkToken:   '${tok}',
   projectKey: '${key}',
@@ -233,7 +333,7 @@ export const paaq = {
   sessionId:  crypto.randomUUID(),
 
   async init() {
-    await fetch(\`\${this.base}/sdk-init\`, {
+    const res = await fetch(\`\${this.base}/sdk-init\`, {
       method: 'POST',
       headers: {
         'Content-Type':  'application/json',
@@ -241,34 +341,41 @@ export const paaq = {
         'X-Project-ID':  this.projectKey,
         'X-SDK-Version': '1.0.0',
         'X-Platform':    'vue',
-        'X-Environment': import.meta.env.MODE ?? 'production',
+        'X-Environment': import.meta.env?.MODE ?? 'production',
       },
       body: JSON.stringify({ sessionId: this.sessionId }),
     }).catch(() => null)
+    const data = await res?.json().catch(() => null)
+    if (data?.ok) console.log('[PAAQ] Connected')
   },
 
   async track(event, props = {}) {
     await fetch(\`\${this.base}/events\`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': this.projectKey },
-      body: JSON.stringify({ event_name: event, session_id: this.sessionId,
-        screen_name: window.location.pathname, properties: props }),
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': \`Bearer \${this.sdkToken}\`,
+        'X-Project-ID':  this.projectKey,
+      },
+      body: JSON.stringify([{ event_name: event, session_id: this.sessionId,
+        screen_name: window.location.pathname, properties: props,
+        timestamp: new Date().toISOString() }]),
     }).catch(() => null)
   },
 }
 
-// In src/main.js: import { paaq } from './paaq'; paaq.init()`,
+// src/main.ts: import { paaq } from './paaq'; paaq.init()`,
 
     vanilla: `<!-- Add before </body> in your HTML page -->
 <script>
-const PAAQ = {
+const paaq = {
   sdkToken:   '${tok}',
   projectKey: '${key}',
   base:       '${PAAQ_BASE}',
   sessionId:  crypto.randomUUID(),
 
   async init() {
-    await fetch(this.base + '/sdk-init', {
+    const res = await fetch(this.base + '/sdk-init', {
       method: 'POST',
       headers: {
         'Content-Type':  'application/json',
@@ -280,30 +387,36 @@ const PAAQ = {
       },
       body: JSON.stringify({ sessionId: this.sessionId }),
     }).catch(() => null)
+    const data = await res?.json().catch(() => null)
+    if (data?.ok) console.log('[PAAQ] Connected')
   },
 
   async track(event, props) {
     await fetch(this.base + '/events', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': this.projectKey },
-      body: JSON.stringify({ event_name: event, session_id: this.sessionId,
-        screen_name: location.pathname, properties: props }),
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': 'Bearer ' + this.sdkToken,
+        'X-Project-ID':  this.projectKey,
+      },
+      body: JSON.stringify([{ event_name: event, session_id: this.sessionId,
+        screen_name: location.pathname, properties: props ?? {},
+        timestamp: new Date().toISOString() }]),
     }).catch(() => null)
   },
 }
 
-PAAQ.init()
-PAAQ.track('page_view', { title: document.title })
+paaq.init().then(() => paaq.track('page_view', { title: document.title }))
 </script>`,
 
-    nodejs: `// paaq.js — add to your Node.js project
+    nodejs: `// paaq.js — create this file in your Node.js project
 export const paaq = {
   sdkToken:   '${tok}',
   projectKey: '${key}',
   base:       '${PAAQ_BASE}',
 
   async init(platform = 'nodejs') {
-    await fetch(\`\${this.base}/sdk-init\`, {
+    const res = await fetch(\`\${this.base}/sdk-init\`, {
       method: 'POST',
       headers: {
         'Content-Type':  'application/json',
@@ -315,6 +428,22 @@ export const paaq = {
       },
       body: JSON.stringify({}),
     }).catch(() => null)
+    const data = await res?.json().catch(() => null)
+    if (data?.ok) console.log('[PAAQ] Connected —', data.meta?.projectName)
+    return data
+  },
+
+  async track(event, props = {}) {
+    await fetch(\`\${this.base}/events\`, {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': \`Bearer \${this.sdkToken}\`,
+        'X-Project-ID':  this.projectKey,
+      },
+      body: JSON.stringify([{ event_name: event, properties: props,
+        timestamp: new Date().toISOString() }]),
+    }).catch(() => null)
   },
 
   // Express / Fastify / Hono middleware
@@ -324,22 +453,26 @@ export const paaq = {
       res.on('finish', () => {
         fetch(\`\${this.base}/events\`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-api-key': this.projectKey },
-          body: JSON.stringify({ event_name: 'api_request', properties: {
-            method: req.method, path: req.path, status: res.statusCode, ms: Date.now() - t,
-          }}),
+          headers: {
+            'Content-Type':  'application/json',
+            'Authorization': \`Bearer \${this.sdkToken}\`,
+            'X-Project-ID':  this.projectKey,
+          },
+          body: JSON.stringify([{ event_name: 'api_request', properties: {
+            method: req.method, path: req.path ?? req.url,
+            status: res.statusCode, duration_ms: Date.now() - t,
+          }, timestamp: new Date().toISOString() }]),
         }).catch(() => null)
       })
-      next()
+      if (next) next()
     }
   },
 }
 
-// In server.js: import { paaq } from './paaq.js'
-// await paaq.init()
-// app.use(paaq.middleware())`,
+// server.js: import { paaq } from './paaq.js'
+// await paaq.init(); app.use(paaq.middleware())`,
 
-    python: `# paaq.py — add to your Python project
+    python: `# paaq.py — create this file in your Python project
 import httpx, uuid
 
 class PAAQ:
@@ -349,28 +482,37 @@ class PAAQ:
     session_id  = str(uuid.uuid4())
 
     @classmethod
-    def init(cls, platform='python', environment='production'):
-        httpx.post(f'{cls.BASE}/sdk-init', headers={
+    def _headers(cls, platform='python'):
+        return {
+            'Content-Type':  'application/json',
             'Authorization': f'Bearer {cls.SDK_TOKEN}',
             'X-Project-ID':  cls.PROJECT_KEY,
             'X-SDK-Version': '1.0.0',
             'X-Platform':    platform,
-            'X-Environment': environment,
-        }, json={'sessionId': cls.session_id}, timeout=5)
+            'X-Environment': 'production',
+        }
+
+    @classmethod
+    def init(cls, platform='python'):
+        r = httpx.post(f'{cls.BASE}/sdk-init',
+            headers=cls._headers(platform),
+            json={'sessionId': cls.session_id}, timeout=5)
+        data = r.json()
+        if data.get('ok'): print(f"[PAAQ] Connected — {data.get('meta', {}).get('projectName')}")
 
     @classmethod
     def track(cls, event_name: str, properties: dict = {}):
         httpx.post(f'{cls.BASE}/events',
-            headers={'x-api-key': cls.PROJECT_KEY},
-            json={'event_name': event_name, 'session_id': cls.session_id,
-                  'properties': properties}, timeout=5)
+            headers=cls._headers(),
+            json=[{'event_name': event_name, 'session_id': cls.session_id,
+                   'properties': properties}], timeout=5)
 
     @classmethod
     def fastapi_middleware(cls):
         from starlette.middleware.base import BaseHTTPMiddleware
         import time
         class _M(BaseHTTPMiddleware):
-            async def dispatch(self, request, call_next):
+            async def dispatch(inner, request, call_next):
                 t = time.time()
                 response = await call_next(request)
                 cls.track('api_request', {'path': request.url.path,
@@ -378,9 +520,7 @@ class PAAQ:
                 return response
         return _M
 
-# In main.py:
-# from paaq import PAAQ
-# PAAQ.init()
+# main.py: from paaq import PAAQ; PAAQ.init()
 # app.add_middleware(PAAQ.fastapi_middleware())`,
   }
 
@@ -484,39 +624,46 @@ class PAAQ:
               </p>
             </div>
 
-            <Step n={1} title="Install the MCP server dependency">
-              <CodeBlock code={`cd /path/to/paaq-listening-platform/packages/mcp-server\nnpm install`} label="Terminal" />
+            <Step n={1} title="Add .mcp.json to your project root">
+              <p className="mb-2 text-[11px] text-muted-foreground">
+                Create this file in the root of the project you want to connect. No download or install required — it runs via <code className="font-mono bg-muted/60 px-1 rounded">npx</code>:
+              </p>
+              <CodeBlock code={mcpJson} label=".mcp.json — create this at your project root" language="json" />
             </Step>
 
-            <Step n={2} title="Add .mcp.json to your project root">
-              <p className="mb-2 text-[11px] text-muted-foreground">
-                Create this file in the root of the project you want to connect:
-              </p>
-              <CodeBlock code={mcpJson} label=".mcp.json" language="json" />
-              <p className="mt-2 text-[11px] text-muted-foreground">
-                Update the path in <code className="font-mono bg-muted/60 px-1 rounded text-[10px]">args</code> to point to where the PAAQ repo lives on your machine.
+            <Step n={2} title="Restart Claude Code (or your AI agent)">
+              <p className="text-[11px] text-muted-foreground">
+                After adding <code className="font-mono bg-muted/60 px-1 rounded text-[10px]">.mcp.json</code>, restart Claude Code or your AI agent so it picks up the PAAQ tools.
+                You should see <code className="font-mono bg-muted/60 px-1 rounded text-[10px]">paaq</code> appear in the MCP tools list.
               </p>
             </Step>
 
-            <Step n={3} title="Restart Claude Code and use this prompt">
+            <Step n={3} title="Paste this prompt into your AI agent">
               <p className="mb-2 text-[11px] text-muted-foreground">
-                Open Claude Code in your project directory and paste this prompt:
+                The agent will detect your framework, verify credentials, write the integration file, and send a test event — all automatically:
               </p>
               <div className="rounded-xl border border-border/60 bg-[#0d1117] overflow-hidden">
                 <div className="flex items-center justify-between border-b border-border/40 px-4 py-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Agent prompt — copy and paste into Claude Code</span>
-                  <CopyBtn text={`Connect my ${FRAMEWORK_LABELS[framework]} app to PAAQ Intelligence.\n\nSDK Token:   ${tok}\nProject Key: ${key}\n\nVerify credentials, generate the integration snippet, add it to my app, and send a test event to confirm the connection.`} />
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Paste into Claude Code, Cursor, or any agent</span>
+                  <CopyBtn text={agentPrompt} label="Copy full prompt" />
                 </div>
-                <div className="p-4 text-[12px] text-[#e6edf3] font-mono leading-relaxed whitespace-pre">{`Connect my ${FRAMEWORK_LABELS[framework]} app to PAAQ Intelligence.
+                <div className="p-4 text-[12px] text-[#e6edf3] font-mono leading-relaxed whitespace-pre overflow-x-auto">{`Connect my ${FRAMEWORK_LABELS[framework]} app to PAAQ Intelligence.
 
 SDK Token:   ${tok}
 Project Key: ${key}
 
-Verify credentials, generate the integration snippet,
-add it to my app, and send a test event to confirm.`}</div>
+Steps (use PAAQ MCP tools):
+1. paaq_detect_framework  — read package.json, pass its contents
+2. paaq_verify_credentials — confirm credentials before writing code
+3. paaq_generate_snippet  — get the exact integration file
+4. Write the file         — use your file tools (see snippet for path)
+5. Add init call          — follow the comments in the snippet
+6. paaq_send_test_event   — confirm connection end-to-end
+
+The copy button above has the full detailed prompt with all instructions.`}</div>
               </div>
               <p className="mt-2 text-[11px] text-muted-foreground">
-                Claude will call <code className="font-mono bg-muted/60 px-1 rounded text-[10px]">paaq_verify_credentials</code>, <code className="font-mono bg-muted/60 px-1 rounded text-[10px]">paaq_generate_snippet</code>, and <code className="font-mono bg-muted/60 px-1 rounded text-[10px]">paaq_send_test_event</code> automatically.
+                Tools available: <code className="font-mono bg-muted/60 px-1 rounded text-[10px]">paaq_detect_framework</code> · <code className="font-mono bg-muted/60 px-1 rounded text-[10px]">paaq_verify_credentials</code> · <code className="font-mono bg-muted/60 px-1 rounded text-[10px]">paaq_generate_snippet</code> · <code className="font-mono bg-muted/60 px-1 rounded text-[10px]">paaq_send_test_event</code>
               </p>
             </Step>
           </div>

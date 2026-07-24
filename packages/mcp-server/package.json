@@ -1,6 +1,6 @@
 {
   "name": "@paaq/mcp-server",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "PAAQ Intelligence MCP server — lets AI agents connect any app to PAAQ automatically",
   "type": "module",
   "bin": {
@@ -10,6 +10,11 @@
     "start": "node index.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.4"
-  }
+    "@modelcontextprotocol/sdk": "^1.12.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": ["mcp", "paaq", "intelligence", "analytics", "ai-agent"],
+  "license": "MIT"
 }
