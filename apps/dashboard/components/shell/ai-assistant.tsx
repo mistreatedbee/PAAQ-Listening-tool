@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import { Sparkles, X, ArrowUp, Bot } from 'lucide-react'
 import { createClient } from '@/utils/supabase/client'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 
 type Msg = { role: 'user' | 'ai'; text: string }
 
@@ -16,6 +17,7 @@ const assistantSuggestions = [
 ]
 
 export function AIAssistant({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { app } = useConnectedApp()
   const [messages, setMessages] = useState<Msg[]>([
     { role: 'ai', text: 'Hello. I\'m monitoring your platform in real time. Ask me anything about system health, incidents, errors, users or performance.' },
   ])
@@ -35,7 +37,7 @@ export function AIAssistant({ open, onClose }: { open: boolean; onClose: () => v
     setThinking(true)
     try {
       const sb = createClient()
-      const { data, error } = await sb.functions.invoke('ai-search', { body: { question: q } })
+      const { data, error } = await sb.functions.invoke('ai-search', { body: { question: q, project_id: app.id } })
       const answer = error
         ? 'Could not reach the AI — make sure the ANTHROPIC_API_KEY secret is set in Supabase and run an analysis first.'
         : (data?.answer ?? 'No response received.')

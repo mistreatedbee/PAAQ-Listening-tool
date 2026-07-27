@@ -7,6 +7,7 @@ import { PageHeader, Card, CardHead, ToneBadge, Confidence } from '@/components/
 import { cn } from '@/lib/utils'
 import { toneText } from '@/lib/tones'
 import { Search, Sparkles, CheckCircle2, Clock, AlertTriangle, Loader2, ChevronRight, Bot } from 'lucide-react'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 import type { Tone } from '@/lib/data'
 
 type DbInvestigation = {
@@ -47,6 +48,7 @@ function timeAgo(iso: string) {
 }
 
 export default function InvestigationsPage() {
+  const { app } = useConnectedApp()
   const [investigations, setInvestigations] = useState<DbInvestigation[]>([])
   const [loading, setLoading] = useState(true)
   const [triggering, setTriggering] = useState(false)
@@ -77,12 +79,12 @@ export default function InvestigationsPage() {
     showToast('Dispatching 8 AI agents…')
     try {
       const sb = createClient()
-      const { data, error } = await sb.functions.invoke('investigate', { body: {} })
+      const { data, error } = await sb.functions.invoke('investigate', { body: { project_id: app.id } })
       if (error) throw error
       showToast(`Investigation complete — ${data?.recommendations ?? 0} recommendations generated`)
       await fetchInvestigations()
-    } catch {
-      showToast('Failed — make sure ANTHROPIC_API_KEY is set in Supabase Edge Function secrets')
+    } catch (err) {
+      showToast(`Failed — ${err instanceof Error ? err.message : 'check Supabase logs'}`)
     }
     setTriggering(false)
   }
