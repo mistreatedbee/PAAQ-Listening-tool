@@ -65,7 +65,7 @@ export default function FeaturesPage() {
     setAnalysing(true)
     showToast('Running AI analysis across all features…')
     const sb = createClient()
-    const { data, error } = await sb.functions.invoke('analyze')
+    const { data, error } = await sb.functions.invoke('analyze', { body: { project_id: app.id } })
     if (error) {
       showToast('Analysis failed — check ANTHROPIC_API_KEY is set in Supabase')
     } else {

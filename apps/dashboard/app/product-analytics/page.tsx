@@ -80,7 +80,7 @@ export default function ProductAnalyticsPage() {
     setAnalysing(true)
     showToast('Running AI analysis on product data…')
     const sb = createClient()
-    const { error } = await sb.functions.invoke('analyze')
+    const { error } = await sb.functions.invoke('analyze', { body: { project_id: app.id } })
     if (error) showToast('Analysis failed — check ANTHROPIC_API_KEY is set')
     else showToast('Analysis complete — Feature Health and User Journey pages updated')
     setAnalysing(false)

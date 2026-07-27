@@ -49,7 +49,7 @@ export default function UserJourneyPage() {
     setAnalysing(true)
     showToast('Reconstructing user journeys with AI…')
     const sb = createClient()
-    const { data, error } = await sb.functions.invoke('analyze')
+    const { data, error } = await sb.functions.invoke('analyze', { body: { project_id: app.id } })
     if (error) {
       showToast('Analysis failed — check ANTHROPIC_API_KEY is set in Supabase')
     } else {

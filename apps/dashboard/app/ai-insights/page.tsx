@@ -97,12 +97,12 @@ export default function AIInsightsPage() {
     showToast('Running full AI analysis with Claude…')
     try {
       const sb = createClient()
-      const { data, error } = await sb.functions.invoke('analyze')
+      const { data, error } = await sb.functions.invoke('analyze', { body: { project_id: app.id } })
       if (error) throw error
       await fetchInsights(app.id)
       showToast(`Analysis complete — ${data?.insights ?? 'new'} insights generated`)
-    } catch {
-      showToast('Failed — make sure ANTHROPIC_API_KEY is set in Supabase Edge Function secrets')
+    } catch (err) {
+      showToast(`Analysis failed — ${err instanceof Error ? err.message : 'check Supabase logs'}`)
     }
     setRegenerating(false)
   }
