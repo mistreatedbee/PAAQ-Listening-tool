@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { PageHeader, Card, CardHead, ToneBadge } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import { Blocks, RefreshCw, TrendingUp, TrendingDown, Minus } from 'lucide-react'
@@ -39,6 +40,7 @@ function TrendIcon({ trend }: { trend: string }) {
 }
 
 export default function FeaturesPage() {
+  const { app } = useConnectedApp()
   const [features, setFeatures] = useState<Feature[]>([])
   const [loading, setLoading] = useState(true)
   const [analysing, setAnalysing] = useState(false)
