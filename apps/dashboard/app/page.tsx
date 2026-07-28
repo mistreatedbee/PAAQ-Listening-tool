@@ -4,10 +4,9 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import {
-  BrainCircuit, Bug, Route, Activity, Eye, Shield,
-  Code2, Sparkles, Lock,
-  Users, GitBranch, Sun, Moon, Menu, X as XIcon,
-  ChevronDown, ArrowRight,
+  BrainCircuit, Code2, Sparkles,
+  Sun, Moon, Menu, X as XIcon,
+  ArrowRight,
 } from 'lucide-react'
 import { SiFlutter, SiReact, SiNextdotjs, SiSwift, SiAndroid, SiNodedotjs } from 'react-icons/si'
 import './landing.css'
@@ -23,59 +22,10 @@ const PLATFORMS = [
   { label: 'Node.js',   Icon: SiNodedotjs, color: '#68A063' },
 ]
 
-const FEATURES = [
-  { Icon: BrainCircuit, title: 'Application Knowledge Graph', desc: 'Builds a deep model of your architecture — features, APIs, journeys, and services — before analysing a single event.', bg: 'rgba(81,201,211,0.12)', color: '#51C9D3' },
-  { Icon: Bug,          title: 'Intelligent Error Analysis',  desc: 'Every crash gets root cause identification, ranked fix steps, and a confidence score. In seconds, not hours.',         bg: 'rgba(95,222,212,0.12)', color: '#5FDED4' },
-  { Icon: Route,        title: 'User Journey Intelligence',   desc: 'Track every path users take. Detect drop-offs, correlate with errors, and surface friction automatically.',              bg: 'rgba(39,166,206,0.12)', color: '#27A6CE' },
-  { Icon: Activity,     title: 'Real-time Event Monitoring',  desc: 'Capture every interaction across Flutter, iOS, Android, React, and Node.js. Sub-second ingestion. Instant alerting.',    bg: 'rgba(81,201,211,0.12)', color: '#51C9D3' },
-  { Icon: Eye,          title: 'Incident Investigation',      desc: 'Six specialist agents correlate telemetry, deployments, and architecture to explain what happened and what to fix.',       bg: 'rgba(95,222,212,0.12)', color: '#5FDED4' },
-  { Icon: Shield,       title: 'Security Intelligence',       desc: 'Detect anomalous patterns, unusual access, and potential threats — correlated with your feature and API context.',        bg: 'rgba(39,166,206,0.12)', color: '#27A6CE' },
-]
-
 const STEPS = [
   { Icon: Code2,        n: '01', title: 'Install the SDK',          desc: 'One SDK for all platforms. Add two lines of code and you\'re monitoring.' },
   { Icon: BrainCircuit, n: '02', title: 'Learns your product',      desc: 'Connect GitHub, import API specs, or let PAAQ infer your architecture from live events.' },
   { Icon: Sparkles,     n: '03', title: 'Get intelligent insights', desc: 'Agents surface insights within minutes. Incidents investigated, root causes identified, fixes ranked.' },
-]
-
-const SECURITY_ITEMS = [
-  'Row-level security — complete tenant data isolation',
-  'AES-256 encryption at rest and TLS in transit',
-  'Audit logs for all account actions',
-  'SDK credential rotation without downtime',
-  'CSRF protection and secure session handling',
-  'Configurable data retention and deletion',
-]
-
-const SECURITY_CARDS = [
-  { Icon: Lock,      label: 'Encrypted storage' },
-  { Icon: Shield,    label: 'Tenant isolation' },
-  { Icon: Users,     label: 'Role-based access' },
-  { Icon: GitBranch, label: 'Audit trail' },
-]
-
-const PRICING = [
-  {
-    name: 'Starter', price: 'Free', period: '', featured: false, cta: 'Start free', href: '/login?tab=signup',
-    features: ['25,000 events / month', '1 project', '7-day data retention', 'Basic insights', 'SDK for all platforms', 'Community support'],
-  },
-  {
-    name: 'Growth', price: '$79', period: '/ month', featured: true, cta: 'Start free trial →', href: '/login?tab=signup',
-    features: ['1M events / month', 'Unlimited projects', '90-day data retention', 'Advanced insights', '6 specialist agents', 'Custom alerts & webhooks', 'API access', 'Priority email support'],
-  },
-  {
-    name: 'Enterprise', price: 'Custom', period: '', featured: false, cta: 'Talk to sales', href: 'mailto:sales@paaq.ai',
-    features: ['Unlimited events', 'Unlimited projects', 'Custom data retention', 'Custom model training', 'Dedicated support & SLA', 'SSO / SAML', 'On-premise option', 'Custom integrations'],
-  },
-]
-
-const FAQ_ITEMS = [
-  { q: 'What is PAAQ Intelligence?',              a: 'PAAQ Intelligence is an intelligent product monitoring platform. It monitors your application, detects issues, analyses root causes, and helps your team resolve them faster. Unlike traditional monitoring, PAAQ builds a Knowledge Graph so insights are contextual — not generic.' },
-  { q: 'Which platforms does the SDK support?',   a: 'We support Flutter, React, Next.js, iOS (Swift), Android (Kotlin), and Node.js. All SDKs share a consistent API and take under 5 minutes to integrate.' },
-  { q: 'How long does setup take?',               a: 'Under 5 minutes. The guided wizard walks you through creating your organisation, workspace, and project — then gives you real code snippets with your credentials embedded.' },
-  { q: 'How does the intelligence work?',         a: 'After connecting your app, PAAQ builds a Knowledge Graph from your events, errors, sessions, and any imported docs or API specs. Six specialist agents continuously analyse this knowledge to surface insights, investigate incidents, and recommend fixes.' },
-  { q: 'Is my data secure?',                      a: 'Yes. All data is encrypted in transit and at rest. We use row-level security to ensure complete tenant isolation — no customer can access another\'s data. You can export or delete your data at any time.' },
-  { q: 'Can I monitor multiple apps?',            a: 'Yes. You can create unlimited projects under your organisation (on Growth and Enterprise plans). Each project has its own credentials, events, insights, and settings.' },
 ]
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -84,7 +34,6 @@ export default function LandingPage() {
   const [isDark, setIsDark]       = useState(true)
   const [menuOpen, setMenuOpen]   = useState(false)
   const [scrolled, setScrolled]   = useState(false)
-  const [openFaq, setOpenFaq]     = useState<number | null>(null)
 
   useEffect(() => {
     const fn = () => setScrolled(window.scrollY > 40)
@@ -120,10 +69,7 @@ export default function LandingPage() {
 
         <nav>
           <ul className="nav-links">
-            <li><a href="#features">Features</a></li>
             <li><a href="#how">How it works</a></li>
-            <li><a href="#pricing">Pricing</a></li>
-            <li><a href="#faq">FAQ</a></li>
           </ul>
         </nav>
 
@@ -141,7 +87,7 @@ export default function LandingPage() {
 
       {/* Mobile overlay */}
       <div className={`mobile-overlay${menuOpen ? ' open' : ''}`}>
-        {['#features', '#how', '#pricing', '#faq'].map((href) => (
+        {['#how'].map((href) => (
           <a key={href} href={href} onClick={() => setMenuOpen(false)}>
             {href.replace('#', '').replace('-', ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
           </a>
@@ -193,28 +139,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── Features ─────────────────────────────────────────────────────────── */}
-      <section className="section" id="features">
-        <div className="container">
-          <div className="text-center" style={{ marginBottom: 60 }}>
-            <div className="section-label mx-auto"><span className="dot" /> Platform capabilities</div>
-            <h2 className="section-title mx-auto">Everything your team needs</h2>
-            <p className="section-subtitle mx-auto">From real-time event capture to intelligent incident reports — all in one platform.</p>
-          </div>
-          <div className="cards-grid cols-3">
-            {FEATURES.map(({ Icon, title, desc, bg, color }, i) => (
-              <div key={title} className={`feature-card reveal${i > 0 ? ` reveal-delay-${i}` : ''}`}>
-                <div className="feature-card-icon" style={{ background: bg }}>
-                  <Icon size={20} style={{ color }} />
-                </div>
-                <div className="feature-card-title">{title}</div>
-                <div className="feature-card-desc">{desc}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
       {/* ── How it works ─────────────────────────────────────────────────────── */}
       <section className="section" id="how">
         <div className="container-sm">
@@ -232,101 +156,6 @@ export default function LandingPage() {
                 <div className="step-desc">{desc}</div>
               </div>
             ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Security ─────────────────────────────────────────────────────────── */}
-      <section className="section" style={{ borderTop: '1px solid var(--border-light)', borderBottom: '1px solid var(--border-light)' }}>
-        <div className="container">
-          <div className="security-grid">
-            <div className="reveal">
-              <div className="section-label"><span className="dot" /> Security & privacy</div>
-              <h2 className="section-title">Enterprise-grade security built in</h2>
-              <p className="section-subtitle" style={{ marginBottom: 24 }}>
-                Security is not a feature — it&apos;s the foundation. Every piece of customer data is isolated, encrypted, and protected.
-              </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {SECURITY_ITEMS.map((item) => (
-                  <div key={item} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 13, color: 'var(--text-muted)' }}>
-                    <span style={{ color: '#51C9D3', fontWeight: 700 }}>✓</span> {item}
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="cards-grid cols-2 reveal reveal-delay-2">
-              {SECURITY_CARDS.map(({ Icon, label }) => (
-                <div key={label} className="feature-card" style={{ textAlign: 'center' }}>
-                  <div className="feature-card-icon mx-auto" style={{ background: 'rgba(81,201,211,0.1)' }}>
-                    <Icon size={20} style={{ color: '#51C9D3' }} />
-                  </div>
-                  <div className="feature-card-title">{label}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Pricing ──────────────────────────────────────────────────────────── */}
-      <section className="section" id="pricing">
-        <div className="container">
-          <div className="text-center" style={{ marginBottom: 60 }}>
-            <div className="section-label mx-auto"><span className="dot" /> Pricing</div>
-            <h2 className="section-title mx-auto">Simple, transparent pricing</h2>
-            <p className="section-subtitle mx-auto">Start free. Scale when you need to.</p>
-          </div>
-          <div className="pricing-grid">
-            {PRICING.map(({ name, price, period, featured, cta, href, features }, i) => (
-              <div key={name} className={`pricing-card reveal${i > 0 ? ` reveal-delay-${i * 2}` : ''}${featured ? ' featured' : ''}`}>
-                {featured && <div className="pricing-badge">Most popular</div>}
-                <div className="pricing-name" style={{ color: featured ? '#51C9D3' : 'var(--text-muted)' }}>{name}</div>
-                <div className="pricing-price">{price}</div>
-                {period && <div className="pricing-period">{period}</div>}
-                <ul className="pricing-features">
-                  {features.map((f) => (
-                    <li key={f}><span className="check">✓</span> {f}</li>
-                  ))}
-                </ul>
-                <Link href={href} className={`pricing-btn ${featured ? 'primary-btn' : 'outline-btn'}`}>{cta}</Link>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── FAQ ──────────────────────────────────────────────────────────────── */}
-      <section className="section" id="faq">
-        <div className="container-xs">
-          <div className="text-center" style={{ marginBottom: 48 }}>
-            <div className="section-label mx-auto"><span className="dot" /> FAQ</div>
-            <h2 className="section-title mx-auto">Common questions</h2>
-          </div>
-          {FAQ_ITEMS.map(({ q, a }, i) => (
-            <div key={q} className="faq-item" onClick={() => setOpenFaq(openFaq === i ? null : i)}>
-              <div className="faq-question">
-                {q}
-                <ChevronDown size={16} className={`faq-chevron${openFaq === i ? ' open' : ''}`} />
-              </div>
-              <div className={`faq-answer${openFaq === i ? ' open' : ''}`}>{a}</div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── Final CTA ────────────────────────────────────────────────────────── */}
-      <section className="section-lg">
-        <div className="container-xs">
-          <div className="cta-card reveal">
-            <div className="cta-icon"><Sparkles size={36} /></div>
-            <h2 className="cta-title">Start monitoring in 5 minutes</h2>
-            <p className="cta-desc">Free tier, no credit card required. See your first insight before you finish your coffee.</p>
-            <div className="cta-actions">
-              <Link href="/login?tab=signup" className="btn btn-primary btn-lg">
-                Create free account <ArrowRight size={16} />
-              </Link>
-              <a href="mailto:hello@paaq.ai" className="btn-outline-lg">Talk to us</a>
-            </div>
           </div>
         </div>
       </section>
