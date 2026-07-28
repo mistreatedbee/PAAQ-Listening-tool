@@ -60,7 +60,7 @@ export default function DashboardPage() {
             <p className="text-sm font-semibold text-foreground">Connect your first application to get started</p>
             <p className="text-xs text-muted-foreground mt-0.5">
               PAAQ Intelligence will automatically begin learning your organisation's digital ecosystem within minutes.{' '}
-              <Link href="/settings?tab=integrations" className="font-medium text-ai hover:underline">Connect in Settings →</Link>
+              <Link href="/connect" className="font-medium text-ai hover:underline">Connect your app →</Link>
             </p>
           </div>
         </div>
@@ -78,7 +78,7 @@ export default function DashboardPage() {
                 app.sdkStatus.backend  !== 'connected' && 'Server SDK not connected — API and performance intelligence limited.',
                 app.sdkStatus.database !== 'connected' && 'Database connector missing — data-layer intelligence unavailable.',
               ].filter(Boolean).join(' ')}{' '}
-              <Link href="/settings?tab=integrations" className="font-medium text-intel hover:underline">Connect in Settings →</Link>
+              <Link href="/connect" className="font-medium text-intel hover:underline">Connect your app →</Link>
             </p>
           </div>
         </div>
