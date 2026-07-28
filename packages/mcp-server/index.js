@@ -35,6 +35,13 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 const PAAQ_BASE = 'https://mookyonwpovxscsbqwwl.supabase.co/functions/v1'
 const SDK_VERSION = '1.0.0'
 
+// Mirrors FRONTEND_PLATFORMS/BACKEND_PLATFORMS in
+// apps/dashboard/components/shell/connected-app-context.tsx — kept in sync
+// manually since this is a separate Node package with no import path into
+// the dashboard's TS. Used by paaq_connect_project to report which layer
+// a given framework belongs to.
+const FRONTEND_PLATFORMS = new Set(['react', 'nextjs', 'vue', 'vanilla'])
+
 // ── Auth headers (new multi-tenant scheme) ──────────────────────────────────
 
 function sdkHeaders(sdkToken, projectKey, platform = 'mcp') {
@@ -549,6 +556,35 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: 'paaq_connect_project',
+      description:
+        'One-shot onboarding: verify credentials, generate the frontend/backend SDK snippet for the given ' +
+        'framework, and optionally connect + test a read-only database connection — all in a single call. ' +
+        'Use this instead of calling paaq_verify_credentials + paaq_generate_snippet separately when the user ' +
+        'wants full setup in one step. Returns a combined status; note that frontend/backend "ok" reflects ' +
+        'successful credential verification and snippet generation — NOT that the SDK is already live in ' +
+        'production (the snippet still needs to be written to a file and deployed, same as paaq_generate_snippet).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          sdkToken:           { type: 'string', description: 'SDK token (sdk_live_xxx or sdk_test_xxx)' },
+          projectKey:         { type: 'string', description: 'Project key (proj_xxx)' },
+          framework: {
+            type: 'string',
+            enum: ['nextjs', 'react', 'vue', 'vanilla', 'nodejs', 'python'],
+            description: 'Framework detected by paaq_detect_framework or confirmed by the user',
+          },
+          dbConnectionString: { type: 'string', description: 'Optional read-only database connection string' },
+          dbEngine: {
+            type: 'string',
+            enum: ['postgres', 'mysql', 'mongodb', 'sqlite', 'redis', 'supabase'],
+            description: 'Required if dbConnectionString is supplied',
+          },
+        },
+        required: ['sdkToken', 'projectKey', 'framework'],
+      },
+    },
+    {
       name: 'paaq_send_test_event',
       description:
         'Send a test event to verify the connection works end-to-end. ' +
@@ -749,6 +785,162 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           '**After writing the file:**',
           '1. Import and call `paaq.init()` from your app entry point (see comments in the snippet)',
           '2. Call `paaq_send_test_event` to confirm the connection is working',
+        ].join('\n'),
+      }],
+    }
+  }
+
+  // ── paaq_connect_project ────────────────────────────────────────────────
+  if (name === 'paaq_connect_project') {
+    const { sdkToken, projectKey, framework, dbConnectionString, dbEngine } = args
+
+    if (!sdkToken?.startsWith('sdk_live_') && !sdkToken?.startsWith('sdk_test_')) {
+      return {
+        content: [{
+          type: 'text',
+          text: [
+            '✗ Invalid SDK token format.',
+            '',
+            'The SDK token must start with sdk_live_ or sdk_test_.',
+            'Get it from: https://paaq-listening-tool.vercel.app/connect',
+          ].join('\n'),
+        }],
+        isError: true,
+      }
+    }
+
+    if (!projectKey?.startsWith('proj_')) {
+      return {
+        content: [{
+          type: 'text',
+          text: [
+            '✗ Invalid project key format.',
+            '',
+            'The project key must start with proj_.',
+            'Get it from: https://paaq-listening-tool.vercel.app/connect',
+          ].join('\n'),
+        }],
+        isError: true,
+      }
+    }
+
+    if (dbConnectionString && !dbEngine) {
+      return {
+        content: [{ type: 'text', text: '✗ dbEngine is required when dbConnectionString is supplied.' }],
+        isError: true,
+      }
+    }
+
+    const gen = SNIPPETS[framework]
+    if (!gen) {
+      return {
+        content: [{
+          type: 'text',
+          text: `✗ Unknown framework: "${framework}". Supported: ${Object.keys(SNIPPETS).join(', ')}`,
+        }],
+        isError: true,
+      }
+    }
+
+    // 1. Verify credentials (same handshake as paaq_verify_credentials)
+    let projectName = null
+    try {
+      const res = await fetch(`${PAAQ_BASE}/sdk-init`, {
+        method: 'POST',
+        headers: sdkHeaders(sdkToken, projectKey, 'mcp-connect'),
+        body: JSON.stringify({ sessionId: crypto.randomUUID() }),
+      })
+      const data = await res.json()
+      if (!data.ok) {
+        return {
+          content: [{
+            type: 'text',
+            text: [
+              `✗ Credential check failed: ${data.error}`,
+              '',
+              'Both SDK Token and Project Key are visible at: https://paaq-listening-tool.vercel.app/connect',
+            ].join('\n'),
+          }],
+          isError: true,
+        }
+      }
+      projectName = data.meta?.projectName ?? null
+    } catch (err) {
+      return {
+        content: [{ type: 'text', text: `✗ Network error reaching PAAQ Intelligence API: ${err.message}` }],
+        isError: true,
+      }
+    }
+
+    // 2. Generate the snippet for the given framework (reuses SNIPPETS/FRAMEWORK_LABELS
+    //    exactly as paaq_generate_snippet does — no duplicated templates)
+    const code = gen(sdkToken, projectKey)
+    const label = FRAMEWORK_LABELS[framework] ?? framework
+    const lang  = framework === 'python' ? 'python' : framework === 'vanilla' ? 'html' : 'javascript'
+    const fileHint = {
+      nextjs:  'lib/paaq.ts',
+      react:   'src/paaq.js',
+      vue:     'src/paaq.js',
+      vanilla: 'the <script> block in your main HTML file before </body>',
+      nodejs:  'paaq.js',
+      python:  'paaq.py',
+    }[framework] ?? 'a new file in the project root'
+
+    const isFrontend = FRONTEND_PLATFORMS.has(framework)
+    const layer = isFrontend ? 'frontend' : 'backend'
+
+    const statusLines = [
+      `✓ Credentials verified — Project: ${projectName}`,
+      `✓ ${label} snippet generated (${layer}) — write to ${fileHint}`,
+    ]
+
+    // 3. Optional database connector — reuses the same db-connector edge
+    //    function the Settings dashboard form calls, so there is one code
+    //    path for "connect the database," not two.
+    let database = 'not_configured'
+    if (dbConnectionString) {
+      try {
+        const dbRes = await fetch(`${PAAQ_BASE}/db-connector`, {
+          method: 'POST',
+          headers: sdkHeaders(sdkToken, projectKey, 'mcp-connect'),
+          body: JSON.stringify({ action: 'save', engine: dbEngine, connectionString: dbConnectionString }),
+        })
+        const dbData = await dbRes.json()
+        if (dbData.connected) {
+          database = 'ok'
+          statusLines.push(`✓ Database connected — ${dbData.engine}, ${dbData.tableCount ?? 0} table(s) detected, read-only verified`)
+        } else {
+          database = `error: ${dbData.error ?? 'unknown'}`
+          statusLines.push(`✗ Database connection failed — ${dbData.error ?? 'unknown error'}`)
+        }
+      } catch (err) {
+        database = `error: ${err.message}`
+        statusLines.push(`✗ Database connection failed — network error: ${err.message}`)
+      }
+    } else {
+      statusLines.push('⚠ Database not configured — pass dbConnectionString + dbEngine to connect one')
+    }
+
+    return {
+      content: [{
+        type: 'text',
+        text: [
+          `## PAAQ Intelligence — Connect Project (${label})`,
+          '',
+          ...statusLines,
+          '',
+          `Write this to **${fileHint}**:`,
+          '',
+          '```' + lang,
+          code,
+          '```',
+          '',
+          `Result: { frontend: ${isFrontend ? 'ok' : 'not_applicable'}, backend: ${isFrontend ? 'not_applicable' : 'ok'}, database: ${JSON.stringify(database)}, projectName: ${JSON.stringify(projectName)} }`,
+          '',
+          'Note: frontend/backend "ok" means credentials verified and the snippet was generated — not that the SDK ' +
+          'is already live in production. It still needs to be written to the file above and deployed.',
+          '',
+          'Next step: write the file above, then call paaq_send_test_event.',
         ].join('\n'),
       }],
     }

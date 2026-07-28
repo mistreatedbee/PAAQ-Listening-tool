@@ -4,6 +4,9 @@ node_modules/
 .pnp.js
 package-lock.json
 
+# Supabase CLI local link cache
+apps/api/supabase/.temp/
+
 # Next.js
 apps/dashboard/.next/
 apps/dashboard/out/

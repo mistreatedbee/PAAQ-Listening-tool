@@ -1,7 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
+import { DatabaseConnectorForm } from '@/components/settings/database-connector-form'
 import { Card, CardHead, ToneBadge, PageHeader } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import {
@@ -13,15 +15,18 @@ import {
 } from 'lucide-react'
 import { useApprovalMode } from '@/components/dashboard/approval-policy'
 
-type Tab = 'workspace' | 'team' | 'notifications' | 'security' | 'advanced'
+type Tab = 'workspace' | 'team' | 'notifications' | 'security' | 'database' | 'advanced'
 
 const TABS: { id: Tab; label: string; icon: typeof Building2 }[] = [
   { id: 'workspace',     label: 'Workspace',     icon: Building2 },
   { id: 'team',          label: 'Team',           icon: Users },
   { id: 'notifications', label: 'Notifications',  icon: Bell },
   { id: 'security',      label: 'Security',        icon: Shield },
+  { id: 'database',      label: 'Database',        icon: Database },
   { id: 'advanced',      label: 'Advanced',        icon: SlidersHorizontal },
 ]
+
+const VALID_TABS = new Set<Tab>(TABS.map((t) => t.id))
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
@@ -85,7 +90,14 @@ const APPROVAL_MODES = [
 
 export default function SettingsPage() {
   const { app } = useConnectedApp()
+  const searchParams = useSearchParams()
   const [tab, setTab]       = useState<Tab>('workspace')
+
+  useEffect(() => {
+    const requested = searchParams.get('tab')
+    if (requested && VALID_TABS.has(requested as Tab)) setTab(requested as Tab)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [showKey, setShowKey] = useState(false)
   const [channels, setChannels] = useState<Record<string, boolean>>(
     Object.fromEntries(NOTIFICATION_CHANNELS.map((c) => [c.id, c.defaultOn]))
@@ -384,6 +396,9 @@ export default function SettingsPage() {
               </Card>
             </div>
           )}
+
+          {/* ── Database ──────────────────────────────────────────────── */}
+          {tab === 'database' && <DatabaseConnectorForm />}
 
           {/* ── Advanced ──────────────────────────────────────────────── */}
           {tab === 'advanced' && (

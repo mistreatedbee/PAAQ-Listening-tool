@@ -53,6 +53,7 @@ type LayerKey = 'frontend' | 'backend' | 'database'
 const FRONTEND_PLATFORMS = new Set(['react', 'nextjs', 'vue', 'angular', 'vanilla'])
 const MOBILE_PLATFORMS   = new Set(['flutter', 'reactnative', 'ios', 'android'])
 const BACKEND_PLATFORMS  = new Set(['nodejs', 'python', 'go', 'java', 'dotnet', 'ruby', 'other'])
+const DATABASE_PLATFORMS = new Set(['postgres', 'mysql', 'mongodb', 'sqlite', 'redis', 'supabase'])
 
 function deriveLifecycle(
   installs: InstallRow[],
@@ -82,10 +83,11 @@ function sdkLayerStatus(installs: InstallRow[]): { frontend: SdkStatus; backend:
   const platforms = new Set(installs.filter((i) => i.status === 'active').map((i) => i.platform))
   const hasFrontend = [...FRONTEND_PLATFORMS, ...MOBILE_PLATFORMS].some((p) => platforms.has(p))
   const hasBackend  = [...BACKEND_PLATFORMS].some((p) => platforms.has(p))
+  const hasDatabase = [...DATABASE_PLATFORMS].some((p) => platforms.has(p))
   return {
     frontend: hasFrontend ? 'connected' : 'disconnected',
     backend:  hasBackend  ? 'connected' : 'disconnected',
-    database: 'disconnected',
+    database: hasDatabase ? 'connected' : 'disconnected',
   }
 }
 
@@ -635,45 +637,41 @@ export default function AppManagementPage() {
                       </div>
                     </div>
 
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                        Supported databases
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {['PostgreSQL', 'MySQL', 'MongoDB', 'SQLite', 'Redis', 'Supabase'].map((db) => (
-                          <span key={db} className="rounded-md border border-border/50 bg-muted/40 px-2.5 py-1 text-xs font-medium text-muted-foreground">
-                            {db}
-                          </span>
-                        ))}
+                    {sdkStatus.database === 'connected' ? (
+                      <div className="flex items-center justify-between gap-3 rounded-lg border border-healthy/30 bg-healthy/5 px-3 py-2.5">
+                        <p className="text-sm text-foreground">Database connector is active for this project.</p>
+                        <Link href="/settings?tab=database" className="shrink-0 text-xs font-medium text-ai hover:underline">
+                          Manage in Settings →
+                        </Link>
                       </div>
-                    </div>
+                    ) : (
+                      <>
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                            Supported databases
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {['PostgreSQL', 'MySQL', 'MongoDB', 'SQLite', 'Redis', 'Supabase'].map((db) => (
+                              <span key={db} className="rounded-md border border-border/50 bg-muted/40 px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                                {db}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
 
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
-                        Connection string format
-                      </p>
-                      <div className="flex items-center gap-2">
-                        <pre className="flex-1 overflow-x-auto rounded-lg border border-border/50 bg-muted/50 px-3 py-2 font-mono text-xs text-muted-foreground">
-                          postgresql://readonly_user:password@host:5432/dbname
-                        </pre>
-                        <CopyButton text="postgresql://readonly_user:password@host:5432/dbname" />
-                      </div>
-                    </div>
-
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
-                        Your project ID (for the connector config)
-                      </p>
-                      <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-muted/50 px-3 py-2">
-                        <code className="flex-1 truncate font-mono text-xs text-foreground">{project.id}</code>
-                        <CopyButton text={project.id} label="ID" />
-                      </div>
-                    </div>
+                        <Link
+                          href="/settings?tab=database"
+                          className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-ai px-4 py-2 text-sm font-medium text-ai-foreground hover:opacity-90"
+                        >
+                          Connect a database →
+                        </Link>
+                      </>
+                    )}
 
                     <div className="flex items-start gap-2.5 rounded-lg border border-warning/25 bg-warning/5 px-3 py-2.5">
                       <CloudCog className="h-4 w-4 text-warning shrink-0 mt-0.5" />
                       <p className="text-[10px] text-muted-foreground">
-                        Create a read-only database user before connecting. PAAQ only needs SELECT permissions. Database connector configuration is managed in Settings.
+                        Create a read-only database user before connecting. PAAQ only needs SELECT permissions.
                       </p>
                     </div>
                   </div>
