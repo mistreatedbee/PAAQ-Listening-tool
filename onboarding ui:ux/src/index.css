@@ -1,0 +1,28 @@
+/* @import url() FONT IMPORTS MUST ALWAYS BE AT THE VERY TOP OF THIS FILE, ABOVE THE TAILWIND IMPORTS — DO NOT DELETE THIS COMMENT */
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800;900&family=Geist+Mono:wght@400;500&display=swap');
+
+/* CRITICAL: THE FOLLOWING TAILWIND IMPORTS MUST NEVER BE DELETED OR REORDERED — DO NOT DELETE THIS COMMENT */
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+/* END TAILWIND IMPORTS — ALL OTHER CSS MUST GO BELOW THIS LINE */
+
+:root {
+  --paaq-bg: #f5f8fb;
+  --paaq-teal: #27a6ce;
+  --paaq-teal-2: #51c9d3;
+}
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  font-family: 'Geist', ui-sans-serif, system-ui, sans-serif;
+  background: var(--paaq-bg);
+  color: #0f1b2a;
+}
+.font-mono {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+}
