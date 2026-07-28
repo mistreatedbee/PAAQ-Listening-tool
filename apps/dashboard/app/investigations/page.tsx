@@ -78,9 +78,13 @@ export default function InvestigationsPage() {
     setTriggering(true)
     showToast('Dispatching 8 AI agents…')
     try {
-      const sb = createClient()
-      const { data, error } = await sb.functions.invoke('investigate', { body: { project_id: app.id } })
-      if (error) throw error
+      const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/investigate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}` },
+        body: JSON.stringify({ project_id: app.id }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Investigation failed')
       showToast(`Investigation complete — ${data?.recommendations ?? 0} recommendations generated`)
       await fetchInvestigations()
     } catch (err) {

@@ -96,9 +96,13 @@ export default function AIInsightsPage() {
     setRegenerating(true)
     showToast('Running full AI analysis with Claude…')
     try {
-      const sb = createClient()
-      const { data, error } = await sb.functions.invoke('analyze', { body: { project_id: app.id } })
-      if (error) throw error
+      const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}` },
+        body: JSON.stringify({ project_id: app.id }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Analysis failed')
       await fetchInsights(app.id)
       showToast(`Analysis complete — ${data?.insights ?? 'new'} insights generated`)
     } catch (err) {

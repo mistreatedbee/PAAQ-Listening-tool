@@ -3,8 +3,10 @@
 import { useState, useRef, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import { Sparkles, X, ArrowUp, Bot } from 'lucide-react'
-import { createClient } from '@/utils/supabase/client'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
 type Msg = { role: 'user' | 'ai'; text: string }
 
@@ -36,11 +38,13 @@ export function AIAssistant({ open, onClose }: { open: boolean; onClose: () => v
     setInput('')
     setThinking(true)
     try {
-      const sb = createClient()
-      const { data, error } = await sb.functions.invoke('ai-search', { body: { question: q, project_id: app.id } })
-      const answer = error
-        ? 'Could not reach the AI — make sure the ANTHROPIC_API_KEY secret is set in Supabase and run an analysis first.'
-        : (data?.answer ?? 'No response received.')
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/ai-search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ANON_KEY}` },
+        body: JSON.stringify({ question: q, project_id: app.id }),
+      })
+      const json = await res.json()
+      const answer = json.answer ?? json.error ?? 'No response received.'
       setMessages((m) => [...m, { role: 'ai', text: answer }])
     } catch {
       setMessages((m) => [...m, { role: 'ai', text: 'Network error — please try again.' }])

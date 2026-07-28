@@ -48,10 +48,14 @@ export default function UserJourneyPage() {
   const runAnalysis = async () => {
     setAnalysing(true)
     showToast('Reconstructing user journeys with AI…')
-    const sb = createClient()
-    const { data, error } = await sb.functions.invoke('analyze', { body: { project_id: app.id } })
-    if (error) {
-      showToast('Analysis failed — check ANTHROPIC_API_KEY is set in Supabase')
+    const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}` },
+      body: JSON.stringify({ project_id: app.id }),
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      showToast(`Analysis failed — ${data.error ?? 'unknown error'}`)
     } else {
       await fetchJourneys(app.id)
       showToast(`Analysis complete — ${data?.journeys ?? 0} journeys reconstructed`)

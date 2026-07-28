@@ -96,14 +96,16 @@ export default function IncidentsPage() {
     setFixingId(inc.id)
     showToast('Dispatching AI agents to investigate this incident…')
     try {
-      const sb = createClient()
-      const { data, error } = await sb.functions.invoke('investigate', {
-        body: { incident_id: inc.id },
+      const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/investigate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}` },
+        body: JSON.stringify({ incident_id: inc.id, project_id: app.id }),
       })
-      if (error) throw error
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Investigation failed')
       showToast(`Investigation complete — ${data?.recommendations ?? 0} fix recommendations generated`)
-    } catch {
-      showToast('Failed — make sure ANTHROPIC_API_KEY is set in Supabase Edge Function secrets')
+    } catch (err) {
+      showToast(`Failed — ${err instanceof Error ? err.message : 'check Supabase logs'}`)
     }
     setFixingId(null)
   }

@@ -131,10 +131,14 @@ export default function ReportsPage() {
   const handleGenerate = async () => {
     setGenerating(true)
     showToast('Running full AI analysis with Claude…')
-    const sb = createClient()
-    const { data, error } = await sb.functions.invoke('analyze', { body: { project_id: app.id } })
-    if (error) {
-      showToast('Failed — make sure ANTHROPIC_API_KEY is set in Supabase Edge Function secrets')
+    const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}` },
+      body: JSON.stringify({ project_id: app.id }),
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      showToast(`Failed — ${data.error ?? 'unknown error'}`)
     } else {
       showToast(`Analysis complete — ${data?.insights ?? 'new'} insights generated`)
       await loadReport(app.id)
