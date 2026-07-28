@@ -17,11 +17,6 @@ import { verifySdkAuth } from '../_shared/auth.ts'
 import { decryptSecret, encryptSecret, parseDisplayHint } from '../_shared/crypto.ts'
 import { categorizeError } from '../_shared/db-engines/types.ts'
 import type { DbAdapter, TableInfo } from '../_shared/db-engines/types.ts'
-import { postgresAdapter } from '../_shared/db-engines/postgres.ts'
-import { mysqlAdapter } from '../_shared/db-engines/mysql.ts'
-import { mongodbAdapter } from '../_shared/db-engines/mongodb.ts'
-import { libsqlAdapter } from '../_shared/db-engines/libsql.ts'
-import { redisAdapter } from '../_shared/db-engines/redis.ts'
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -30,13 +25,26 @@ const supabase = createClient(
 
 type Engine = 'postgres' | 'mysql' | 'mongodb' | 'sqlite' | 'redis' | 'supabase'
 
-const ADAPTERS: Record<Engine, DbAdapter> = {
-  postgres: postgresAdapter,
-  supabase: postgresAdapter, // Supabase is Postgres under the hood
-  mysql: mysqlAdapter,
-  mongodb: mongodbAdapter,
-  sqlite: libsqlAdapter, // "SQLite" here means libSQL/Turso — see libsql.ts
-  redis: redisAdapter,
+// Lazily imported so a driver that fails to resolve in the deployed edge
+// runtime (npm: specifiers for mysql2/mongodb/@libsql/redis have known
+// compatibility gaps there) only breaks requests for that one engine,
+// instead of crashing the whole function at module-load time.
+async function loadAdapter(engine: Engine): Promise<DbAdapter> {
+  switch (engine) {
+    case 'postgres':
+    case 'supabase': // Supabase is Postgres under the hood
+      return (await import('../_shared/db-engines/postgres.ts')).postgresAdapter
+    case 'mysql':
+      return (await import('../_shared/db-engines/mysql.ts')).mysqlAdapter
+    case 'mongodb':
+      return (await import('../_shared/db-engines/mongodb.ts')).mongodbAdapter
+    case 'sqlite': // "SQLite" here means libSQL/Turso — see libsql.ts
+      return (await import('../_shared/db-engines/libsql.ts')).libsqlAdapter
+    case 'redis':
+      return (await import('../_shared/db-engines/redis.ts')).redisAdapter
+    default:
+      throw new Error(`Unsupported engine: ${engine}`)
+  }
 }
 
 Deno.serve(async (req) => {
@@ -90,9 +98,12 @@ type PipelineResult =
   | { ok: false; step: 'connect' | 'introspect' | 'readonly'; errorCategory: ReturnType<typeof categorizeError>; error: string }
 
 async function runPipeline(engine: Engine, connectionString: string): Promise<PipelineResult> {
-  const adapter = ADAPTERS[engine]
-  if (!adapter) {
-    return { ok: false, step: 'connect', errorCategory: 'unsupported_engine', error: `Unsupported engine: ${engine}` }
+  let adapter: DbAdapter
+  try {
+    adapter = await loadAdapter(engine)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { ok: false, step: 'connect', errorCategory: 'unsupported_engine', error: `This engine's driver is unavailable right now: ${msg.slice(0, 200)}` }
   }
 
   const connResult = await adapter.testConnection(connectionString)
