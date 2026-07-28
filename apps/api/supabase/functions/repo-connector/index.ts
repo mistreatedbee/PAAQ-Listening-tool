@@ -103,7 +103,13 @@ async function handleListRepos(projectId: string, provider: GitProvider) {
   const adapter = await loadGitAdapter(provider)
   const result = await adapter.listRepos(token)
   if (!result.ok) return respond({ ok: false, error: result.error })
-  return respond({ ok: true, repos: result.repos })
+  // Normalise to snake_case so the dashboard UI can use repo.full_name / repo.default_branch consistently.
+  const repos = result.repos.map((r) => ({
+    full_name: r.fullName,
+    default_branch: r.defaultBranch ?? 'main',
+    private: r.private ?? false,
+  }))
+  return respond({ ok: true, repos })
 }
 
 async function handleSelectRepo(projectId: string, provider: GitProvider, body: Record<string, unknown>) {
