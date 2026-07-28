@@ -420,18 +420,25 @@ export default function AppManagementPage() {
 
   async function handleRepoPick(repoFullName: string) {
     if (!repoPicker || repoPickerSelecting) return
+    const picked = repoPicker.repos.find((r) => r.full_name === repoFullName)
     setRepoPickerSelecting(repoFullName)
     try {
       const res = await fetch('/api/repo/select', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_id: id, provider: repoPicker.provider, repo_full_name: repoFullName }),
+        body: JSON.stringify({
+          projectId: id,
+          provider: repoPicker.provider,
+          repo: { fullName: repoFullName, defaultBranch: picked?.default_branch ?? 'main', private: picked?.private ?? false },
+        }),
       })
       const data = await res.json()
       if (data.ok) {
+        const providerLabel = REPO_PROVIDERS.find(p => p.id === repoPicker.provider)?.label ?? repoPicker.provider
+        setConnectedRepos((prev) => new Set([...prev, repoPicker.provider]))
+        setRepoNames((prev) => ({ ...prev, [repoPicker.provider]: repoFullName }))
         setRepoPicker(null)
         setRepoPickerSelecting(null)
-        const providerLabel = REPO_PROVIDERS.find(p => p.id === repoPicker.provider)?.label ?? repoPicker.provider
         setRepoNotice({ type: 'success', msg: `${repoFullName} connected via ${providerLabel}` })
       } else {
         setRepoPickerSelecting(null)
@@ -442,6 +449,42 @@ export default function AppManagementPage() {
       setRepoPickerSelecting(null)
       setRepoPicker(null)
     }
+  }
+
+  async function handleRepoDisconnect(providerId: string) {
+    if (!project) return
+    try {
+      const res = await fetch('/api/repo/disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: project.id, provider: providerId }),
+      })
+      const data = await res.json()
+      if (data.ok) {
+        setConnectedRepos((prev) => { const next = new Set(prev); next.delete(providerId); return next })
+        setRepoNames((prev) => { const next = { ...prev }; delete next[providerId]; return next })
+        setRepoNotice({ type: 'success', msg: 'Repository disconnected' })
+      } else {
+        setRepoNotice({ type: 'error', msg: data.error ?? 'Failed to disconnect' })
+      }
+    } catch {
+      setRepoNotice({ type: 'error', msg: 'Failed to disconnect' })
+    }
+  }
+
+  function handleOpenRepoPicker(providerId: string) {
+    setRepoPicker({ provider: providerId, repos: [], loading: true })
+    fetch(`/api/repo/list?project_id=${id}&provider=${providerId}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.repos) {
+          setRepoPicker({ provider: providerId, repos: data.repos, loading: false })
+        } else {
+          setRepoPicker(null)
+          setRepoNotice({ type: 'error', msg: data.error ?? 'Failed to load repositories' })
+        }
+      })
+      .catch(() => setRepoPicker(null))
   }
 
   return (
@@ -820,38 +863,66 @@ export default function AppManagementPage() {
             <div className="grid gap-2 p-5 sm:grid-cols-2">
               {REPO_PROVIDERS.map((repo) => {
                 const isConnected = connectedRepos.has(repo.id)
+                const hasRepo = !!repoNames[repo.id]
                 const isConnecting = repoConnecting === repo.id
                 const Icon = repo.Icon
+                // Three states: not connected | OAuth connected (no repo picked) | fully connected
                 return (
-                  <button
+                  <div
                     key={repo.id}
-                    onClick={() => !isConnected && handleRepoConnect(repo.id)}
-                    disabled={isConnecting}
                     className={cn(
-                      'flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all',
-                      isConnected
-                        ? 'border-healthy/30 bg-healthy/5 cursor-default'
-                        : 'border-border/50 bg-background/30 hover:border-border hover:bg-accent/30 cursor-pointer',
+                      'flex items-center gap-3 rounded-xl border px-4 py-3 transition-all',
+                      !isConnected
+                        ? 'border-border/50 bg-background/30 cursor-pointer hover:border-border hover:bg-accent/30'
+                        : hasRepo
+                        ? 'border-healthy/30 bg-healthy/5'
+                        : 'border-warning/30 bg-warning/5',
                     )}
+                    onClick={() => !isConnected && !isConnecting && handleRepoConnect(repo.id)}
+                    role={!isConnected ? 'button' : undefined}
+                    tabIndex={!isConnected ? 0 : undefined}
                   >
                     <div className={cn(
                       'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border',
-                      isConnected ? 'border-healthy/30 bg-healthy/10' : 'border-border/50 bg-muted/50',
+                      hasRepo ? 'border-healthy/30 bg-healthy/10'
+                        : isConnected ? 'border-warning/30 bg-warning/10'
+                        : 'border-border/50 bg-muted/50',
                     )}>
-                      <Icon className={cn('h-4 w-4', isConnected ? 'text-healthy' : repo.iconColor)} />
+                      <Icon className={cn('h-4 w-4', hasRepo ? 'text-healthy' : isConnected ? 'text-warning' : repo.iconColor)} />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-semibold text-foreground">{repo.label}</p>
                       <p className="text-[10px] text-muted-foreground truncate">
-                        {isConnected
-                          ? (repoNames[repo.id] ?? 'Connected')
-                          : isConnecting ? 'Connecting…' : 'Click to connect'}
+                        {isConnecting ? 'Connecting…'
+                          : hasRepo ? repoNames[repo.id]
+                          : isConnected ? 'No repo selected'
+                          : 'Click to connect'}
                       </p>
                     </div>
-                    {isConnected && <CheckCircle2 className="h-4 w-4 shrink-0 text-healthy" />}
+                    {/* Actions */}
                     {isConnecting && <Loader2 className="h-4 w-4 shrink-0 text-muted-foreground animate-spin" />}
+                    {!isConnecting && isConnected && !hasRepo && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleOpenRepoPicker(repo.id) }}
+                        className="shrink-0 rounded-lg border border-warning/30 bg-warning/10 px-2 py-1 text-[10px] font-semibold text-warning hover:bg-warning/20 transition-colors"
+                      >
+                        Pick repo
+                      </button>
+                    )}
+                    {!isConnecting && hasRepo && (
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-healthy" />
+                    )}
+                    {!isConnecting && isConnected && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleRepoDisconnect(repo.id) }}
+                        title="Disconnect"
+                        className="shrink-0 rounded-lg p-1 text-muted-foreground/50 hover:text-critical hover:bg-critical/5 transition-colors"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                     {!isConnected && !isConnecting && <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />}
-                  </button>
+                  </div>
                 )
               })}
             </div>

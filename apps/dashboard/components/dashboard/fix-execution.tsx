@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { cn } from '@/lib/utils'
-import { CheckCircle2, Loader2, XCircle, X, GitBranch, ExternalLink, ShieldAlert } from 'lucide-react'
+import { CheckCircle2, Loader2, XCircle, X, GitBranch, ExternalLink, ShieldAlert, Settings } from 'lucide-react'
 
-type Phase = 'idle' | 'generating' | 'review' | 'opening_pr' | 'pr_open' | 'merging' | 'merged' | 'blocked' | 'failed'
+type Phase = 'idle' | 'generating' | 'review' | 'opening_pr' | 'pr_open' | 'merging' | 'merged' | 'blocked' | 'failed' | 'no_repo'
 
 type ChangesetItem = { path: string; newContent: string }
 
@@ -55,7 +56,12 @@ export function FixExecution({
         setError(res.error)
         return
       }
-      setError(res.error ?? 'Failed to generate a fix')
+      const errorMsg: string = res.error ?? 'Failed to generate a fix'
+      if (errorMsg.toLowerCase().includes('no repository') || errorMsg.toLowerCase().includes('no credential')) {
+        setPhase('no_repo')
+        return
+      }
+      setError(errorMsg)
       setPhase('failed')
       return
     }
@@ -120,7 +126,7 @@ export function FixExecution({
             <span className="text-[9px] font-bold uppercase tracking-widest text-ai">Execute fix</span>
             <h2 className="mt-1 text-sm font-semibold text-foreground leading-snug line-clamp-2">{title}</h2>
           </div>
-          {(phase === 'merged' || phase === 'failed' || phase === 'blocked' || needsFileSelection) && (
+          {(phase === 'merged' || phase === 'failed' || phase === 'blocked' || phase === 'no_repo' || needsFileSelection) && (
             <button onClick={onClose} className="shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors">
               <X className="h-4 w-4" />
             </button>
@@ -215,6 +221,36 @@ export function FixExecution({
             </div>
           )}
 
+          {phase === 'no_repo' && (
+            <div className="space-y-3">
+              <div className="flex items-start gap-3 rounded-lg border border-warning/25 bg-warning/5 px-4 py-3">
+                <GitBranch className="h-5 w-5 shrink-0 text-warning mt-0.5" />
+                <div>
+                  <p className="text-sm font-semibold text-foreground">No repository connected</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Execute Fix needs a connected git repository to read the source file and push changes as a pull request.
+                  </p>
+                </div>
+              </div>
+              <div className="rounded-lg border border-border/50 bg-muted/20 px-4 py-3 space-y-2">
+                <p className="text-xs font-semibold text-foreground">To connect a repository:</p>
+                <ol className="space-y-1 text-xs text-muted-foreground list-decimal list-inside">
+                  <li>Go to App Settings for this project</li>
+                  <li>Scroll to the <strong className="text-foreground">Repository</strong> section</li>
+                  <li>Click <strong className="text-foreground">GitHub</strong> (or another provider) to start OAuth</li>
+                  <li>After connecting, click <strong className="text-foreground">Pick repo</strong> to select the specific repository</li>
+                </ol>
+              </div>
+              <Link
+                href={`/apps/${projectId}`}
+                onClick={onClose}
+                className="flex items-center gap-2 rounded-lg border border-ai/30 bg-ai/10 px-4 py-2.5 text-sm font-medium text-ai hover:bg-ai/20 transition-colors"
+              >
+                <Settings className="h-4 w-4" /> Open App Settings
+              </Link>
+            </div>
+          )}
+
           {(phase === 'blocked' || phase === 'failed') && (
             <div className="flex items-start gap-2.5 rounded-lg border border-critical/25 bg-critical/5 px-3 py-2.5 text-sm text-critical">
               <XCircle className="h-4 w-4 shrink-0 mt-0.5" />
@@ -240,7 +276,7 @@ export function FixExecution({
           {phase === 'pr_open' && !canMerge && (
             <p className="text-xs text-muted-foreground">Only owners/admins can approve and merge.</p>
           )}
-          {(phase === 'merged' || phase === 'failed' || phase === 'blocked') && (
+          {(phase === 'merged' || phase === 'failed' || phase === 'blocked' || phase === 'no_repo') && (
             <button onClick={onClose} className="rounded-lg border border-border/70 px-4 py-2 text-sm font-medium text-foreground hover:bg-accent">
               Close
             </button>
