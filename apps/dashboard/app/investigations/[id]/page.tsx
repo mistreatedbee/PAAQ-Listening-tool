@@ -16,6 +16,7 @@ import { FixExecution } from '@/components/dashboard/fix-execution'
 
 type DbInvestigation = {
   id: string
+  project_id: string
   title: string
   status: string
   root_cause: string | null
@@ -84,7 +85,8 @@ export default function InvestigationDetailPage() {
   const [recs, setRecs] = useState<DbRecommendation[]>([])
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState<string | null>(null)
-  const [executing, setExecuting] = useState<{ title: string; improvement?: string } | null>(null)
+  const [executing, setExecuting] = useState<{ recommendationId: string; title: string } | null>(null)
+  const [canMerge, setCanMerge] = useState(false)
 
   const showToast = (msg: string) => {
     setToast(msg)
@@ -95,7 +97,7 @@ export default function InvestigationDetailPage() {
     const sb = createClient()
     Promise.all([
       sb.from('investigations')
-        .select('id, title, status, root_cause, timeline, affected_services, confidence, business_impact, technical_impact, evidence, agents_run, recommendations_count, created_at, completed_at')
+        .select('id, project_id, title, status, root_cause, timeline, affected_services, confidence, business_impact, technical_impact, evidence, agents_run, recommendations_count, created_at, completed_at')
         .eq('id', id)
         .single(),
       sb.from('recommendations')
@@ -106,14 +108,23 @@ export default function InvestigationDetailPage() {
       setInv(invData as DbInvestigation | null)
       setRecs((recData ?? []) as DbRecommendation[])
       setLoading(false)
+      const projectId = (invData as DbInvestigation | null)?.project_id
+      if (projectId) {
+        fetch('/api/tenant/role', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectId }),
+        })
+          .then((r) => r.json())
+          .then((data) => setCanMerge(data.role === 'owner' || data.role === 'admin'))
+      }
     })
   }, [id])
 
-  const handleApprove = async (rec: DbRecommendation) => {
-    const sb = createClient()
-    await sb.from('recommendations').update({ status: 'approved', approved_at: new Date().toISOString() }).eq('id', rec.id)
-    setRecs((prev) => prev.map((r) => r.id === rec.id ? { ...r, status: 'approved' } : r))
-    setExecuting({ title: rec.title, improvement: rec.expected_improvement ?? undefined })
+  const handleApprove = (rec: DbRecommendation) => {
+    // Status no longer flips to 'approved' here — that was premature.
+    // It now reflects reality once execute-fix actually merges the PR.
+    setExecuting({ recommendationId: rec.id, title: rec.title })
   }
 
   const handleReject = async (recId: string) => {
@@ -146,8 +157,10 @@ export default function InvestigationDetailPage() {
     <div className="space-y-6">
       {executing && (
         <FixExecution
+          projectId={inv.project_id}
+          recommendationId={executing.recommendationId}
           title={executing.title}
-          improvement={executing.improvement}
+          canMerge={canMerge}
           onClose={() => setExecuting(null)}
         />
       )}

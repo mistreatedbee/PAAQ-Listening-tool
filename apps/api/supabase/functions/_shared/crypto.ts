@@ -16,23 +16,24 @@ function fromBase64(b64: string): Uint8Array {
   return bytes
 }
 
-async function getKey(): Promise<CryptoKey> {
-  const raw = Deno.env.get('DB_CONNECTOR_ENCRYPTION_KEY')
-  if (!raw) throw new Error('DB_CONNECTOR_ENCRYPTION_KEY not set')
+async function getKey(envVarName = 'DB_CONNECTOR_ENCRYPTION_KEY'): Promise<CryptoKey> {
+  const raw = Deno.env.get(envVarName)
+  if (!raw) throw new Error(`${envVarName} not set`)
   const keyBytes = fromBase64(raw)
   return crypto.subtle.importKey('raw', keyBytes, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'])
 }
 
-export async function encryptSecret(plaintext: string): Promise<{ ciphertext: string; iv: string }> {
-  const key = await getKey()
+/** @param keyEnvVar which Supabase secret holds the key — different secrets give different callers separate rotation domains. */
+export async function encryptSecret(plaintext: string, keyEnvVar = 'DB_CONNECTOR_ENCRYPTION_KEY'): Promise<{ ciphertext: string; iv: string }> {
+  const key = await getKey(keyEnvVar)
   const iv = crypto.getRandomValues(new Uint8Array(12))
   const encoded = new TextEncoder().encode(plaintext)
   const cipherBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded)
   return { ciphertext: toBase64(new Uint8Array(cipherBuf)), iv: toBase64(iv) }
 }
 
-export async function decryptSecret(ciphertext: string, iv: string): Promise<string> {
-  const key = await getKey()
+export async function decryptSecret(ciphertext: string, iv: string, keyEnvVar = 'DB_CONNECTOR_ENCRYPTION_KEY'): Promise<string> {
+  const key = await getKey(keyEnvVar)
   const cipherBytes = fromBase64(ciphertext)
   const ivBytes = fromBase64(iv)
   const plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: ivBytes }, key, cipherBytes)

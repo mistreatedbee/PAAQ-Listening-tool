@@ -212,18 +212,41 @@ export default function AppManagementPage() {
 
   // Repository connection state
   const [connectedRepos, setConnectedRepos] = useState<Set<string>>(new Set())
+  const [repoNames, setRepoNames] = useState<Record<string, string>>({})
   const [repoConnecting, setRepoConnecting] = useState<string | null>(null)
   const [repoNotice, setRepoNotice] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
+
+  // Repo picker state (shown after OAuth when needs_repo_pick=1)
+  const [repoPicker, setRepoPicker] = useState<{ provider: string; repos: { full_name: string; default_branch: string; private: boolean }[]; loading: boolean } | null>(null)
+  const [repoPickerSelecting, setRepoPickerSelecting] = useState<string | null>(null)
 
   // Handle OAuth callback params (e.g. ?repo_connected=github or ?repo_error=not_configured)
   useEffect(() => {
     const connected = searchParams.get('repo_connected')
+    const needsPick = searchParams.get('needs_repo_pick')
     const repoError = searchParams.get('repo_error')
     if (connected) {
       setConnectedRepos((prev) => new Set([...prev, connected]))
-      const provider = REPO_PROVIDERS.find((p) => p.id === connected)
-      setRepoNotice({ type: 'success', msg: `${provider?.label ?? connected} connected successfully` })
       router.replace(`/apps/${id}`, { scroll: false })
+      if (needsPick) {
+        // Token stored — now load the repo list for the picker
+        setRepoPicker({ provider: connected, repos: [], loading: true })
+        fetch(`/api/repo/list?project_id=${id}&provider=${connected}`)
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.repos) {
+              setRepoPicker({ provider: connected, repos: data.repos, loading: false })
+            } else {
+              // List failed — skip picker, just show connected
+              setRepoPicker(null)
+              setRepoNotice({ type: 'success', msg: `${REPO_PROVIDERS.find(p => p.id === connected)?.label ?? connected} connected — select a repository to enable code fixes` })
+            }
+          })
+          .catch(() => setRepoPicker(null))
+      } else {
+        const provider = REPO_PROVIDERS.find((p) => p.id === connected)
+        setRepoNotice({ type: 'success', msg: `${provider?.label ?? connected} connected successfully` })
+      }
     }
     if (repoError) {
       const msg = repoError === 'not_configured' ? 'Integration not configured — contact your admin'
@@ -264,7 +287,7 @@ export default function AppManagementPage() {
       sb.from('events').select('user_id', { count: 'exact', head: true }).eq('project_id', id).gte('timestamp', since24h).not('user_id', 'is', null),
       sb.from('events').select('timestamp').eq('project_id', id).order('timestamp', { ascending: false }).limit(1),
       // Load connected repository providers
-      sb.from('project_repositories').select('provider').eq('project_id', id).eq('status', 'active'),
+      sb.from('project_repositories').select('provider, repo_name').eq('project_id', id).eq('status', 'active'),
       // Load SDK token for this project
       sb.from('access_tokens').select('token').eq('project_id', id).eq('token_type', 'sdk_token').eq('status', 'active').limit(1),
     ]).then(([
@@ -290,7 +313,14 @@ export default function AppManagementPage() {
       setSessionCount(ses ?? 0)
       setActiveUsers(au ?? 0)
       setLastEventAt((lastEv ?? [])[0]?.timestamp ?? null)
-      if (repos) setConnectedRepos(new Set(repos.map((r: { provider: string }) => r.provider)))
+      if (repos) {
+        setConnectedRepos(new Set(repos.map((r: { provider: string }) => r.provider)))
+        const names: Record<string, string> = {}
+        for (const r of repos as { provider: string; repo_name: string | null }[]) {
+          if (r.repo_name) names[r.provider] = r.repo_name
+        }
+        setRepoNames(names)
+      }
       if (tokens?.[0]) setSdkToken((tokens[0] as { token: string }).token)
       setLoading(false)
     })
@@ -388,12 +418,88 @@ export default function AppManagementPage() {
     window.location.href = `/api/auth/${providerId}?project_id=${project.id}`
   }
 
+  async function handleRepoPick(repoFullName: string) {
+    if (!repoPicker || repoPickerSelecting) return
+    setRepoPickerSelecting(repoFullName)
+    try {
+      const res = await fetch('/api/repo/select', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: id, provider: repoPicker.provider, repo_full_name: repoFullName }),
+      })
+      const data = await res.json()
+      if (data.ok) {
+        setRepoPicker(null)
+        setRepoPickerSelecting(null)
+        const providerLabel = REPO_PROVIDERS.find(p => p.id === repoPicker.provider)?.label ?? repoPicker.provider
+        setRepoNotice({ type: 'success', msg: `${repoFullName} connected via ${providerLabel}` })
+      } else {
+        setRepoPickerSelecting(null)
+        setRepoNotice({ type: 'error', msg: data.error ?? 'Failed to select repository' })
+        setRepoPicker(null)
+      }
+    } catch {
+      setRepoPickerSelecting(null)
+      setRepoPicker(null)
+    }
+  }
+
   return (
     <div className="space-y-6 max-w-4xl">
       {/* Back */}
       <Link href="/setup" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
         <ArrowLeft className="h-4 w-4" /> All applications
       </Link>
+
+      {/* Repo picker modal — shown after OAuth when the user needs to select a specific repo */}
+      {repoPicker && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl border border-border/70 bg-card shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border/60 px-5 py-4">
+              <div className="flex items-center gap-2">
+                <GitBranch className="h-4 w-4 text-ai" />
+                <h3 className="text-sm font-semibold text-foreground">Select a repository</h3>
+              </div>
+              <button onClick={() => setRepoPicker(null)} className="text-muted-foreground hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="p-4 max-h-80 overflow-y-auto space-y-1.5">
+              {repoPicker.loading ? (
+                <div className="flex items-center justify-center py-8 gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading repositories…
+                </div>
+              ) : repoPicker.repos.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">No repositories found for this account.</p>
+              ) : repoPicker.repos.map((repo) => (
+                <button
+                  key={repo.full_name}
+                  onClick={() => handleRepoPick(repo.full_name)}
+                  disabled={!!repoPickerSelecting}
+                  className={cn(
+                    'w-full flex items-center justify-between rounded-xl border px-3.5 py-2.5 text-left transition-all',
+                    repoPickerSelecting === repo.full_name
+                      ? 'border-ai/30 bg-ai/5'
+                      : 'border-border/50 bg-background/30 hover:border-border hover:bg-accent/30',
+                  )}
+                >
+                  <div>
+                    <p className="text-xs font-medium text-foreground">{repo.full_name}</p>
+                    <p className="text-[10px] text-muted-foreground">branch: {repo.default_branch}{repo.private ? ' · private' : ''}</p>
+                  </div>
+                  {repoPickerSelecting === repo.full_name
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin text-ai" />
+                    : <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/50" />
+                  }
+                </button>
+              ))}
+            </div>
+            <div className="border-t border-border/40 px-5 py-3">
+              <p className="text-[10px] text-muted-foreground/60">PAAQ will use this repository to push AI-generated fixes as pull requests.</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Application header */}
       <div className="flex flex-wrap items-start justify-between gap-4 rounded-2xl border border-border/70 bg-card p-5">
@@ -737,7 +843,9 @@ export default function AppManagementPage() {
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-semibold text-foreground">{repo.label}</p>
                       <p className="text-[10px] text-muted-foreground truncate">
-                        {isConnected ? 'Connected' : isConnecting ? 'Connecting…' : 'Click to connect'}
+                        {isConnected
+                          ? (repoNames[repo.id] ?? 'Connected')
+                          : isConnecting ? 'Connecting…' : 'Click to connect'}
                       </p>
                     </div>
                     {isConnected && <CheckCircle2 className="h-4 w-4 shrink-0 text-healthy" />}

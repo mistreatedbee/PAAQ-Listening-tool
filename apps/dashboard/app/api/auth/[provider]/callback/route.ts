@@ -121,9 +121,27 @@ export async function GET(
   try {
     const { accessToken, providerUser, repoUrl } = await EXCHANGE_FNS[provider](code, redirectUri)
 
+    // Persist the token via the repo-connector edge function (server-to-server,
+    // internal-secret authenticated) — this is the fix for the token
+    // previously being fetched only to read the username, then discarded.
+    const storeRes = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/repo-connector`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Internal-Secret': process.env.REPO_CONNECTOR_INTERNAL_SECRET ?? '',
+      },
+      body: JSON.stringify({ action: 'store_token', project_id: projectId, provider, accessToken }),
+    })
+    const storeData = await storeRes.json().catch(() => ({ ok: false }))
+    if (!storeData.ok) {
+      return NextResponse.redirect(new URL(`/apps/${projectId}?repo_error=token_store_failed`, request.url))
+    }
+
+    // Identity-only metadata — never a secret — stays in project_repositories,
+    // written directly here as before. repo_name/default_branch are filled
+    // in by the repo-picker step (select_repo), not here.
     const cookieStore = await cookies()
     const sb = createClient(cookieStore)
-
     await sb.from('project_repositories').upsert(
       {
         project_id: projectId,
@@ -135,7 +153,7 @@ export async function GET(
       { onConflict: 'project_id,provider' },
     )
 
-    return NextResponse.redirect(new URL(`/apps/${projectId}?repo_connected=${provider}`, request.url))
+    return NextResponse.redirect(new URL(`/apps/${projectId}?repo_connected=${provider}&needs_repo_pick=1`, request.url))
   } catch {
     return NextResponse.redirect(new URL(`/apps/${projectId}?repo_error=auth_failed`, request.url))
   }

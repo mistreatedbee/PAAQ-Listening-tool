@@ -13,18 +13,21 @@ const PROVIDER_CONFIG: Record<string, OAuthConfig> = {
   },
   gitlab: {
     clientIdEnv: 'GITLAB_CLIENT_ID',
+    // Needs full write access to create branches/commits/MRs and merge them.
     buildUrl: (clientId, redirectUri, state) =>
-      `https://gitlab.com/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=read_repository+read_user&state=${state}`,
+      `https://gitlab.com/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=api&state=${state}`,
   },
   bitbucket: {
     clientIdEnv: 'BITBUCKET_CLIENT_ID',
+    // Previously requested no explicit scope at all — must ask for repo + PR write.
     buildUrl: (clientId, redirectUri, state) =>
-      `https://bitbucket.org/site/oauth2/authorize?client_id=${clientId}&response_type=code&state=${state}&redirect_uri=${encodeURIComponent(redirectUri)}`,
+      `https://bitbucket.org/site/oauth2/authorize?client_id=${clientId}&response_type=code&scope=${encodeURIComponent('repository:write pullrequest:write account')}&state=${state}&redirect_uri=${encodeURIComponent(redirectUri)}`,
   },
   azure: {
     clientIdEnv: 'AZURE_CLIENT_ID',
+    // vso.code alone is read-only; vso.code_write is needed to push/merge.
     buildUrl: (clientId, redirectUri, state) =>
-      `https://app.vssps.visualstudio.com/oauth2/authorize?client_id=${clientId}&response_type=Assertion&state=${state}&scope=vso.code&redirect_uri=${encodeURIComponent(redirectUri)}`,
+      `https://app.vssps.visualstudio.com/oauth2/authorize?client_id=${clientId}&response_type=Assertion&state=${state}&scope=${encodeURIComponent('vso.code vso.code_write')}&redirect_uri=${encodeURIComponent(redirectUri)}`,
   },
 }
 

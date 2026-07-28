@@ -115,7 +115,7 @@ const TYPE_LABELS: Record<string, string> = {
 
 const FILTERS = ['All', 'pending', 'approved', 'rejected', 'assigned', 'archived']
 
-type Executing = { title: string; option: string; improvement: string } | null
+type Executing = { recommendationId: string; title: string } | null
 
 export default function RecommendationsPage() {
   const { app } = useConnectedApp()
@@ -126,7 +126,19 @@ export default function RecommendationsPage() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [executing, setExecuting] = useState<Executing>(null)
   const [selectedOption, setSelectedOption] = useState<Record<string, 'A' | 'B' | 'C'>>({})
+  const [canMerge, setCanMerge] = useState(false)
   const { mode } = useApprovalMode()
+
+  useEffect(() => {
+    if (app.id === '__loading__') return
+    fetch('/api/tenant/role', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId: app.id }),
+    })
+      .then((r) => r.json())
+      .then((data) => setCanMerge(data.role === 'owner' || data.role === 'admin'))
+  }, [app.id])
 
   const showToast = (msg: string) => {
     setToast(msg)
@@ -160,15 +172,10 @@ export default function RecommendationsPage() {
     showToast(`Recommendation ${newStatus}`)
   }
 
-  const handleApproveExecute = (rec: DbRecommendation, optionLabel: 'A' | 'B' | 'C') => {
-    const options = generateOptions(rec)
-    const opt = options.find((o) => o.label === optionLabel)!
-    setExecuting({
-      title: opt.title,
-      option: `Option ${optionLabel} — ${opt.tag}`,
-      improvement: opt.improvement,
-    })
-    updateStatus(rec.id, 'approved')
+  const handleApproveExecute = (rec: DbRecommendation) => {
+    // Status no longer flips to 'approved' here — that was premature.
+    // It now reflects reality once execute-fix actually merges the PR.
+    setExecuting({ recommendationId: rec.id, title: rec.title })
   }
 
   const pending  = recommendations.filter((r) => r.status === 'pending').length
@@ -194,10 +201,11 @@ export default function RecommendationsPage() {
       {/* Fix Execution Modal */}
       {executing && (
         <FixExecution
+          projectId={app.id}
+          recommendationId={executing.recommendationId}
           title={executing.title}
-          option={executing.option}
-          improvement={executing.improvement}
-          onClose={() => setExecuting(null)}
+          canMerge={canMerge}
+          onClose={() => { setExecuting(null); fetchRecommendations(app.id) }}
         />
       )}
 
@@ -398,7 +406,7 @@ export default function RecommendationsPage() {
                             : <ChevronRight className="h-3 w-3" />}
                         </button>
                         <button
-                          onClick={() => handleApproveExecute(rec, chosen)}
+                          onClick={() => handleApproveExecute(rec)}
                           className="flex items-center justify-center gap-1.5 rounded-lg border border-ai/30 bg-ai/10 px-3 py-2 text-xs font-semibold text-ai hover:bg-ai/20 transition-colors"
                         >
                           <Zap className="h-3.5 w-3.5" />
@@ -515,7 +523,7 @@ export default function RecommendationsPage() {
                     {/* Execute row */}
                     <div className="flex gap-2 pt-1">
                       <button
-                        onClick={() => handleApproveExecute(rec, chosen)}
+                        onClick={() => handleApproveExecute(rec)}
                         className="flex-1 flex items-center justify-center gap-2 rounded-xl border border-ai/30 bg-ai/10 px-4 py-2.5 text-sm font-semibold text-ai hover:bg-ai/20 transition-colors"
                       >
                         <Zap className="h-4 w-4" />

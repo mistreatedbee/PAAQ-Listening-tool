@@ -2,188 +2,250 @@
 
 import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
-import { CheckCircle2, Loader2, XCircle, X, ShieldCheck, GitBranch } from 'lucide-react'
+import { CheckCircle2, Loader2, XCircle, X, GitBranch, ExternalLink, ShieldAlert } from 'lucide-react'
 
-type Step = {
-  label: string
-  detail: string
-  duration: number
-}
+type Phase = 'idle' | 'generating' | 'review' | 'opening_pr' | 'pr_open' | 'merging' | 'merged' | 'blocked' | 'failed'
 
-const STEPS: Step[] = [
-  { label: 'Pulling latest repository',      detail: 'Fetching current codebase state from source control',          duration: 900 },
-  { label: 'Creating isolated workspace',    detail: 'Setting up a safe sandboxed execution environment',             duration: 700 },
-  { label: 'Generating fix',                 detail: 'AI applying recommended changes to identified files',           duration: 1600 },
-  { label: 'Running automated tests',        detail: 'Verifying no regressions were introduced by the change',        duration: 1400 },
-  { label: 'Running security checks',        detail: 'Scanning for vulnerabilities and compliance issues',            duration: 1100 },
-  { label: 'Building application',           detail: 'Compiling and bundling with production settings',               duration: 1300 },
-  { label: 'Deploying changes',              detail: 'Rolling out to production with zero-downtime strategy',         duration: 1200 },
-  { label: 'Monitoring production',          detail: 'Verifying health metrics and error rates after deployment',     duration: 1000 },
-]
-
-type StepStatus = 'pending' | 'running' | 'done' | 'failed'
+type ChangesetItem = { path: string; newContent: string }
 
 export function FixExecution({
+  projectId,
+  recommendationId,
   title,
-  option,
-  improvement,
+  canMerge,
   onClose,
 }: {
+  projectId: string
+  recommendationId: string
   title: string
-  option?: string
-  improvement?: string
+  /** Whether the current user's role allows the merge action — hides the button otherwise. */
+  canMerge: boolean
   onClose: () => void
 }) {
-  const [statuses, setStatuses] = useState<StepStatus[]>(STEPS.map(() => 'pending'))
-  const [complete, setComplete] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [phase, setPhase] = useState<Phase>('idle')
+  const [error, setError] = useState<string | null>(null)
+  const [needsFileSelection, setNeedsFileSelection] = useState<string[] | null>(null)
+  const [filePathInput, setFilePathInput] = useState('')
+  const [changeset, setChangeset] = useState<ChangesetItem[]>([])
+  const [summary, setSummary] = useState<string | null>(null)
+  const [prUrl, setPrUrl] = useState<string | null>(null)
 
   useEffect(() => { setMounted(true) }, [])
 
   useEffect(() => {
-    let cancelled = false
-    let step = 0
-
-    const runStep = () => {
-      if (cancelled || step >= STEPS.length) return
-
-      setStatuses((prev) => {
-        const next = [...prev]
-        next[step] = 'running'
-        return next
-      })
-
-      setTimeout(() => {
-        if (cancelled) return
-        setStatuses((prev) => {
-          const next = [...prev]
-          next[step] = 'done'
-          return next
-        })
-        step++
-        if (step < STEPS.length) setTimeout(runStep, 180)
-        else setComplete(true)
-      }, STEPS[step].duration)
-    }
-
-    const start = setTimeout(runStep, 500)
-    return () => { cancelled = true; clearTimeout(start) }
+    void runGenerate()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const doneCount = statuses.filter((s) => s === 'done').length
-  const pct = Math.round((doneCount / STEPS.length) * 100)
+  async function runGenerate(explicitPath?: string) {
+    setPhase('generating')
+    setError(null)
+    setNeedsFileSelection(null)
+    const res = await fetch('/api/fix/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId, recommendationId, filePath: explicitPath }),
+    }).then((r) => r.json())
+
+    if (!res.ok) {
+      if (res.needsFileSelection) {
+        setNeedsFileSelection(res.candidates ?? [])
+        setPhase('idle')
+        setError(res.error)
+        return
+      }
+      setError(res.error ?? 'Failed to generate a fix')
+      setPhase('failed')
+      return
+    }
+
+    setSummary(res.summary)
+    setChangeset(res.changes)
+    setPhase('review')
+  }
+
+  async function runOpenPr() {
+    setPhase('opening_pr')
+    setError(null)
+    const res = await fetch('/api/fix/open-pr', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId, recommendationId, changeset }),
+    }).then((r) => r.json())
+
+    if (!res.ok) {
+      setError(res.error ?? 'Failed to open a pull request')
+      setPhase('failed')
+      return
+    }
+    setPrUrl(res.prUrl)
+    setPhase('pr_open')
+  }
+
+  async function runMerge() {
+    setPhase('merging')
+    setError(null)
+    const res = await fetch('/api/fix/merge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId, recommendationId }),
+    }).then((r) => r.json())
+
+    if (!res.ok) {
+      if (res.blockedByProtection) {
+        setError(res.error)
+        setPhase('blocked')
+        return
+      }
+      setError(res.error ?? 'Merge failed')
+      setPhase('failed')
+      return
+    }
+    setPhase('merged')
+  }
+
+  const updateChangesetContent = (idx: number, value: string) => {
+    setChangeset((prev) => prev.map((c, i) => (i === idx ? { ...c, newContent: value } : c)))
+  }
 
   return (
     <div className={cn(
       'fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm px-4 transition-opacity duration-200',
       mounted ? 'opacity-100' : 'opacity-0',
     )}>
-      <div className="w-full max-w-md rounded-2xl border border-border/80 bg-card shadow-2xl">
-        {/* Header */}
+      <div className="w-full max-w-2xl rounded-2xl border border-border/80 bg-card shadow-2xl">
         <div className="flex items-start justify-between gap-3 border-b border-border/60 px-6 pt-5 pb-4">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-[9px] font-bold uppercase tracking-widest text-ai">Executing fix</span>
-              {option && (
-                <span className="rounded-full border border-ai/25 bg-ai/10 px-1.5 py-0.5 text-[9px] font-semibold text-ai">
-                  {option}
-                </span>
-              )}
-            </div>
-            <h2 className="text-sm font-semibold text-foreground leading-snug line-clamp-2">{title}</h2>
+            <span className="text-[9px] font-bold uppercase tracking-widest text-ai">Execute fix</span>
+            <h2 className="mt-1 text-sm font-semibold text-foreground leading-snug line-clamp-2">{title}</h2>
           </div>
-          {complete && (
-            <button
-              onClick={onClose}
-              className="shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-            >
+          {(phase === 'merged' || phase === 'failed' || phase === 'blocked' || needsFileSelection) && (
+            <button onClick={onClose} className="shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors">
               <X className="h-4 w-4" />
             </button>
           )}
         </div>
 
-        {/* Progress bar */}
-        <div className="h-1 w-full bg-muted">
-          <div
-            className="h-full bg-ai transition-[width] duration-500 ease-out"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
+        <div className="max-h-[60vh] overflow-y-auto px-6 py-5 space-y-4">
+          {phase === 'generating' && (
+            <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin text-ai" /> Generating a fix from the connected repo…
+            </div>
+          )}
 
-        {/* Steps */}
-        <div className="px-6 py-4 space-y-1.5 max-h-72 overflow-y-auto scrollbar-thin">
-          {STEPS.map((step, i) => {
-            const status = statuses[i]
-            return (
-              <div
-                key={i}
-                className={cn(
-                  'flex items-start gap-3 rounded-lg px-3 py-2 transition-all',
-                  status === 'running' && 'bg-ai/8 border border-ai/20',
-                  status === 'done'    && 'opacity-60',
-                  status === 'pending' && 'opacity-30',
+          {needsFileSelection && (
+            <div className="space-y-3">
+              <p className="flex items-start gap-2 text-sm text-warning">
+                <ShieldAlert className="h-4 w-4 shrink-0 mt-0.5" /> {error}
+              </p>
+              {needsFileSelection.length > 0 && (
+                <div className="space-y-1.5">
+                  {needsFileSelection.map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => runGenerate(c)}
+                      className="block w-full rounded-lg border border-border/60 bg-background/40 px-3 py-2 text-left font-mono text-xs text-foreground hover:bg-accent"
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <input
+                  value={filePathInput}
+                  onChange={(e) => setFilePathInput(e.target.value)}
+                  placeholder="src/path/to/file.ts"
+                  className="flex-1 rounded-lg border border-border/60 bg-background px-3 py-2 font-mono text-xs focus:ring-2 focus:ring-ai/30"
+                />
+                <button
+                  onClick={() => filePathInput.trim() && runGenerate(filePathInput.trim())}
+                  className="rounded-lg bg-ai px-3 py-2 text-xs font-medium text-ai-foreground hover:opacity-90"
+                >
+                  Use this path
+                </button>
+              </div>
+            </div>
+          )}
+
+          {phase === 'review' && (
+            <div className="space-y-3">
+              {summary && <p className="text-sm text-foreground">{summary}</p>}
+              {changeset.map((c, idx) => (
+                <div key={c.path} className="rounded-lg border border-border/60">
+                  <div className="flex items-center gap-2 border-b border-border/50 bg-muted/30 px-3 py-1.5">
+                    <span className="font-mono text-xs text-foreground">{c.path}</span>
+                  </div>
+                  <textarea
+                    value={c.newContent}
+                    onChange={(e) => updateChangesetContent(idx, e.target.value)}
+                    rows={10}
+                    className="w-full resize-y bg-background px-3 py-2 font-mono text-[11px] leading-relaxed text-foreground focus:outline-none"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {(phase === 'opening_pr' || phase === 'pr_open' || phase === 'merging' || phase === 'merged') && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2.5 text-sm">
+                {phase === 'opening_pr' ? (
+                  <><Loader2 className="h-4 w-4 animate-spin text-ai" /> Opening a pull request…</>
+                ) : (
+                  <><GitBranch className="h-4 w-4 text-intel" /> Pull request opened</>
                 )}
-              >
-                <div className="mt-0.5 shrink-0">
-                  {status === 'done'    && <CheckCircle2 className="h-3.5 w-3.5 text-healthy" />}
-                  {status === 'running' && <Loader2 className="h-3.5 w-3.5 text-ai animate-spin" />}
-                  {status === 'failed'  && <XCircle className="h-3.5 w-3.5 text-critical" />}
-                  {status === 'pending' && <div className="h-3.5 w-3.5 rounded-full border-2 border-border/50" />}
-                </div>
-                <div className="min-w-0">
-                  <p className={cn(
-                    'text-xs font-medium leading-snug',
-                    status === 'running' ? 'text-foreground' : 'text-muted-foreground',
-                  )}>
-                    {step.label}
-                  </p>
-                  {status === 'running' && (
-                    <p className="text-[10px] text-muted-foreground/70 mt-0.5">{step.detail}</p>
-                  )}
-                </div>
               </div>
-            )
-          })}
-        </div>
+              {prUrl && (
+                <a href={prUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-medium text-ai hover:underline">
+                  {prUrl} <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+              {phase === 'merging' && (
+                <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin text-ai" /> Merging…
+                </div>
+              )}
+              {phase === 'merged' && (
+                <div className="flex items-center gap-2.5 text-sm font-medium text-healthy">
+                  <CheckCircle2 className="h-4 w-4" /> Merged to main
+                </div>
+              )}
+            </div>
+          )}
 
-        {/* Footer */}
-        {complete ? (
-          <div className="border-t border-border/60 px-6 py-5 space-y-3">
-            <div className="flex items-center gap-2.5">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-healthy/10">
-                <CheckCircle2 className="h-4.5 w-4.5 text-healthy" />
-              </div>
+          {(phase === 'blocked' || phase === 'failed') && (
+            <div className="flex items-start gap-2.5 rounded-lg border border-critical/25 bg-critical/5 px-3 py-2.5 text-sm text-critical">
+              <XCircle className="h-4 w-4 shrink-0 mt-0.5" />
               <div>
-                <p className="text-sm font-semibold text-healthy">Deployment successful</p>
-                {improvement && (
-                  <p className="text-xs text-muted-foreground mt-0.5">{improvement}</p>
-                )}
+                <p className="font-medium">{phase === 'blocked' ? 'Blocked by branch protection' : 'Failed'}</p>
+                <p className="mt-0.5 text-xs text-critical/80">{error}</p>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="flex items-center gap-1.5 rounded-lg border border-border/50 bg-background/30 px-3 py-2">
-                <ShieldCheck className="h-3.5 w-3.5 text-healthy shrink-0" />
-                <span className="text-[10px] text-muted-foreground">Security passed</span>
-              </div>
-              <div className="flex items-center gap-1.5 rounded-lg border border-border/50 bg-background/30 px-3 py-2">
-                <GitBranch className="h-3.5 w-3.5 text-intel shrink-0" />
-                <span className="text-[10px] text-muted-foreground">PR created</span>
-              </div>
-            </div>
-            <button
-              onClick={onClose}
-              className="w-full rounded-lg border border-healthy/30 bg-healthy/10 px-4 py-2.5 text-sm font-semibold text-healthy hover:bg-healthy/20 transition-colors"
-            >
-              Done — view deployment
+          )}
+        </div>
+
+        <div className="border-t border-border/60 px-6 py-4 flex justify-end gap-2">
+          {phase === 'review' && (
+            <button onClick={runOpenPr} className="rounded-lg bg-ai px-4 py-2 text-sm font-medium text-ai-foreground hover:opacity-90">
+              Looks good — Open PR
             </button>
-          </div>
-        ) : (
-          <div className="border-t border-border/60 px-6 py-3">
-            <p className="text-center text-[10px] text-muted-foreground/50">
-              Every step is audited and logged · A rollback plan is ready if needed
-            </p>
-          </div>
-        )}
+          )}
+          {phase === 'pr_open' && canMerge && (
+            <button onClick={runMerge} className="rounded-lg bg-healthy px-4 py-2 text-sm font-semibold text-healthy-foreground hover:opacity-90">
+              Approve &amp; Merge
+            </button>
+          )}
+          {phase === 'pr_open' && !canMerge && (
+            <p className="text-xs text-muted-foreground">Only owners/admins can approve and merge.</p>
+          )}
+          {(phase === 'merged' || phase === 'failed' || phase === 'blocked') && (
+            <button onClick={onClose} className="rounded-lg border border-border/70 px-4 py-2 text-sm font-medium text-foreground hover:bg-accent">
+              Close
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )
