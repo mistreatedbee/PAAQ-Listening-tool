@@ -65,18 +65,27 @@ Deno.serve(async (req) => {
   // Accept single event or batch
   const eventsRaw = Array.isArray(body) ? body : [body]
 
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  const asUuid = (v: unknown) => (typeof v === 'string' && UUID_RE.test(v) ? v : null)
+
   const rows = eventsRaw.map((e: Record<string, unknown>) => ({
     project_id:     project.id,
-    user_id:        null,
-    session_id:     null,
+    user_id:        asUuid(e.user_id),
+    session_id:     asUuid(e.session_id),
     event_name:     e.event_name ?? e.name,
     event_category: e.event_category ?? e.category ?? null,
     screen_name:    e.screen_name ?? e.screen ?? null,
-    properties:     { ...(e.properties as object ?? {}), _session: e.session_id ?? null },
+    properties:     e.properties ?? {},
     timestamp:      e.timestamp ?? new Date().toISOString(),
   }))
 
-  const { error } = await supabase.from('events').insert(rows)
+  let { error } = await supabase.from('events').insert(rows)
+  if (error?.code === '23503') {
+    // session_id/user_id don't resolve to real rows for this project yet — degrade
+    // gracefully rather than dropping the whole batch.
+    const fallback = rows.map((r) => ({ ...r, session_id: null, user_id: null }))
+    ;({ error } = await supabase.from('events').insert(fallback))
+  }
   if (error) return respond({ error: error.message }, 500)
 
   return respond({ ok: true, inserted: rows.length })

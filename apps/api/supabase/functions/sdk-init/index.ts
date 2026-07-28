@@ -156,8 +156,21 @@ async function _handle(req: Request): Promise<Response> {
     webhookBridge:    isPaidPlan,
   }
 
-  // ── 8. Generate session ID ────────────────────────────────────
-  const sessionId = body.sessionId ?? crypto.randomUUID()
+  // ── 8. Create a real session row so events can be linked via FK ──
+  // Falls back to an unlinked id if this tenant project has no legacy
+  // `projects` mirror row yet (sessions.project_id still FKs to `projects`).
+  let sessionId: string
+  try {
+    const { data: sessionRow, error: sessionErr } = await sb
+      .from('sessions')
+      .insert({ project_id: project.id, status: 'active' })
+      .select('id')
+      .single()
+    if (sessionErr || !sessionRow) throw sessionErr ?? new Error('session insert failed')
+    sessionId = sessionRow.id
+  } catch (_e) {
+    sessionId = body.sessionId ?? crypto.randomUUID()
+  }
 
   await logEvent('sdk_init_success', projectKey, { platform, sdkVersion, environment })
 
