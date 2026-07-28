@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { createClient } from '@/utils/supabase/client'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { Bug } from 'lucide-react'
-import { PageHeader, Card, CardHead, ToneBadge, Meter } from '@/components/kit'
+import { PageHeader, Card, CardHead, ToneBadge } from '@/components/kit'
 import type { Tone } from '@/lib/data'
 
 const severityTone: Record<string, Tone> = {
@@ -83,8 +83,8 @@ export default function ErrorsPage() {
           </div>
         ) : (
           <div className="divide-y divide-border/60">
-            {rows.map((e, idx) => (
-              <Link key={e.id} href={`/errors/${e.id}`} className="flex flex-col gap-3 px-5 py-4 md:flex-row md:items-center md:gap-6 hover:bg-accent/40 transition-colors">
+            {rows.map((e) => (
+              <Link key={e.id} href={`/errors/${e.id}`} className="flex flex-col gap-3 px-5 py-4 hover:bg-accent/40 transition-colors">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <ToneBadge tone={statusTone[e.status] ?? 'intel'}>{e.status}</ToneBadge>
@@ -96,9 +96,6 @@ export default function ErrorsPage() {
                     {e.screen && <span>Screen: {e.screen}</span>}
                     <span>{new Date(e.created_at).toLocaleString()}</span>
                   </div>
-                </div>
-                <div className="w-40">
-                  <Meter value={Math.max(10, 100 - idx * (100 / rows.length))} tone={severityTone[e.severity] ?? 'intel'} />
                 </div>
               </Link>
             ))}
