@@ -19,7 +19,7 @@ const supabase = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
 )
 
-const KEY_ENV = 'REPO_TOKEN_ENCRYPTION_KEY'
+const KEY_ENV = 'REPO_CONNECTOR_ENCRYPTION_KEY'
 
 function checkInternalSecret(req: Request): boolean {
   const provided = req.headers.get('x-internal-secret') ?? ''

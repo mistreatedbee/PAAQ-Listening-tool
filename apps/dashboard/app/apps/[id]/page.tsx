@@ -481,10 +481,24 @@ export default function AppManagementPage() {
           setRepoPicker({ provider: providerId, repos: data.repos, loading: false })
         } else {
           setRepoPicker(null)
-          setRepoNotice({ type: 'error', msg: data.error ?? 'Failed to load repositories' })
+          const isNoCredential = (data.error ?? '').toLowerCase().includes('no connected credential')
+          if (isNoCredential) {
+            setRepoNotice({
+              type: 'error',
+              msg: 'OAuth token missing — click the provider card to reconnect via OAuth, then pick a repo.',
+            })
+            // Remove the stale project_repositories row so the card resets to "Click to connect"
+            setConnectedRepos((prev) => { const next = new Set(prev); next.delete(providerId); return next })
+            setRepoNames((prev) => { const next = { ...prev }; delete next[providerId]; return next })
+          } else {
+            setRepoNotice({ type: 'error', msg: data.error ?? 'Failed to load repositories' })
+          }
         }
       })
-      .catch(() => setRepoPicker(null))
+      .catch(() => {
+        setRepoPicker(null)
+        setRepoNotice({ type: 'error', msg: 'Failed to load repositories — check your connection' })
+      })
   }
 
   return (
