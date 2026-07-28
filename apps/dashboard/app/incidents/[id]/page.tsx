@@ -1,13 +1,14 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/utils/supabase/client'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { PageHeader, Card, CardHead, ToneBadge, ProgressRing } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import { toneBg, toneText } from '@/lib/tones'
-import { ArrowLeft, Wrench, Ticket, Bell, CheckCircle2, Sparkles, ListChecks, Terminal, Clock } from 'lucide-react'
+import { ArrowLeft, Wrench, Ticket, Bell, CheckCircle2, Sparkles, ListChecks, Terminal, Clock, Loader2, ArrowRight } from 'lucide-react'
 import type { Tone } from '@/lib/data'
 
 type DbIncident = {
@@ -18,6 +19,14 @@ type DbIncident = {
   severity: string
   status: string
   created_at: string
+}
+
+type DbInvestigation = {
+  id: string
+  status: string
+  root_cause: string | null
+  business_impact: string | null
+  confidence: number | null
 }
 
 function severityTone(s: string): Tone {
@@ -52,9 +61,13 @@ function ActionBtn({
 
 export default function IncidentDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const router = useRouter()
+  const { app } = useConnectedApp()
   const [inc, setInc] = useState<DbIncident | null>(null)
+  const [investigation, setInvestigation] = useState<DbInvestigation | null>(null)
   const [loading, setLoading] = useState(true)
   const [resolving, setResolving] = useState(false)
+  const [investigating, setInvestigating] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
   const showToast = (msg: string) => {
@@ -64,12 +77,42 @@ export default function IncidentDetailPage() {
 
   useEffect(() => {
     const sb = createClient()
-    sb.from('incidents').select('id, title, description, ai_summary, severity, status, created_at').eq('id', id).single()
-      .then(({ data }) => {
-        setInc(data as DbIncident | null)
-        setLoading(false)
-      })
+    Promise.all([
+      sb.from('incidents').select('id, title, description, ai_summary, severity, status, created_at').eq('id', id).single(),
+      sb.from('investigations')
+        .select('id, status, root_cause, business_impact, confidence')
+        .eq('incident_id', id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]).then(([{ data: incData }, { data: invData }]) => {
+      setInc(incData as DbIncident | null)
+      setInvestigation(invData as DbInvestigation | null)
+      setLoading(false)
+    })
   }, [id])
+
+  const handleRunInvestigation = async () => {
+    if (!inc || app.id === '__loading__') return
+    setInvestigating(true)
+    showToast('Dispatching AI agents to investigate this incident…')
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/investigate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}` },
+        body: JSON.stringify({ incident_id: inc.id, project_id: app.id }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Investigation failed')
+      if (data.investigation_id) {
+        router.push(`/investigations/${data.investigation_id}`)
+        return
+      }
+    } catch (err) {
+      showToast(`Failed — ${err instanceof Error ? err.message : 'check Supabase logs'}`)
+    }
+    setInvestigating(false)
+  }
 
   const handleResolve = async () => {
     if (!inc || inc.status === 'resolved') return
@@ -176,18 +219,53 @@ export default function IncidentDetailPage() {
               title="AI Summary"
               desc="Autonomous analysis"
               icon={<Sparkles className="h-4 w-4 text-ai" />}
+              action={
+                investigation ? (
+                  <Link
+                    href={`/investigations/${investigation.id}`}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-ai hover:underline"
+                  >
+                    Full investigation <ArrowRight className="h-3 w-3" />
+                  </Link>
+                ) : undefined
+              }
             />
             <div className="px-5 pb-5">
-              <p className="text-sm leading-relaxed text-foreground">
-                {inc.ai_summary ?? inc.description ?? 'No AI analysis available yet.'}
-              </p>
-              {inc.description && inc.ai_summary && (
-                <div className="mt-4 rounded-lg border border-ai/20 bg-ai/[0.06] p-4">
-                  <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ai">
-                    <ListChecks className="h-3.5 w-3.5" /> Description
+              {investigation ? (
+                <>
+                  <p className="text-sm leading-relaxed text-foreground">
+                    {investigation.root_cause ?? inc.description ?? 'Investigation is still running.'}
                   </p>
-                  <p className="mt-1.5 text-sm text-foreground">{inc.description}</p>
-                </div>
+                  {investigation.business_impact && (
+                    <div className="mt-4 rounded-lg border border-ai/20 bg-ai/[0.06] p-4">
+                      <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ai">
+                        <ListChecks className="h-3.5 w-3.5" /> Business impact
+                      </p>
+                      <p className="mt-1.5 text-sm text-foreground">{investigation.business_impact}</p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    {inc.description ?? 'No AI analysis has been run for this incident yet.'}
+                  </p>
+                  <button
+                    onClick={handleRunInvestigation}
+                    disabled={investigating}
+                    className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-ai px-3 py-1.5 text-xs font-medium text-ai-foreground hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {investigating ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Investigating…
+                      </>
+                    ) : (
+                      <>
+                        Run AI investigation <ArrowRight className="h-3.5 w-3.5" />
+                      </>
+                    )}
+                  </button>
+                </>
               )}
             </div>
           </Card>

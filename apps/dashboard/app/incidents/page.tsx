@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { PageHeader, Card, ToneBadge, StatusDot } from '@/components/kit'
@@ -37,6 +38,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default function IncidentsPage() {
   const { app } = useConnectedApp()
+  const router = useRouter()
   const [incidents, setIncidents] = useState<DbIncident[]>([])
   const [counts, setCounts] = useState({ open: 0, critical: 0 })
   const [loading, setLoading] = useState(true)
@@ -92,7 +94,7 @@ export default function IncidentsPage() {
     setSaving(false)
   }
 
-  const handleGenerateFix = async (inc: DbIncident) => {
+  const handleInvestigate = async (inc: DbIncident) => {
     setFixingId(inc.id)
     showToast('Dispatching AI agents to investigate this incident…')
     try {
@@ -103,6 +105,10 @@ export default function IncidentsPage() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Investigation failed')
+      if (data.investigation_id) {
+        router.push(`/investigations/${data.investigation_id}`)
+        return
+      }
       showToast(`Investigation complete — ${data?.recommendations ?? 0} fix recommendations generated`)
     } catch (err) {
       showToast(`Failed — ${err instanceof Error ? err.message : 'check Supabase logs'}`)
@@ -248,16 +254,10 @@ export default function IncidentsPage() {
                     </div>
                   </div>
                   <div className="flex shrink-0 flex-wrap gap-2 lg:w-56 lg:flex-col">
-                    <Link
-                      href={`/incidents/${inc.id}`}
-                      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-ai px-3 py-1.5 text-xs font-medium text-ai-foreground hover:opacity-90"
-                    >
-                      Investigate <ArrowRight className="h-3.5 w-3.5" />
-                    </Link>
                     <button
-                      onClick={() => handleGenerateFix(inc)}
+                      onClick={() => handleInvestigate(inc)}
                       disabled={isFixing || fixingId !== null}
-                      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-border/70 bg-card/60 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-ai px-3 py-1.5 text-xs font-medium text-ai-foreground hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {isFixing ? (
                         <>
@@ -265,9 +265,17 @@ export default function IncidentsPage() {
                           Investigating…
                         </>
                       ) : (
-                        'Generate fix'
+                        <>
+                          Investigate <ArrowRight className="h-3.5 w-3.5" />
+                        </>
                       )}
                     </button>
+                    <Link
+                      href={`/incidents/${inc.id}`}
+                      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-border/70 bg-card/60 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+                    >
+                      View details
+                    </Link>
                     <button
                       onClick={async () => {
                         const sb = createClient()
