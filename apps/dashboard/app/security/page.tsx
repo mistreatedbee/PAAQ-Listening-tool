@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
-import { Shield, TriangleAlert } from 'lucide-react'
+import { Shield, TriangleAlert, Radio } from 'lucide-react'
 import { PageHeader, Card, CardHead, ToneBadge, StatusDot } from '@/components/kit'
 import type { Tone } from '@/lib/data'
 
@@ -36,10 +36,12 @@ export default function SecurityPage() {
   const [errors, setErrors] = useState<DbError[]>([])
   const [counts, setCounts] = useState({ total: 0, open: 0, critical: 0, warning: 0, resolved: 0, anomalies: 0 })
   const [loading, setLoading] = useState(true)
+  const [live, setLive] = useState(false)
 
   useEffect(() => {
     if (app.id === '__loading__') return
     const sb = createClient()
+
     Promise.all([
       sb.from('anomaly_events').select('id, type, severity, detected_pattern, confidence, created_at').eq('project_id', app.id).order('created_at', { ascending: false }).limit(20),
       sb.from('anomaly_events').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
@@ -49,19 +51,47 @@ export default function SecurityPage() {
       sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', app.id).in('severity', ['fatal', 'error']).eq('status', 'open'),
       sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', app.id).eq('severity', 'warning'),
       sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', app.id).eq('status', 'resolved'),
-    ]).then(([{ data: anomalyData }, { count: anomalyCount }, { data: errorData }, { count: total }, { count: open }, { count: critical }, { count: warning }, { count: resolved }]) => {
-      setAnomalies((anomalyData ?? []) as DbAnomaly[])
-      setErrors((errorData ?? []) as DbError[])
-      setCounts({
-        total: total ?? 0,
-        open: open ?? 0,
-        critical: critical ?? 0,
-        warning: warning ?? 0,
-        resolved: resolved ?? 0,
-        anomalies: anomalyCount ?? 0,
-      })
+    ]).then(([{ data: aData }, { count: aCount }, { data: eData }, { count: total }, { count: open }, { count: critical }, { count: warning }, { count: resolved }]) => {
+      setAnomalies((aData ?? []) as DbAnomaly[])
+      setErrors((eData ?? []) as DbError[])
+      setCounts({ total: total ?? 0, open: open ?? 0, critical: critical ?? 0, warning: warning ?? 0, resolved: resolved ?? 0, anomalies: aCount ?? 0 })
       setLoading(false)
     })
+
+    const anomalyChannel = sb
+      .channel(`anomalies-live:${app.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'anomaly_events', filter: `project_id=eq.${app.id}` },
+        (payload) => {
+          setAnomalies((prev) => [payload.new as DbAnomaly, ...prev].slice(0, 20))
+          setCounts((prev) => ({ ...prev, anomalies: prev.anomalies + 1 }))
+        })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'errors', filter: `project_id=eq.${app.id}` },
+        (payload) => {
+          const e = payload.new as DbError
+          setErrors((prev) => [e, ...prev].slice(0, 10))
+          setCounts((prev) => ({
+            ...prev,
+            total: prev.total + 1,
+            open: e.status === 'open' ? prev.open + 1 : prev.open,
+            critical: (e.severity === 'fatal' || e.severity === 'error') && e.status === 'open' ? prev.critical + 1 : prev.critical,
+            warning: e.severity === 'warning' ? prev.warning + 1 : prev.warning,
+          }))
+        })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'errors', filter: `project_id=eq.${app.id}` },
+        (payload) => {
+          const updated = payload.new as DbError
+          setErrors((prev) => prev.map((r) => r.id === updated.id ? { ...r, status: updated.status } : r))
+          // Trigger a recount by fetching just the count fields
+          Promise.all([
+            sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', app.id).eq('status', 'open'),
+            sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', app.id).eq('status', 'resolved'),
+          ]).then(([{ count: open }, { count: resolved }]) => {
+            setCounts((prev) => ({ ...prev, open: open ?? prev.open, resolved: resolved ?? prev.resolved }))
+          })
+        })
+      .subscribe((status) => setLive(status === 'SUBSCRIBED'))
+
+    return () => { sb.removeChannel(anomalyChannel) }
   }, [app.id])
 
   const stats = [
@@ -84,9 +114,17 @@ export default function SecurityPage() {
         title="Security Center"
         desc="Anomaly detection driven by the Security Agent, plus supporting error context."
         actions={
-          counts.anomalies > 0
-            ? <ToneBadge tone="warning" dot>{counts.anomalies} anomalies</ToneBadge>
-            : <ToneBadge tone="healthy" dot>All clear</ToneBadge>
+          <div className="flex items-center gap-2">
+            {live && (
+              <span className="flex items-center gap-1.5 rounded-full border border-healthy/25 bg-healthy/10 px-2.5 py-1 text-[10px] font-semibold text-healthy">
+                <Radio className="h-3 w-3 animate-pulse" /> LIVE
+              </span>
+            )}
+            {counts.anomalies > 0
+              ? <ToneBadge tone="warning" dot>{counts.anomalies} anomalies</ToneBadge>
+              : <ToneBadge tone="healthy" dot>All clear</ToneBadge>
+            }
+          </div>
         }
       />
 

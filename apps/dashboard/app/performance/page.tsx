@@ -6,7 +6,7 @@ import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { PageHeader, Card, CardHead, AreaChart } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import { toneText } from '@/lib/tones'
-import { Gauge, Sparkles } from 'lucide-react'
+import { Gauge, Sparkles, Radio } from 'lucide-react'
 import type { Tone } from '@/lib/data'
 
 type MetricRow = {
@@ -70,12 +70,15 @@ function buildSummaries(rows: MetricRow[]): MetricSummary[] {
 
 export default function PerformancePage() {
   const { app } = useConnectedApp()
+  const [rawRows, setRawRows] = useState<MetricRow[]>([])
   const [metrics, setMetrics] = useState<MetricSummary[]>([])
   const [loading, setLoading] = useState(true)
+  const [live, setLive] = useState(false)
 
   useEffect(() => {
     if (app.id === '__loading__') return
     const sb = createClient()
+
     sb.from('performance_metrics')
       .select('metric_type, value, created_at')
       .eq('project_id', app.id)
@@ -83,9 +86,24 @@ export default function PerformancePage() {
       .limit(200)
       .then(({ data }) => {
         const rows = (data ?? []) as MetricRow[]
+        setRawRows(rows)
         setMetrics(buildSummaries(rows))
         setLoading(false)
       })
+
+    const channel = sb
+      .channel(`perf-live:${app.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'performance_metrics', filter: `project_id=eq.${app.id}` },
+        (payload) => {
+          setRawRows((prev) => {
+            const next = [...prev, payload.new as MetricRow].slice(-200)
+            setMetrics(buildSummaries(next))
+            return next
+          })
+        })
+      .subscribe((status) => setLive(status === 'SUBSCRIBED'))
+
+    return () => { sb.removeChannel(channel) }
   }, [app.id])
 
   if (loading) {
@@ -100,6 +118,13 @@ export default function PerformancePage() {
         icon={<Gauge className="h-5 w-5 text-intel" />}
         title="Performance Monitoring"
         desc="Aggregated metrics from the PAAQ SDK — response times, error rates, CPU, memory and FPS."
+        actions={
+          live ? (
+            <span className="flex items-center gap-1.5 rounded-full border border-healthy/25 bg-healthy/10 px-2.5 py-1 text-[10px] font-semibold text-healthy">
+              <Radio className="h-3 w-3 animate-pulse" /> LIVE
+            </span>
+          ) : undefined
+        }
       />
 
       {metrics.length === 0 ? (
