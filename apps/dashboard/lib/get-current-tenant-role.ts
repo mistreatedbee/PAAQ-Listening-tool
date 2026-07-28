@@ -27,11 +27,22 @@ export async function getCurrentTenantRole(projectId: string): Promise<TenantRol
 
   const { data: membership } = await sb
     .from('tenant_users')
-    .select('role')
+    .select('role, status')
     .eq('tenant_id', project.tenant_id)
     .eq('auth_user_id', user.id)
-    .eq('status', 'active')
+    .neq('status', 'removed')
+    .neq('status', 'suspended')
     .single()
+
+  // Auto-activate users whose auth_user_id is set — they've signed in,
+  // so 'invited' is stale. Do it fire-and-forget, don't block the request.
+  if (membership?.status === 'invited') {
+    sb.from('tenant_users')
+      .update({ status: 'active' })
+      .eq('auth_user_id', user.id)
+      .eq('tenant_id', project.tenant_id)
+      .then(() => {})
+  }
 
   return (membership?.role as TenantRole) ?? null
 }
