@@ -5,7 +5,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import {
   BrainCircuit, Bug, Route, Activity, Eye, Shield,
-  TrendingUp, Bell, Cpu, Code2, Sparkles, Lock,
+  Code2, Sparkles, Lock,
   Users, GitBranch, Sun, Moon, Menu, X as XIcon,
   ChevronDown, ArrowRight,
 } from 'lucide-react'
@@ -30,15 +30,6 @@ const FEATURES = [
   { Icon: Activity,     title: 'Real-time Event Monitoring',  desc: 'Capture every interaction across Flutter, iOS, Android, React, and Node.js. Sub-second ingestion. Instant alerting.',    bg: 'rgba(81,201,211,0.12)', color: '#51C9D3' },
   { Icon: Eye,          title: 'Incident Investigation',      desc: 'Six specialist agents correlate telemetry, deployments, and architecture to explain what happened and what to fix.',       bg: 'rgba(95,222,212,0.12)', color: '#5FDED4' },
   { Icon: Shield,       title: 'Security Intelligence',       desc: 'Detect anomalous patterns, unusual access, and potential threats — correlated with your feature and API context.',        bg: 'rgba(39,166,206,0.12)', color: '#27A6CE' },
-]
-
-const AGENTS = [
-  { Icon: Bug,         name: 'Error Analyst',      desc: 'Root cause analysis for every exception, crash, and warning.' },
-  { Icon: Route,       name: 'Journey Detective',  desc: 'Tracks user flows and detects where experiences break down.' },
-  { Icon: TrendingUp,  name: 'Performance Guard',  desc: 'Monitors latency, load times, and throughput regressions.' },
-  { Icon: Shield,      name: 'Security Sentinel',  desc: 'Detects anomalous access patterns and auth events.' },
-  { Icon: Bell,        name: 'Incident Commander', desc: 'Correlates events across systems to explain incidents.' },
-  { Icon: Cpu,         name: 'Knowledge Builder',  desc: 'Continuously enriches the Knowledge Graph from new data.' },
 ]
 
 const STEPS = [
@@ -76,12 +67,6 @@ const PRICING = [
     name: 'Enterprise', price: 'Custom', period: '', featured: false, cta: 'Talk to sales', href: 'mailto:sales@paaq.ai',
     features: ['Unlimited events', 'Unlimited projects', 'Custom data retention', 'Custom model training', 'Dedicated support & SLA', 'SSO / SAML', 'On-premise option', 'Custom integrations'],
   },
-]
-
-const TESTIMONIALS = [
-  { initials: 'SC', name: 'Sarah Chen',   role: 'CTO, FinFlow',             quote: '"PAAQ found a root cause in 3 minutes that our team had been debugging for 2 days. The context is remarkable."' },
-  { initials: 'MR', name: 'Marcus Reid',  role: 'VP Engineering, Taskify',  quote: '"The Knowledge Graph is unlike anything else. It actually understands our product — not just raw events."' },
-  { initials: 'AN', name: 'Aisha Nkosi',  role: 'Head of Product, Edara',   quote: '"Onboarding took 4 minutes. By end of day we had insights on our mobile app we\'d never seen before."' },
 ]
 
 const FAQ_ITEMS = [
@@ -174,9 +159,6 @@ export default function LandingPage() {
         <div className="hero-glow hero-glow-3" />
         <div className="hero-inner">
           <div className="hero-content">
-            <div className="hero-badge">
-              <span className="live-dot" /> Now in early access
-            </div>
             <h1 className="hero-title">
               Your app is talking.<br />
               <span className="gradient-text">PAAQ is listening.</span>
@@ -195,59 +177,6 @@ export default function LandingPage() {
               <span className="check-icon">✓</span> Free tier includes 25,000 events/month · Setup in under 5 minutes
             </p>
           </div>
-
-          <div className="hero-visual">
-            <div className="hero-mockup">
-              <div className="hero-mockup-chrome">
-                <span className="chrome-dot red" />
-                <span className="chrome-dot yellow" />
-                <span className="chrome-dot green" />
-                <span className="chrome-url">dashboard.paaq.ai</span>
-              </div>
-              <div className="hero-mockup-body">
-                <div className="mockup-sidebar">
-                  {['Dashboard', 'Live Events', 'Errors', 'Insights', 'Journeys', 'Incidents'].map((item, i) => (
-                    <div key={item} className={`mockup-sidebar-item${i === 0 ? ' active' : ''}`}>{item}</div>
-                  ))}
-                </div>
-                <div className="mockup-main">
-                  <div className="mockup-kpi-row">
-                    {[
-                      { label: 'Events today', value: '12,847', color: '#51C9D3' },
-                      { label: 'Active users', value: '1,293',  color: '#5FDED4' },
-                      { label: 'Error rate',   value: '0.12%',  color: '#27A6CE' },
-                      { label: 'Insights',     value: '7 new',  color: '#51C9D3' },
-                    ].map((kpi) => (
-                      <div key={kpi.label} className="mockup-kpi">
-                        <div className="mockup-kpi-label">{kpi.label}</div>
-                        <div className="mockup-kpi-value" style={{ color: kpi.color }}>{kpi.value}</div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mockup-chart-row">
-                    <div className="mockup-panel">
-                      <div className="mockup-panel-label">Event stream</div>
-                      {[
-                        { text: 'user_signup · 2s ago',       err: false },
-                        { text: 'payment_success · 5s ago',   err: false },
-                        { text: 'session_start · 8s ago',     err: false },
-                        { text: 'error.NullPointer · 12s ago',err: true },
-                      ].map((e) => (
-                        <div key={e.text} className="mockup-event">
-                          <span className={`mockup-event-dot ${e.err ? 'red' : 'green'}`} />
-                          <span style={e.err ? { color: '#ef4444' } : undefined}>{e.text}</span>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="mockup-insight-panel">
-                      <div className="mockup-insight-label">⚡ Insight</div>
-                      <div className="mockup-insight-text">NullPointer in checkout flow. Root cause: unhandled null in PaymentService. Fix confidence: 94%</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </section>
 
@@ -261,25 +190,6 @@ export default function LandingPage() {
               {label}
             </div>
           ))}
-        </div>
-      </section>
-
-      {/* ── Stats ────────────────────────────────────────────────────────────── */}
-      <section className="section">
-        <div className="container-sm">
-          <div className="stats-grid">
-            {[
-              { value: '2.4M+',   label: 'Events processed daily' },
-              { value: '180K+',   label: 'Analyses run' },
-              { value: '< 4 min', label: 'Mean time to resolution' },
-              { value: '99.98%',  label: 'Platform uptime' },
-            ].map((s) => (
-              <div key={s.label}>
-                <div className="stat-value">{s.value}</div>
-                <div className="stat-label">{s.label}</div>
-              </div>
-            ))}
-          </div>
         </div>
       </section>
 
@@ -299,28 +209,6 @@ export default function LandingPage() {
                 </div>
                 <div className="feature-card-title">{title}</div>
                 <div className="feature-card-desc">{desc}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── AI Agents ────────────────────────────────────────────────────────── */}
-      <section className="section" style={{ borderTop: '1px solid var(--border-light)', borderBottom: '1px solid var(--border-light)', background: 'var(--bg-alt)' }}>
-        <div className="container">
-          <div className="text-center" style={{ marginBottom: 60 }}>
-            <div className="section-label mx-auto"><span className="dot" /> Intelligence Engine</div>
-            <h2 className="section-title mx-auto">Six specialist agents working for you</h2>
-            <p className="section-subtitle mx-auto">Not a chatbot. Dedicated agents that continuously analyse your product and act proactively.</p>
-          </div>
-          <div className="cards-grid cols-3">
-            {AGENTS.map(({ Icon, name, desc }, i) => (
-              <div key={name} className={`agent-card reveal${i > 0 ? ` reveal-delay-${i}` : ''}`}>
-                <div className="agent-card-icon"><Icon size={16} /></div>
-                <div>
-                  <div className="agent-card-name">{name}</div>
-                  <div className="agent-card-desc">{desc}</div>
-                </div>
               </div>
             ))}
           </div>
@@ -401,31 +289,6 @@ export default function LandingPage() {
                   ))}
                 </ul>
                 <Link href={href} className={`pricing-btn ${featured ? 'primary-btn' : 'outline-btn'}`}>{cta}</Link>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Testimonials ─────────────────────────────────────────────────────── */}
-      <section className="section" style={{ borderTop: '1px solid var(--border-light)', borderBottom: '1px solid var(--border-light)' }}>
-        <div className="container">
-          <div className="text-center" style={{ marginBottom: 60 }}>
-            <div className="section-label mx-auto"><span className="dot" /> Customer stories</div>
-            <h2 className="section-title mx-auto">Loved by engineering teams</h2>
-          </div>
-          <div className="cards-grid cols-3">
-            {TESTIMONIALS.map(({ initials, name, role, quote }, i) => (
-              <div key={name} className={`testimonial-card reveal${i > 0 ? ` reveal-delay-${i * 2}` : ''}`}>
-                <div className="testimonial-stars">★★★★★</div>
-                <p className="testimonial-quote">{quote}</p>
-                <div className="testimonial-author">
-                  <div className="testimonial-avatar">{initials}</div>
-                  <div>
-                    <div className="testimonial-name">{name}</div>
-                    <div className="testimonial-role">{role}</div>
-                  </div>
-                </div>
               </div>
             ))}
           </div>
