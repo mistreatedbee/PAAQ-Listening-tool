@@ -59,9 +59,9 @@ const MS_24HR  = 24  * 60 * 60 * 1000
 const MS_25HR  = 25  * 60 * 60 * 1000
 const MS_7DAY  = 7   * 24 * 60 * 60 * 1000
 
-// All layers use a 25-hour connected window — refreshed by SDK visits (frontend)
-// or by the scheduled database heartbeat (backend/database). This keeps status
-// green 24/7 as long as at least one heartbeat runs per day.
+// All layers use a 25-hour connected window, refreshed only by genuine SDK
+// activity (a real page load, request, or query) reported for that layer.
+// A layer with no real traffic in the last 25h correctly shows as degraded/disconnected.
 function layerStatus(
   lastSeenStr: string | null,
 ): 'connected' | 'degraded' | 'disconnected' {

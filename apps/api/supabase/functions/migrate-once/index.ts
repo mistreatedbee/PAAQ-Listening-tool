@@ -48,31 +48,9 @@ Deno.serve(async () => {
               )
             );
         END IF;
-
-        -- ── 4. pg_cron heartbeat: refresh last_seen every 4 hours ─────────────
-        -- Removes any old schedule first so this is idempotent.
-        PERFORM cron.unschedule('paaq-platform-heartbeat');
-      EXCEPTION WHEN OTHERS THEN NULL; -- cron.unschedule throws if job doesn't exist
+      EXCEPTION WHEN OTHERS THEN NULL;
       END
       $$;
-
-      -- Schedule the heartbeat (outside DO block so we can call cron directly)
-      SELECT cron.schedule(
-        'paaq-platform-heartbeat',
-        '0 */4 * * *',
-        $$
-          UPDATE sdk_installations
-          SET last_seen = NOW()
-          WHERE device_id IN (
-            'vercel-server-safecloudafrica',
-            'vercel-db-safecloudafrica',
-            'seed-react',
-            'seed-nodejs',
-            'seed-postgres',
-            'test-browser-sca'
-          );
-        $$
-      );
     `)
 
     await client.end()
