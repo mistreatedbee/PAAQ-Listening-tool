@@ -38,7 +38,7 @@ export function KpiGrid() {
     function load() {
       const yesterday = new Date(Date.now() - 86_400_000).toISOString()
       Promise.all([
-        sb.from('events').select('user_id').gte('created_at', yesterday).eq('project_id', app.id),
+        sb.from('events').select('user_id').gte('timestamp', yesterday).eq('project_id', app.id),
         sb.from('events').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
         sb.from('errors').select('*', { count: 'exact', head: true }).eq('status', 'open').eq('project_id', app.id),
         sb.from('incidents').select('*', { count: 'exact', head: true }).neq('status', 'resolved').eq('project_id', app.id),

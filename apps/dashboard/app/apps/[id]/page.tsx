@@ -255,12 +255,12 @@ export default function AppManagementPage() {
         .select('id, platform, sdk_version, last_seen, first_seen, status')
         .eq('project_id', id).order('last_seen', { ascending: false }),
       sb.from('events').select('*', { count: 'exact', head: true }).eq('project_id', id),
-      sb.from('events').select('*', { count: 'exact', head: true }).eq('project_id', id).gte('created_at', since24h),
+      sb.from('events').select('*', { count: 'exact', head: true }).eq('project_id', id).gte('timestamp', since24h),
       sb.from('knowledge_nodes').select('*', { count: 'exact', head: true }).eq('project_id', id),
       sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', id).eq('status', 'open'),
       sb.from('sessions').select('*', { count: 'exact', head: true }).eq('project_id', id),
-      sb.from('events').select('user_id', { count: 'exact', head: true }).eq('project_id', id).gte('created_at', since24h).not('user_id', 'is', null),
-      sb.from('events').select('created_at').eq('project_id', id).order('created_at', { ascending: false }).limit(1),
+      sb.from('events').select('user_id', { count: 'exact', head: true }).eq('project_id', id).gte('timestamp', since24h).not('user_id', 'is', null),
+      sb.from('events').select('timestamp').eq('project_id', id).order('timestamp', { ascending: false }).limit(1),
       // Load connected repository providers
       sb.from('project_repositories').select('provider').eq('project_id', id).eq('status', 'active'),
       // Load SDK token for this project
@@ -287,7 +287,7 @@ export default function AppManagementPage() {
       setOpenErrors(errs ?? 0)
       setSessionCount(ses ?? 0)
       setActiveUsers(au ?? 0)
-      setLastEventAt((lastEv ?? [])[0]?.created_at ?? null)
+      setLastEventAt((lastEv ?? [])[0]?.timestamp ?? null)
       if (repos) setConnectedRepos(new Set(repos.map((r: { provider: string }) => r.provider)))
       if (tokens?.[0]) setSdkToken((tokens[0] as { token: string }).token)
       setLoading(false)
