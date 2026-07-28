@@ -2,7 +2,7 @@
  * PAAQ Phase 2 — AI Search / Natural Language Query
  *
  * Accepts a plain-language question from the admin,
- * pulls relevant data from the DB, and answers using Claude.
+ * pulls relevant data from the DB filtered by project_id, and answers using Claude.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import Anthropic from 'npm:@anthropic-ai/sdk'
@@ -23,7 +23,13 @@ Deno.serve(async (req) => {
   const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
   if (!apiKey) return respond({ error: 'ANTHROPIC_API_KEY not set' }, 500)
 
-  // Fetch a broad platform snapshot to give Claude context
+  const project_id: string | null = body?.project_id ?? null
+
+  // Helper: conditionally filter by project_id
+  // deno-lint-ignore no-explicit-any
+  const pf = (q: any) => project_id ? q.eq('project_id', project_id) : q
+
+  // Fetch a platform snapshot scoped to this project
   const [
     { data: insights },
     { data: features },
@@ -35,18 +41,21 @@ Deno.serve(async (req) => {
     { count: sessionCount },
     { count: eventCount },
   ] = await Promise.all([
-    supabase.from('ai_insights').select('category, title, description, priority, affected_users, recommendation').order('created_at', { ascending: false }).limit(10),
-    supabase.from('feature_health').select('feature_name, health_score, trend, error_count, ai_summary').order('health_score', { ascending: true }).limit(10),
-    supabase.from('errors').select('error_type, message, severity, status, screen, created_at').order('created_at', { ascending: false }).limit(20),
-    supabase.from('incidents').select('title, severity, status, ai_summary').neq('status', 'resolved').limit(5),
-    supabase.from('anomaly_events').select('type, severity, detected_pattern, confidence').order('created_at', { ascending: false }).limit(5),
-    supabase.from('performance_metrics').select('metric_type, value').order('created_at', { ascending: false }).limit(20),
-    supabase.from('users').select('*', { count: 'exact', head: true }),
-    supabase.from('sessions').select('*', { count: 'exact', head: true }),
-    supabase.from('events').select('*', { count: 'exact', head: true }),
+    pf(supabase.from('ai_insights').select('category, title, description, priority, affected_users, recommendation').order('created_at', { ascending: false })).limit(10),
+    pf(supabase.from('feature_health').select('feature_name, health_score, trend, error_count, ai_summary').order('health_score', { ascending: true })).limit(10),
+    pf(supabase.from('errors').select('error_type, message, severity, status, screen, created_at').order('created_at', { ascending: false })).limit(20),
+    pf(supabase.from('incidents').select('title, severity, status, ai_summary').neq('status', 'resolved')).limit(5),
+    pf(supabase.from('anomaly_events').select('type, severity, detected_pattern, confidence').order('created_at', { ascending: false })).limit(5),
+    pf(supabase.from('performance_metrics').select('metric_type, value').order('created_at', { ascending: false })).limit(20),
+    pf(supabase.from('users').select('*', { count: 'exact', head: true })),
+    pf(supabase.from('sessions').select('*', { count: 'exact', head: true })),
+    pf(supabase.from('events').select('*', { count: 'exact', head: true })),
   ])
 
+  const hasData = (eventCount ?? 0) > 0 || (errors?.length ?? 0) > 0 || (insights?.length ?? 0) > 0
+
   const platformData = {
+    project_id: project_id ?? 'all',
     summary: {
       users: userCount ?? 0,
       sessions: sessionCount ?? 0,
@@ -69,17 +78,20 @@ Deno.serve(async (req) => {
 
   const anthropic = new Anthropic({ apiKey })
 
+  const systemPrompt = hasData
+    ? `You are the PAAQ AI assistant — a real-time AI analyst embedded in an app monitoring dashboard. You have access to live platform data scoped to this specific application and answer questions concisely and specifically. You always reference actual numbers and names from the data provided. You are direct and useful, not generic. Use **bold** for key findings. Keep answers under 150 words unless the question specifically needs more detail. Never invent metrics — only reference what is in the data.`
+    : `You are the PAAQ AI assistant. No telemetry data has been received from this application yet. The SDK may not be sending events, or this is a new project. Explain this honestly and suggest next steps: verify SDK integration, check that events are being tracked, and run an AI analysis once data arrives. Keep your response concise.`
+
   const message = await anthropic.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 1024,
-    system: `You are the PAAQ AI assistant — a real-time AI analyst embedded in an app monitoring dashboard. You have access to live platform data and answer questions concisely and specifically. You always reference actual numbers from the data. You are direct and useful, not generic. Use **bold** for key findings. Keep answers under 150 words unless the question specifically needs more detail.`,
+    system: systemPrompt,
     messages: [
       {
         role: 'user',
-        content: `Platform data:
-${JSON.stringify(platformData, null, 2)}
-
-Question: ${question}`,
+        content: hasData
+          ? `Platform data:\n${JSON.stringify(platformData, null, 2)}\n\nQuestion: ${question}`
+          : `Question: ${question}`,
       },
     ],
   })

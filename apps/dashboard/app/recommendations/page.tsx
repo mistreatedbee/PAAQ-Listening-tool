@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { PageHeader, Card, ToneBadge, Confidence } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import {
@@ -117,6 +118,7 @@ const FILTERS = ['All', 'pending', 'approved', 'rejected', 'assigned', 'archived
 type Executing = { title: string; option: string; improvement: string } | null
 
 export default function RecommendationsPage() {
+  const { app } = useConnectedApp()
   const [recommendations, setRecommendations] = useState<DbRecommendation[]>([])
   const [filter, setFilter] = useState('All')
   const [loading, setLoading] = useState(true)
@@ -131,11 +133,12 @@ export default function RecommendationsPage() {
     setTimeout(() => setToast(null), 3500)
   }
 
-  const fetchRecommendations = () => {
+  const fetchRecommendations = (projectId: string) => {
     const sb = createClient()
     return sb
       .from('recommendations')
       .select('id, investigation_id, type, title, description, confidence, impact_score, effort, expected_improvement, suggested_owner, priority, status, approved_by, created_at')
+      .eq('project_id', projectId)
       .order('created_at', { ascending: false })
       .then(({ data }) => {
         setRecommendations((data ?? []) as DbRecommendation[])
@@ -143,7 +146,10 @@ export default function RecommendationsPage() {
       })
   }
 
-  useEffect(() => { fetchRecommendations() }, [])
+  useEffect(() => {
+    if (app.id === '__loading__') return
+    fetchRecommendations(app.id)
+  }, [app.id])
 
   const updateStatus = async (id: string, newStatus: string) => {
     const sb = createClient()

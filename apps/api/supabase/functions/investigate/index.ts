@@ -25,6 +25,10 @@ Deno.serve(async (req) => {
   const body = await req.json().catch(() => ({}))
   const { project_id, incident_id } = body
 
+  // Helper: conditionally filter by project_id
+  // deno-lint-ignore no-explicit-any
+  const pf = (q: any) => project_id ? q.eq('project_id', project_id) : q
+
   try {
     const [
       { data: incidents },
@@ -36,14 +40,14 @@ Deno.serve(async (req) => {
       { data: features },
       { data: journeys },
     ] = await Promise.all([
-      supabase.from('incidents').select('id, title, description, severity, status, created_at').neq('status', 'resolved').limit(5),
-      supabase.from('errors').select('error_type, message, severity, status, screen, created_at').order('created_at', { ascending: false }).limit(50),
-      supabase.from('sessions').select('id, status, duration, started_at').order('started_at', { ascending: false }).limit(100),
-      supabase.from('events').select('event_name, screen_name, session_id, timestamp').order('timestamp', { ascending: false }).limit(200),
-      supabase.from('performance_metrics').select('metric_type, value, created_at').order('created_at', { ascending: false }).limit(100),
-      supabase.from('anomaly_events').select('type, severity, detected_pattern, confidence').limit(10),
-      supabase.from('feature_health').select('feature_name, health_score, trend, error_count').order('health_score').limit(10),
-      supabase.from('user_journeys').select('journey_name, completed, drop_off_step').limit(20),
+      pf(supabase.from('incidents').select('id, title, description, severity, status, created_at').neq('status', 'resolved')).limit(5),
+      pf(supabase.from('errors').select('error_type, message, severity, status, screen, created_at').order('created_at', { ascending: false })).limit(50),
+      pf(supabase.from('sessions').select('id, status, duration, started_at').order('started_at', { ascending: false })).limit(100),
+      pf(supabase.from('events').select('event_name, screen_name, session_id, timestamp').order('timestamp', { ascending: false })).limit(200),
+      pf(supabase.from('performance_metrics').select('metric_type, value, created_at').order('created_at', { ascending: false })).limit(100),
+      pf(supabase.from('anomaly_events').select('type, severity, detected_pattern, confidence')).limit(10),
+      pf(supabase.from('feature_health').select('feature_name, health_score, trend, error_count').order('health_score')).limit(10),
+      pf(supabase.from('user_journeys').select('journey_name, completed, drop_off_step')).limit(20),
     ])
 
     const abandoned = sessions?.filter((s) => s.status === 'abandoned').length ?? 0
@@ -52,6 +56,7 @@ Deno.serve(async (req) => {
     const fatalErrors = openErrors.filter((e) => e.severity === 'fatal')
 
     const context = {
+      project_id: project_id ?? 'all',
       incidents: (incidents ?? []).map((i) => ({ title: i.title, severity: i.severity, status: i.status })),
       errors: {
         open: openErrors.length,
@@ -73,6 +78,15 @@ Deno.serve(async (req) => {
         completed: journeys?.filter((j) => j.completed).length ?? 0,
         dropOffPoints: aggregateBy((journeys ?? []).filter((j) => j.drop_off_step), 'drop_off_step').slice(0, 3),
       },
+    }
+
+    // If no meaningful data exists, return early with an honest message
+    const hasData = (events?.length ?? 0) > 0 || (errors?.length ?? 0) > 0 || (sessions?.length ?? 0) > 0
+    if (!hasData) {
+      return respond({
+        ok: false,
+        error: 'No telemetry data received yet. Send events from your connected application using the PAAQ SDK, then trigger an investigation.',
+      }, 422)
     }
 
     const targetIncident = incident_id
@@ -107,37 +121,38 @@ Deno.serve(async (req) => {
           role: 'user',
           content: `You are the PAAQ AI Investigation Orchestrator. Eight specialist agents report to you.
 
-Live platform data:
+Live platform data (filtered to project ${project_id ?? 'all'}):
 ${JSON.stringify(context, null, 2)}
 
-Run a full investigation. Return structured JSON only — no markdown, no explanation.
+Run a full investigation based ONLY on the data above. Every finding must reference actual numbers or names from this data.
+Return structured JSON only — no markdown, no explanation.
 
 {
   "investigation": {
-    "root_cause": "Clear explanation of primary root cause with specific data",
+    "root_cause": "Clear explanation of primary root cause referencing specific data points",
     "timeline": [
-      { "time": "relative time (e.g. 85 min ago)", "event": "what happened", "severity": "critical|high|medium|low" }
+      { "time": "relative time (e.g. 85 min ago)", "event": "what happened with specific data reference", "severity": "critical|high|medium|low" }
     ],
     "affected_services": ["service1"],
     "confidence": 0.87,
-    "business_impact": "Human-readable business impact with numbers",
-    "technical_impact": "Technical explanation with specific components"
+    "business_impact": "Human-readable business impact with actual numbers from the data",
+    "technical_impact": "Technical explanation with specific components and metrics from the data"
   },
   "agent_outputs": {
-    "incident": "Incident agent finding (2-3 sentences with specifics)",
-    "root_cause": "Root cause agent determination (2-3 sentences)",
-    "product": "Product analyst finding about user impact (2-3 sentences)",
-    "ux": "UX friction points identified (2-3 sentences)",
-    "qa": "QA regressions or test gaps detected (2-3 sentences)",
-    "performance": "Performance metrics analysis (2-3 sentences with numbers)",
-    "security": "Security observations or 'No security concerns detected'",
-    "executive": "Plain-language executive summary (2-3 sentences, no jargon)"
+    "incident": "Incident agent finding referencing specific incidents/errors from data (2-3 sentences)",
+    "root_cause": "Root cause determination with specific data evidence (2-3 sentences)",
+    "product": "Product analyst finding about actual user impact numbers (2-3 sentences)",
+    "ux": "UX friction points from actual journey/session data (2-3 sentences)",
+    "qa": "QA regressions from actual error patterns in data (2-3 sentences)",
+    "performance": "Performance analysis with actual metric values from data (2-3 sentences)",
+    "security": "Security observations from actual auth/anomaly data, or 'No security concerns detected in current data'",
+    "executive": "Plain-language summary for leadership using actual numbers (2-3 sentences, no jargon)"
   },
   "recommendations": [
     {
       "type": "fix|rollback|scale|notify|patch|investigate",
-      "title": "Short action title (max 60 chars)",
-      "description": "What to do and why — be specific",
+      "title": "Specific action based on data (max 60 chars)",
+      "description": "What to do and why — reference specific findings from the data",
       "confidence": 0.9,
       "impact_score": 0.8,
       "effort": "low|medium|high",
@@ -155,9 +170,10 @@ Run a full investigation. Return structured JSON only — no markdown, no explan
 }
 
 Rules:
-- Reference actual numbers and names from the data
-- Timeline must have 3-6 entries in chronological order
-- Generate 3-5 targeted, actionable recommendations
+- Reference actual numbers and names from the data provided — never invent metrics
+- If data is sparse, say so honestly in findings
+- Timeline must have 3-6 entries in chronological order based on actual data timestamps
+- Generate 3-5 targeted, actionable recommendations based on actual findings
 - confidence and impact_score must be 0.0-1.0`,
         },
       ],

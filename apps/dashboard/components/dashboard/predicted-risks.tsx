@@ -104,7 +104,7 @@ export function PredictedRisks() {
     Promise.all([
       sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', app.id).eq('status', 'open'),
       sb.from('incidents').select('*', { count: 'exact', head: true }).eq('project_id', app.id).neq('status', 'resolved'),
-      sb.from('performance_metrics').select('value').eq('metric_type', 'response_time').order('created_at', { ascending: false }).limit(20),
+      sb.from('performance_metrics').select('value').eq('project_id', app.id).eq('metric_type', 'response_time').order('created_at', { ascending: false }).limit(20),
       sb.from('sessions').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
     ]).then(([errors, incidents, perf, sessions]) => {
       const er  = errors.count    ?? 0

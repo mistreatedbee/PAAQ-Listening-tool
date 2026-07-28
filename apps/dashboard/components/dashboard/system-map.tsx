@@ -44,7 +44,7 @@ export function SystemMap() {
       sb.from('errors').select('*', { count: 'exact', head: true }).eq('status', 'open').eq('project_id', app.id),
       sb.from('incidents').select('*', { count: 'exact', head: true }).neq('status', 'resolved').eq('project_id', app.id),
       sb.from('knowledge_nodes').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
-      sb.from('performance_metrics').select('value').eq('metric_type', 'response_time').order('created_at', { ascending: false }).limit(20),
+      sb.from('performance_metrics').select('value').eq('project_id', app.id).eq('metric_type', 'response_time').order('created_at', { ascending: false }).limit(20),
     ]).then(([events, sessions, errors, incidents, knowledge, perf]) => {
       const ev  = events.count ?? 0
       const ses = sessions.count ?? 0

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { PageHeader, Card, ToneBadge } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import { BrainCircuit, Search, Clock, Tag } from 'lucide-react'
@@ -40,22 +41,25 @@ function timeAgo(iso: string) {
 const TYPE_FILTERS = ['All', 'incident', 'fix', 'decision', 'insight', 'outcome', 'report']
 
 export default function ProductMemoryPage() {
+  const { app } = useConnectedApp()
   const [memories, setMemories] = useState<DbMemory[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('All')
 
   useEffect(() => {
+    if (app.id === '__loading__') return
     const sb = createClient()
     sb.from('product_memory')
       .select('id, type, title, summary, tags, created_at')
+      .eq('project_id', app.id)
       .order('created_at', { ascending: false })
       .limit(100)
       .then(({ data }) => {
         setMemories((data ?? []) as DbMemory[])
         setLoading(false)
       })
-  }, [])
+  }, [app.id])
 
   const filtered = memories.filter((m) => {
     const matchesType = typeFilter === 'All' || m.type === typeFilter

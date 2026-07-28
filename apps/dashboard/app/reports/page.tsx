@@ -93,8 +93,8 @@ export default function ReportsPage() {
       sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', projectId).eq('status', 'open'),
       sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', projectId).in('severity', ['fatal', 'error']).eq('status', 'open'),
       sb.from('incidents').select('*', { count: 'exact', head: true }).eq('project_id', projectId).neq('status', 'resolved'),
-      sb.from('feature_health').select('feature_name, health_score, trend').order('health_score').limit(10),
-      sb.from('performance_metrics').select('metric_type, value').limit(500),
+      sb.from('feature_health').select('feature_name, health_score, trend').eq('project_id', projectId).order('health_score').limit(10),
+      sb.from('performance_metrics').select('metric_type, value').eq('project_id', projectId).limit(500),
     ])
 
     // Aggregate perf averages

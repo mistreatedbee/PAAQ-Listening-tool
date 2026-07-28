@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { PageHeader, Card, ToneBadge } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import { toneText } from '@/lib/tones'
@@ -97,20 +98,23 @@ function timeAgo(iso: string) {
 }
 
 export default function AgentCenterPage() {
+  const { app } = useConnectedApp()
   const [tasks, setTasks] = useState<AgentTask[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (app.id === '__loading__') return
     const sb = createClient()
     sb.from('agent_tasks')
       .select('agent_name, status, duration_ms, created_at, completed_at')
+      .eq('project_id', app.id)
       .order('created_at', { ascending: false })
       .limit(200)
       .then(({ data }) => {
         setTasks((data ?? []) as AgentTask[])
         setLoading(false)
       })
-  }, [])
+  }, [app.id])
 
   // Latest task per agent
   const latestByAgent: Record<string, AgentTask> = {}

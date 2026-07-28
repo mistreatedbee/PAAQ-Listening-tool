@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/utils/supabase/client'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { Users } from 'lucide-react'
 import { PageHeader, Card, CardHead, ToneBadge } from '@/components/kit'
 import type { Tone } from '@/lib/data'
@@ -11,25 +12,27 @@ type DbUser = { id: string; external_user_id: string; email: string | null; crea
 type DbSession = { id: string; user_id: string; status: string; duration: number | null; started_at: string }
 
 export default function UsersPage() {
+  const { app } = useConnectedApp()
   const [users, setUsers] = useState<DbUser[]>([])
   const [sessions, setSessions] = useState<DbSession[]>([])
   const [counts, setCounts] = useState({ users: 0, active: 0 })
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (app.id === '__loading__') return
     const sb = createClient()
     Promise.all([
-      sb.from('users').select('id, external_user_id, email, created_at').order('created_at', { ascending: false }).limit(50),
-      sb.from('users').select('*', { count: 'exact', head: true }),
-      sb.from('sessions').select('id, user_id, status, duration, started_at').order('started_at', { ascending: false }).limit(50),
-      sb.from('sessions').select('*', { count: 'exact', head: true }).eq('status', 'active'),
+      sb.from('users').select('id, external_user_id, email, created_at').eq('project_id', app.id).order('created_at', { ascending: false }).limit(50),
+      sb.from('users').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
+      sb.from('sessions').select('id, user_id, status, duration, started_at').eq('project_id', app.id).order('started_at', { ascending: false }).limit(50),
+      sb.from('sessions').select('*', { count: 'exact', head: true }).eq('project_id', app.id).eq('status', 'active'),
     ]).then(([{ data: u }, { count: uc }, { data: s }, { count: ac }]) => {
       setUsers((u ?? []) as DbUser[])
       setSessions((s ?? []) as DbSession[])
       setCounts({ users: uc ?? 0, active: ac ?? 0 })
       setLoading(false)
     })
-  }, [])
+  }, [app.id])
 
   const withDuration = sessions.filter((s) => s.duration)
   const avgDuration = withDuration.length

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { PageHeader, Card, CardHead, AreaChart } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import { toneText } from '@/lib/tones'
@@ -68,13 +69,16 @@ function buildSummaries(rows: MetricRow[]): MetricSummary[] {
 }
 
 export default function PerformancePage() {
+  const { app } = useConnectedApp()
   const [metrics, setMetrics] = useState<MetricSummary[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (app.id === '__loading__') return
     const sb = createClient()
     sb.from('performance_metrics')
       .select('metric_type, value, created_at')
+      .eq('project_id', app.id)
       .order('created_at', { ascending: true })
       .limit(200)
       .then(({ data }) => {
@@ -82,7 +86,7 @@ export default function PerformancePage() {
         setMetrics(buildSummaries(rows))
         setLoading(false)
       })
-  }, [])
+  }, [app.id])
 
   if (loading) {
     return (

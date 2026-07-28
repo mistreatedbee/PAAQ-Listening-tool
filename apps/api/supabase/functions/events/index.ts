@@ -67,12 +67,12 @@ Deno.serve(async (req) => {
 
   const rows = eventsRaw.map((e: Record<string, unknown>) => ({
     project_id:     project.id,
-    user_id:        e.user_id ?? null,
-    session_id:     e.session_id ?? null,
+    user_id:        null,
+    session_id:     null,
     event_name:     e.event_name ?? e.name,
     event_category: e.event_category ?? e.category ?? null,
     screen_name:    e.screen_name ?? e.screen ?? null,
-    properties:     e.properties ?? {},
+    properties:     { ...(e.properties as object ?? {}), _session: e.session_id ?? null },
     timestamp:      e.timestamp ?? new Date().toISOString(),
   }))
 
