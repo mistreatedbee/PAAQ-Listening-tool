@@ -106,18 +106,19 @@ export function PredictedRisks() {
       sb.from('incidents').select('*', { count: 'exact', head: true }).eq('project_id', app.id).neq('status', 'resolved'),
       sb.from('performance_metrics').select('value').eq('project_id', app.id).eq('metric_type', 'response_time').order('created_at', { ascending: false }).limit(20),
       sb.from('sessions').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
-    ]).then(([errors, incidents, perf, sessions]) => {
+      sb.from('sessions').select('*', { count: 'exact', head: true }).eq('project_id', app.id).eq('status', 'abandoned'),
+    ]).then(([errors, incidents, perf, sessions, abandoned]) => {
       const er  = errors.count    ?? 0
       const inc = incidents.count ?? 0
       const ses = sessions.count  ?? 0
+      const abn = abandoned.count ?? 0
 
       const perfVals = (perf.data ?? []).map((r) => r.value as number)
       const avgRt = perfVals.length > 0
         ? Math.round(perfVals.reduce((a, b) => a + b, 0) / perfVals.length)
         : 0
 
-      // Derive abandon pct from sessions vs estimated completions
-      const abandonPct = ses > 0 ? Math.round(((ses * 0.15)) / ses * 100) : 0
+      const abandonPct = ses > 0 ? Math.round((abn / ses) * 100) : 0
 
       setRisks(buildPredictions(er, inc, avgRt, abandonPct))
       setLoading(false)

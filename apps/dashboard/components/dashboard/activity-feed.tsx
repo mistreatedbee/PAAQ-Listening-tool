@@ -107,7 +107,7 @@ export function ActivityFeed() {
             <Radio className="h-8 w-8 opacity-20" />
             <p className="text-sm text-center px-4">
               {items.length === 0
-                ? 'No events yet. Send events from your Flutter app.'
+                ? 'No events yet. Send events from your app using the PAAQ SDK.'
                 : 'No events in this category.'}
             </p>
           </div>
