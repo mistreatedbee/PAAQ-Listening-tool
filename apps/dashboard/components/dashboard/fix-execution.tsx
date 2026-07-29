@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import {
@@ -23,14 +23,14 @@ type Phase =
 
 const PIPELINE: Phase[] = ['pulling', 'analyzing', 'writing', 'opening_pr', 'merging', 'deployed']
 
-type StepDef = { id: Phase; label: string; emoji: string; color: string }
+type StepDef = { id: Phase; label: string; icon: React.ElementType; color: string }
 const STEPS: StepDef[] = [
-  { id: 'pulling',    label: 'Reading source',  emoji: '🔍', color: 'text-intel' },
-  { id: 'analyzing',  label: 'Analyzing code',   emoji: '🧠', color: 'text-ai' },
-  { id: 'writing',    label: 'Writing fix',      emoji: '✏️',  color: 'text-warning' },
-  { id: 'opening_pr', label: 'Creating PR',      emoji: '📦', color: 'text-intel' },
-  { id: 'merging',    label: 'Merging to main',  emoji: '🚀', color: 'text-healthy' },
-  { id: 'deployed',   label: 'Deployed',         emoji: '✅', color: 'text-healthy' },
+  { id: 'pulling',    label: 'Reading source',  icon: Search,        color: 'text-intel' },
+  { id: 'analyzing',  label: 'Analyzing code',   icon: Sparkles,      color: 'text-ai' },
+  { id: 'writing',    label: 'Writing fix',      icon: Wrench,        color: 'text-warning' },
+  { id: 'opening_pr', label: 'Creating PR',      icon: GitPullRequest, color: 'text-intel' },
+  { id: 'merging',    label: 'Merging to main',  icon: GitMerge,      color: 'text-healthy' },
+  { id: 'deployed',   label: 'Deployed',         icon: CheckCircle2,  color: 'text-healthy' },
 ]
 
 const PHASE_MESSAGES: Record<Phase, string[]> = {
@@ -226,7 +226,7 @@ export function FixExecution({
                         active && 'text-foreground',
                         ahead  && 'text-muted-foreground',
                       )}>
-                        {s.emoji} {s.label}
+                        <s.icon className={cn('mr-1.5 inline h-3.5 w-3.5', s.color)} />{s.label}
                       </p>
                       {active && (
                         <p className="mt-1 text-xs text-muted-foreground animate-pulse">
@@ -253,8 +253,8 @@ export function FixExecution({
             <div className="space-y-4">
               {/* Hero */}
               <div className="rounded-xl bg-gradient-to-br from-healthy/10 to-ai/5 border border-healthy/25 px-5 py-4 flex items-center gap-4">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-healthy/20 text-2xl">
-                  🚀
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-healthy/20">
+                  <Rocket className="h-6 w-6 text-healthy" />
                 </div>
                 <div>
                   <p className="text-base font-bold text-healthy">Deployed to main</p>

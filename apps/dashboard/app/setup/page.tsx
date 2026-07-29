@@ -20,11 +20,11 @@ type Step = 1 | 2 | 3 | 4 | 5
 
 // ── Step 1: App types ─────────────────────────────────────────────────
 const APP_TYPES = [
-  { id: 'website',        emoji: '🌐', label: 'Website',              desc: 'React, Next.js, Vue, WordPress, Webflow',  icon: Globe,      accent: 'text-intel border-intel/30 bg-intel/8 hover:bg-intel/12',   activeAccent: 'border-intel bg-intel/10 ring-intel/20' },
-  { id: 'mobile',         emoji: '📱', label: 'Mobile App',           desc: 'React Native, Flutter, iOS, Android',       icon: Smartphone, accent: 'text-ai border-ai/30 bg-ai/8 hover:bg-ai/12',             activeAccent: 'border-ai bg-ai/10 ring-ai/20' },
-  { id: 'backend',        emoji: '🖥',  label: 'Backend / Server',     desc: 'Node.js, Python, Go, Java, PHP, .NET',      icon: Server,     accent: 'text-healthy border-healthy/30 bg-healthy/8 hover:bg-healthy/12', activeAccent: 'border-healthy bg-healthy/10 ring-healthy/20' },
-  { id: 'api',            emoji: '🔗', label: 'API',                  desc: 'REST, GraphQL, gRPC, WebSocket',            icon: Network,    accent: 'text-warning border-warning/30 bg-warning/8 hover:bg-warning/12', activeAccent: 'border-warning bg-warning/10 ring-warning/20' },
-  { id: 'infrastructure', emoji: '☁',  label: 'Cloud Infrastructure', desc: 'AWS, Azure, GCP, Docker, Kubernetes',       icon: Cloud,      accent: 'text-critical border-critical/30 bg-critical/8 hover:bg-critical/12', activeAccent: 'border-critical bg-critical/10 ring-critical/20' },
+  { id: 'website',        label: 'Website',              desc: 'React, Next.js, Vue, WordPress, Webflow',  icon: Globe,      accent: 'text-intel border-intel/30 bg-intel/8 hover:bg-intel/12',   activeAccent: 'border-intel bg-intel/10 ring-intel/20' },
+  { id: 'mobile',         label: 'Mobile App',           desc: 'React Native, Flutter, iOS, Android',       icon: Smartphone, accent: 'text-ai border-ai/30 bg-ai/8 hover:bg-ai/12',             activeAccent: 'border-ai bg-ai/10 ring-ai/20' },
+  { id: 'backend',        label: 'Backend / Server',     desc: 'Node.js, Python, Go, Java, PHP, .NET',      icon: Server,     accent: 'text-healthy border-healthy/30 bg-healthy/8 hover:bg-healthy/12', activeAccent: 'border-healthy bg-healthy/10 ring-healthy/20' },
+  { id: 'api',            label: 'API',                  desc: 'REST, GraphQL, gRPC, WebSocket',            icon: Network,    accent: 'text-warning border-warning/30 bg-warning/8 hover:bg-warning/12', activeAccent: 'border-warning bg-warning/10 ring-warning/20' },
+  { id: 'infrastructure', label: 'Cloud Infrastructure', desc: 'AWS, Azure, GCP, Docker, Kubernetes',       icon: Cloud,      accent: 'text-critical border-critical/30 bg-critical/8 hover:bg-critical/12', activeAccent: 'border-critical bg-critical/10 ring-critical/20' },
 ] as const
 
 type AppTypeId = typeof APP_TYPES[number]['id']
@@ -472,8 +472,8 @@ export default function SetupPage() {
                                 : `border-border/60 bg-card hover:bg-accent/30`,
                             )}
                           >
-                            <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border text-lg', t.accent)}>
-                              {t.emoji}
+                            <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border', t.accent)}>
+                              <Icon className="h-4 w-4" />
                             </div>
                             <div>
                               <p className="text-sm font-semibold text-foreground">{t.label}</p>
