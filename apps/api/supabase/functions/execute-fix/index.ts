@@ -158,7 +158,7 @@ const STOP_WORDS = new Set([
 
 /**
  * Scores repo files against keywords extracted from the recommendation title/description.
- * Returns up to 5 best-matching source files.
+ * Returns up to 8 best-matching source files for the AI to choose from.
  */
 async function findFilesByKeywords(token: string, repo: RepoRef, title: string, description: string | null): Promise<string[]> {
   const text = `${title} ${description ?? ''}`.toLowerCase().replace(/[^a-z0-9\s]/g, ' ')
@@ -171,13 +171,56 @@ async function findFilesByKeywords(token: string, repo: RepoRef, title: string, 
   type Scored = { path: string; score: number }
   const scored: Scored[] = sourceFiles.map((f) => {
     const p = f.path.toLowerCase()
-    // Count distinct keyword hits; weight deeper matches lower so root files don't dominate
     const score = words.filter((w) => p.includes(w)).length
     return { path: f.path, score }
   }).filter((f) => f.score > 0)
 
   scored.sort((a, b) => b.score - a.score)
-  return scored.slice(0, 5).map((f) => f.path)
+  return scored.slice(0, 8).map((f) => f.path)
+}
+
+/**
+ * Uses Claude to pick the single most relevant file from a list of candidates.
+ * Falls back to the first candidate if anything goes wrong.
+ */
+async function aiPickBestFile(
+  apiKey: string,
+  candidates: string[],
+  rec: RecRow,
+): Promise<string> {
+  if (candidates.length === 1) return candidates[0]
+
+  const context = [
+    `Recommendation: ${rec.title}`,
+    rec.description ? `Description: ${rec.description}` : '',
+    rec.root_cause ? `Root cause: ${rec.root_cause}` : '',
+    rec.affected_files?.length
+      ? `Known affected files: ${rec.affected_files.map((f) => `${f.path}${f.function ? ` (${f.function})` : ''}`).join(', ')}`
+      : '',
+  ].filter(Boolean).join('\n')
+
+  try {
+    const anthropic = new Anthropic({ apiKey })
+    const msg = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 120,
+      messages: [{
+        role: 'user',
+        content: `You are selecting which source file a code fix should be applied to.
+
+${context}
+
+Candidate files:
+${candidates.map((c, i) => `${i + 1}. ${c}`).join('\n')}
+
+Reply with ONLY the exact file path of the best match — nothing else, no explanation.`,
+      }],
+    })
+    const picked = msg.content[0]?.type === 'text' ? msg.content[0].text.trim() : ''
+    return candidates.find((c) => c === picked) ?? candidates[0]
+  } catch {
+    return candidates[0]
+  }
 }
 
 async function handleGenerate(rec: RecRow, explicitPath?: string) {
@@ -185,52 +228,40 @@ async function handleGenerate(rec: RecRow, explicitPath?: string) {
   if (!repoResult.ok) return respond({ ok: false, error: repoResult.error })
   const { provider, repo, token } = repoResult
 
+  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
+  if (!apiKey) return respond({ ok: false, error: 'ANTHROPIC_API_KEY not set' }, 500)
+
   let filePath = explicitPath
 
-  // Use pre-identified files from the AI investigation first — no guessing needed.
+  // Use pre-identified files from the AI investigation first.
   if (!filePath && rec.affected_files && rec.affected_files.length > 0) {
-    if (rec.affected_files.length === 1) {
-      filePath = rec.affected_files[0].path
-    } else {
-      return respond({
-        ok: false,
-        needsFileSelection: true,
-        candidates: rec.affected_files.map((f) => f.path),
-        error: `This recommendation affects ${rec.affected_files.length} files — pick one to generate a fix for.`,
-      })
-    }
+    filePath = await aiPickBestFile(apiKey, rec.affected_files.map((f) => f.path), rec)
   }
 
   if (!filePath) {
+    if (provider !== 'github') {
+      return respond({ ok: false, needsFileSelection: true, candidates: [], error: 'Specify the full repo-relative path for this file.' })
+    }
+
     const text = `${rec.title} ${rec.description ?? ''}`
     const basename = guessFilename(text)
     const routePath = guessRoutePath(text)
 
-    if (provider !== 'github') {
-      return respond({ ok: false, needsFileSelection: true, candidates: basename ? [basename] : [], error: 'Specify the full repo-relative path for this file.' })
-    }
-
     let candidates: string[] = []
     if (basename) candidates = await findFileInGithub(token, repo, basename, repo.defaultBranch)
     if (candidates.length === 0 && routePath) candidates = await findFileForRoute(token, repo, routePath, repo.defaultBranch)
-    // Keyword fallback — for abstract recommendations with no filename or route in the text
     if (candidates.length === 0) candidates = await findFilesByKeywords(token, repo, rec.title, rec.description)
 
     if (candidates.length === 0) {
-      return respond({ ok: false, needsFileSelection: true, candidates: [], error: 'Could not identify a matching file — type the repo-relative path below.' })
+      return respond({ ok: false, needsFileSelection: true, candidates: [], error: 'Could not find a matching file in the repo — type the path below.' })
     }
-    if (candidates.length === 1) {
-      filePath = candidates[0]
-    } else {
-      return respond({ ok: false, needsFileSelection: true, candidates, error: 'Select the file to apply this fix to:' })
-    }
+
+    // Auto-pick the best candidate; only surface the picker as a last resort.
+    filePath = await aiPickBestFile(apiKey, candidates, rec)
   }
 
   const fileResult = await (await loadGitAdapter(provider)).getFileContent(token, repo, filePath, repo.defaultBranch)
   if (!fileResult.ok) return respond({ ok: false, error: fileResult.error })
-
-  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
-  if (!apiKey) return respond({ ok: false, error: 'ANTHROPIC_API_KEY not set' }, 500)
 
   const patchPlanText = rec.patch_plan?.length
     ? `\nPatch plan from investigation:\n${rec.patch_plan.map((s, i) => `  ${i + 1}. ${s}`).join('\n')}`
