@@ -6,6 +6,7 @@ import { useConnectedApp } from '@/components/shell/connected-app-context'
 import {
   Rocket, GitCommit, Tag, Radio, Sparkles, GitPullRequest,
   FileCode2, ExternalLink, GitMerge, Globe, Copy, Check,
+  ChevronDown, ChevronUp, AlertTriangle, Loader2,
 } from 'lucide-react'
 import { PageHeader, Card, ToneBadge } from '@/components/kit'
 import { cn } from '@/lib/utils'
@@ -30,6 +31,8 @@ type DbDeployment = {
   ai_confidence: number | null
   changed_files: { path: string }[] | null
   source: string | null
+  build_log: string | null
+  ai_diagnosis: string | null
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -151,36 +154,103 @@ function AiFixCard({ d }: { d: DbDeployment }) {
   )
 }
 
-function ManualDeployRow({ d }: { d: DbDeployment }) {
+function BuildLogPanel({ d }: { d: DbDeployment }) {
+  const [diagnosing, setDiagnosing] = useState(false)
+  const [diagnosis, setDiagnosis] = useState<string | null>(d.ai_diagnosis)
+  const sb = createClient()
+
+  async function diagnose() {
+    setDiagnosing(true)
+    const { data } = await sb.functions.invoke('diagnose-deployment', { body: { deployment_id: d.id } })
+    setDiagnosis(data?.diagnosis ?? null)
+    setDiagnosing(false)
+  }
+
   return (
-    <div className="flex items-center justify-between gap-3 px-5 py-3.5">
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-semibold text-foreground">{d.version}</span>
-          <ToneBadge tone={statusTone(d.status)}>{d.status}</ToneBadge>
-          <span className="rounded-md border border-border/50 bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-            {d.environment}
-          </span>
-          <SourceBadge source={d.source} />
+    <div className="border-t border-border/50 bg-background/20 px-5 py-4 space-y-3">
+      {/* AI diagnosis */}
+      {diagnosis ? (
+        <div className="rounded-lg border border-ai/20 bg-ai/5 p-3 space-y-1.5">
+          <div className="flex items-center gap-1.5 text-[10px] font-semibold text-ai uppercase tracking-wider">
+            <Sparkles className="h-3 w-3" /> AI Diagnosis
+          </div>
+          <div className="text-xs text-foreground leading-relaxed whitespace-pre-wrap">{diagnosis}</div>
         </div>
-        <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-          <span>{fmt(d.deployed_at)}</span>
-          {d.deployed_by && <span>by {d.deployed_by}</span>}
-          {d.git_commit && (
-            <span className="flex items-center gap-1 font-mono">
-              <GitCommit className="h-3 w-3" /> {d.git_commit.slice(0, 7)}
+      ) : (
+        <button
+          onClick={diagnose}
+          disabled={diagnosing}
+          className="flex items-center gap-1.5 rounded-lg border border-ai/30 bg-ai/8 px-3 py-1.5 text-xs font-medium text-ai hover:bg-ai/15 transition-colors disabled:opacity-60"
+        >
+          {diagnosing
+            ? <><Loader2 className="h-3 w-3 animate-spin" /> Diagnosing…</>
+            : <><Sparkles className="h-3 w-3" /> AI Diagnose</>
+          }
+        </button>
+      )}
+
+      {/* Raw log */}
+      {d.build_log && (
+        <details className="group">
+          <summary className="cursor-pointer list-none text-[10px] font-medium text-muted-foreground hover:text-foreground flex items-center gap-1">
+            <ChevronDown className="h-3 w-3 group-open:hidden" />
+            <ChevronUp className="h-3 w-3 hidden group-open:block" />
+            Show build log
+          </summary>
+          <pre className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-border/50 bg-black/60 p-3 font-mono text-[10px] leading-relaxed text-green-400/80 scrollbar-thin">
+            {d.build_log}
+          </pre>
+        </details>
+      )}
+    </div>
+  )
+}
+
+function ManualDeployRow({ d }: { d: DbDeployment }) {
+  const [expanded, setExpanded] = useState(false)
+  const failed = d.status === 'failed' || d.status === 'rolled-back'
+
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-3 px-5 py-3.5">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-semibold text-foreground">{d.version}</span>
+            <ToneBadge tone={statusTone(d.status)}>{d.status}</ToneBadge>
+            <span className="rounded-md border border-border/50 bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+              {d.environment}
             </span>
-          )}
-          {d.git_tag && (
-            <span className="flex items-center gap-1">
-              <Tag className="h-3 w-3" /> {d.git_tag}
-            </span>
-          )}
-          {d.changed_features && d.changed_features.length > 0 && (
-            <span>{d.changed_features.length} feature{d.changed_features.length === 1 ? '' : 's'} changed</span>
-          )}
+            <SourceBadge source={d.source} />
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+            <span>{fmt(d.deployed_at)}</span>
+            {d.deployed_by && <span>by {d.deployed_by}</span>}
+            {d.git_commit && (
+              <span className="flex items-center gap-1 font-mono">
+                <GitCommit className="h-3 w-3" /> {d.git_commit.slice(0, 7)}
+              </span>
+            )}
+            {d.git_tag && (
+              <span className="flex items-center gap-1">
+                <Tag className="h-3 w-3" /> {d.git_tag}
+              </span>
+            )}
+            {d.changed_features && d.changed_features.length > 0 && (
+              <span>{d.changed_features.length} feature{d.changed_features.length === 1 ? '' : 's'} changed</span>
+            )}
+          </div>
         </div>
+        {failed && (
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="flex shrink-0 items-center gap-1 rounded-lg border border-critical/30 bg-critical/8 px-2.5 py-1 text-[10px] font-medium text-critical hover:bg-critical/15 transition-colors"
+          >
+            <AlertTriangle className="h-3 w-3" />
+            {expanded ? 'Hide' : 'Diagnose'}
+          </button>
+        )}
       </div>
+      {failed && expanded && <BuildLogPanel d={d} />}
     </div>
   )
 }
@@ -197,7 +267,7 @@ export default function DeploymentsPage() {
     const sb = createClient()
 
     sb.from('deployment_registry')
-      .select('id, version, environment, deployed_at, deployed_by, release_notes, status, git_commit, git_tag, changed_features, ai_fix, recommendation_id, pr_url, pr_number, ai_summary, ai_confidence, changed_files, source')
+      .select('id, version, environment, deployed_at, deployed_by, release_notes, status, git_commit, git_tag, changed_features, ai_fix, recommendation_id, pr_url, pr_number, ai_summary, ai_confidence, changed_files, source, build_log, ai_diagnosis')
       .eq('project_id', app.id)
       .order('deployed_at', { ascending: false })
       .limit(50)

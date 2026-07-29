@@ -30,6 +30,7 @@ type DeployRow = {
   release_notes: string | null
   changed_features: string[] | null
   source: string
+  build_log: string | null
 }
 
 // ── Source parsers ──────────────────────────────────────────────────────────
@@ -52,6 +53,7 @@ function parseVercel(body: Record<string, unknown>): Partial<DeployRow> {
     status,
     git_commit: meta.githubCommitSha?.slice(0, 7) ?? null,
     release_notes: meta.githubCommitMessage ?? null,
+    build_log: null,
     source: 'vercel',
   }
 }
@@ -75,6 +77,7 @@ function parseGitHubActions(body: Record<string, unknown>, event: string): Parti
     status,
     git_commit: dep.sha?.toString().slice(0, 7) ?? workflow.head_sha?.toString().slice(0, 7) ?? null,
     release_notes: dep.description?.toString() ?? workflow.name?.toString() ?? null,
+    build_log: body.build_log?.toString() ?? null,
     source: 'github-actions',
   }
 }
@@ -95,6 +98,7 @@ function parseNetlify(body: Record<string, unknown>): Partial<DeployRow> {
     git_commit: body.commit_ref?.toString().slice(0, 7) ?? null,
     git_tag: null,
     release_notes: body.title?.toString() ?? null,
+    build_log: null,
     source: 'netlify',
   }
 }
@@ -108,6 +112,7 @@ function parseDocker(body: Record<string, unknown>): Partial<DeployRow> {
     status: 'success',
     git_commit: null,
     release_notes: `Docker image pushed: ${body.repository?.repo_name ?? body.name ?? 'image'}`,
+    build_log: null,
     source: 'docker',
   }
 }
@@ -125,6 +130,7 @@ function parseGeneric(body: Record<string, unknown>): Partial<DeployRow> {
     git_commit: body.commit?.toString().slice(0, 7) ?? body.sha?.toString().slice(0, 7) ?? null,
     git_tag: body.tag?.toString() ?? null,
     release_notes: body.message?.toString() ?? body.description?.toString() ?? null,
+    build_log: body.build_log?.toString() ?? null,
     source: String(body.source ?? 'generic'),
   }
 }
@@ -157,10 +163,10 @@ Deno.serve(async (req) => {
   const body = await req.json().catch(() => ({})) as Record<string, unknown>
 
   // Detect source from headers
-  const vercelSig  = req.headers.get('x-vercel-signature')
+  const vercelSig   = req.headers.get('x-vercel-signature')
   const githubEvent = req.headers.get('x-github-event')
-  const netlifyHdr = req.headers.get('x-netlify-signature') ?? req.headers.get('x-netlify-event')
-  const dockerHdr  = req.headers.get('x-docker-event')
+  const netlifyHdr  = req.headers.get('x-netlify-signature') ?? req.headers.get('x-netlify-event')
+  const dockerHdr   = req.headers.get('x-docker-event')
 
   let parsed: Partial<DeployRow>
 
@@ -181,6 +187,10 @@ Deno.serve(async (req) => {
     return respond({ ok: true, skipped: true, reason: 'pending event — not recorded' })
   }
 
+  // Truncate build_log to 50k chars to avoid row bloat
+  const rawLog = parsed.build_log ?? null
+  const build_log = rawLog ? rawLog.slice(-50_000) : null
+
   const row: DeployRow = {
     tenant_id:    proj.tenant_id,
     project_id:   proj.id,
@@ -193,13 +203,25 @@ Deno.serve(async (req) => {
     git_tag:      parsed.git_tag      ?? null,
     release_notes: parsed.release_notes ?? null,
     changed_features: parsed.changed_features ?? null,
-    source:       (parsed as { source?: string }).source ?? 'webhook',
+    source:       parsed.source ?? 'webhook',
+    build_log,
   }
 
-  const { error } = await supabase.from('deployment_registry').insert(row)
+  const { data: inserted, error } = await supabase
+    .from('deployment_registry')
+    .insert(row)
+    .select('id')
+    .single()
   if (error) return respond({ ok: false, error: error.message }, 500)
 
-  return respond({ ok: true, deployment: { version: row.version, environment: row.environment, status: row.status } })
+  // Auto-trigger AI diagnosis for failed deployments that have a build log
+  if (row.status === 'failed' && build_log && inserted?.id) {
+    supabase.functions.invoke('diagnose-deployment', {
+      body: { deployment_id: inserted.id },
+    }).catch(() => { /* fire-and-forget */ })
+  }
+
+  return respond({ ok: true, deployment: { id: inserted?.id, version: row.version, environment: row.environment, status: row.status } })
 })
 
 function cors() {
