@@ -142,28 +142,36 @@ export function FixExecution({
 
           {needsFileSelection && (
             <div className="space-y-3">
-              <p className="flex items-start gap-2 text-sm text-warning">
-                <ShieldAlert className="h-4 w-4 shrink-0 mt-0.5" /> {error}
+              <p className="flex items-start gap-2 text-sm font-medium text-foreground">
+                <ShieldAlert className="h-4 w-4 shrink-0 mt-0.5 text-warning" /> {error}
               </p>
               {needsFileSelection.length > 0 && (
-                <div className="space-y-1.5">
-                  {needsFileSelection.map((c) => (
-                    <button
-                      key={c}
-                      onClick={() => runGenerate(c)}
-                      className="block w-full rounded-lg border border-border/60 bg-background/40 px-3 py-2 text-left font-mono text-xs text-foreground hover:bg-accent"
-                    >
-                      {c}
-                    </button>
-                  ))}
-                </div>
+                <>
+                  <p className="text-xs text-muted-foreground">Best matches from your repo — click one to generate the fix:</p>
+                  <div className="space-y-1.5">
+                    {needsFileSelection.map((c) => (
+                      <button
+                        key={c}
+                        onClick={() => runGenerate(c)}
+                        className="block w-full rounded-lg border border-border/60 bg-background/40 px-3 py-2 text-left font-mono text-xs text-foreground hover:bg-accent hover:border-ai/40 transition-colors"
+                      >
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">Or type a different path:</p>
+                </>
+              )}
+              {needsFileSelection.length === 0 && (
+                <p className="text-xs text-muted-foreground">Enter the repo-relative path to the file this fix should be applied to:</p>
               )}
               <div className="flex gap-2">
                 <input
                   value={filePathInput}
                   onChange={(e) => setFilePathInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && filePathInput.trim() && runGenerate(filePathInput.trim())}
                   placeholder="src/path/to/file.ts"
-                  className="flex-1 rounded-lg border border-border/60 bg-background px-3 py-2 font-mono text-xs focus:ring-2 focus:ring-ai/30"
+                  className="flex-1 rounded-lg border border-border/60 bg-background px-3 py-2 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-ai/30"
                 />
                 <button
                   onClick={() => filePathInput.trim() && runGenerate(filePathInput.trim())}

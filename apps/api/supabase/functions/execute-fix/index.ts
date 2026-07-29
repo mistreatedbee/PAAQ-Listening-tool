@@ -147,6 +147,39 @@ async function fetchGithubTree(token: string, repo: RepoRef, ref: string): Promi
   return (body?.tree ?? []) as { path: string; type: string }[]
 }
 
+const SOURCE_EXT = /\.(ts|tsx|js|jsx|mjs|py|go|dart|rb|java|kt|swift|cs|vue|svelte|rs)$/
+const STOP_WORDS = new Set([
+  'the','and','for','with','this','that','from','into','could','should',
+  'would','enable','validate','verify','check','ensure','fix','add','update',
+  'improve','implement','resolve','handle','support','apply','review','use',
+  'make','get','set','run','all','not','new','old','via','its','the','our',
+  'your','their','will','has','had','have','been','was','are','can',
+])
+
+/**
+ * Scores repo files against keywords extracted from the recommendation title/description.
+ * Returns up to 5 best-matching source files.
+ */
+async function findFilesByKeywords(token: string, repo: RepoRef, title: string, description: string | null): Promise<string[]> {
+  const text = `${title} ${description ?? ''}`.toLowerCase().replace(/[^a-z0-9\s]/g, ' ')
+  const words = (text.match(/[a-z]{3,}/g) ?? []).filter((w) => !STOP_WORDS.has(w))
+  if (words.length === 0) return []
+
+  const tree = await fetchGithubTree(token, repo, repo.defaultBranch)
+  const sourceFiles = tree.filter((t) => t.type === 'blob' && SOURCE_EXT.test(t.path))
+
+  type Scored = { path: string; score: number }
+  const scored: Scored[] = sourceFiles.map((f) => {
+    const p = f.path.toLowerCase()
+    // Count distinct keyword hits; weight deeper matches lower so root files don't dominate
+    const score = words.filter((w) => p.includes(w)).length
+    return { path: f.path, score }
+  }).filter((f) => f.score > 0)
+
+  scored.sort((a, b) => b.score - a.score)
+  return scored.slice(0, 5).map((f) => f.path)
+}
+
 async function handleGenerate(rec: RecRow, explicitPath?: string) {
   const repoResult = await getRepoAndToken(rec.project_id)
   if (!repoResult.ok) return respond({ ok: false, error: repoResult.error })
@@ -173,10 +206,6 @@ async function handleGenerate(rec: RecRow, explicitPath?: string) {
     const basename = guessFilename(text)
     const routePath = guessRoutePath(text)
 
-    if (!basename && !routePath) {
-      return respond({ ok: false, needsFileSelection: true, candidates: [], error: 'Could not identify a file from this recommendation — specify a file path.' })
-    }
-
     if (provider !== 'github') {
       return respond({ ok: false, needsFileSelection: true, candidates: basename ? [basename] : [], error: 'Specify the full repo-relative path for this file.' })
     }
@@ -184,16 +213,17 @@ async function handleGenerate(rec: RecRow, explicitPath?: string) {
     let candidates: string[] = []
     if (basename) candidates = await findFileInGithub(token, repo, basename, repo.defaultBranch)
     if (candidates.length === 0 && routePath) candidates = await findFileForRoute(token, repo, routePath, repo.defaultBranch)
+    // Keyword fallback — for abstract recommendations with no filename or route in the text
+    if (candidates.length === 0) candidates = await findFilesByKeywords(token, repo, rec.title, rec.description)
 
     if (candidates.length === 0) {
-      const subject = basename ? `"${basename}"` : `route "${routePath}"`
-      return respond({ ok: false, needsFileSelection: true, candidates: [], error: `No file matching ${subject} found in the repo — specify a file path.` })
+      return respond({ ok: false, needsFileSelection: true, candidates: [], error: 'Could not identify a matching file — type the repo-relative path below.' })
     }
-    if (candidates.length > 1) {
-      const subject = basename ? `named "${basename}"` : `for route "${routePath}"`
-      return respond({ ok: false, needsFileSelection: true, candidates, error: `Multiple files ${subject} found — pick one.` })
+    if (candidates.length === 1) {
+      filePath = candidates[0]
+    } else {
+      return respond({ ok: false, needsFileSelection: true, candidates, error: 'Select the file to apply this fix to:' })
     }
-    filePath = candidates[0]
   }
 
   const fileResult = await (await loadGitAdapter(provider)).getFileContent(token, repo, filePath, repo.defaultBranch)
