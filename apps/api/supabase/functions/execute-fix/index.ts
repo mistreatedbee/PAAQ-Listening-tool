@@ -27,12 +27,17 @@ function checkInternalSecret(req: Request): boolean {
   return expected.length > 0 && provided === expected
 }
 
+type AffectedFile = { path: string; function?: string; reason?: string }
+
 type RecRow = {
   id: string
   project_id: string
   title: string
   description: string | null
   type: string
+  root_cause: string | null
+  affected_files: AffectedFile[] | null
+  patch_plan: string[] | null
   fix_changeset: { path: string; newContent: string }[] | null
   fix_branch: string | null
   fix_pr_url: string | null
@@ -99,15 +104,47 @@ function guessFilename(text: string): string | null {
   return m ? m[1] : null
 }
 
+/** Extracts a likely app route/page path from free-text copy (e.g. "/dashboard/health drop-off"). */
+function guessRoutePath(text: string): string | null {
+  const matches = text.match(/\/[a-zA-Z0-9][a-zA-Z0-9_\-\/]*/g) ?? []
+  // Prefer the longest slash-path with no file extension — routes, not asset/URL fragments.
+  const routes = matches.filter((m) => !/\.[a-zA-Z0-9]+$/.test(m) && m.split('/').filter(Boolean).length >= 1)
+  if (routes.length === 0) return null
+  return routes.sort((a, b) => b.length - a.length)[0]
+}
+
 /** GitHub-only tree search by basename — the one provider verified live in this environment. */
 async function findFileInGithub(token: string, repo: RepoRef, basename: string, ref: string): Promise<string[]> {
+  const tree = await fetchGithubTree(token, repo, ref)
+  return tree.filter((t) => t.type === 'blob' && t.path.split('/').pop() === basename).map((t) => t.path)
+}
+
+/**
+ * Resolves a route path like "/dashboard/health" to candidate source files by matching the
+ * route's segments against the repo tree, favoring conventional page/route entrypoints
+ * (Next.js app-router `page.*`/`route.*`, or an `index.*` file) over incidental matches.
+ */
+async function findFileForRoute(token: string, repo: RepoRef, routePath: string, ref: string): Promise<string[]> {
+  const segments = routePath.split('/').filter(Boolean)
+  if (segments.length === 0) return []
+  const tree = await fetchGithubTree(token, repo, ref)
+  const segPattern = segments.join('/')
+  const matches = tree.filter((t) => t.type === 'blob' && t.path.includes(segPattern))
+  if (matches.length === 0) return []
+
+  const entrypoint = /(^|\/)(page|route|index)\.(tsx|ts|jsx|js)$/
+  const entrypoints = matches.filter((t) => entrypoint.test(t.path))
+  const ranked = entrypoints.length > 0 ? entrypoints : matches
+  return ranked.map((t) => t.path)
+}
+
+async function fetchGithubTree(token: string, repo: RepoRef, ref: string): Promise<{ path: string; type: string }[]> {
   const res = await fetch(`https://api.github.com/repos/${repo.fullName}/git/trees/${encodeURIComponent(ref)}?recursive=1`, {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
   })
   if (!res.ok) return []
   const body = await res.json().catch(() => ({}))
-  const tree = (body?.tree ?? []) as { path: string; type: string }[]
-  return tree.filter((t) => t.type === 'blob' && t.path.split('/').pop() === basename).map((t) => t.path)
+  return (body?.tree ?? []) as { path: string; type: string }[]
 }
 
 async function handleGenerate(rec: RecRow, explicitPath?: string) {
@@ -116,24 +153,47 @@ async function handleGenerate(rec: RecRow, explicitPath?: string) {
   const { provider, repo, token } = repoResult
 
   let filePath = explicitPath
+
+  // Use pre-identified files from the AI investigation first — no guessing needed.
+  if (!filePath && rec.affected_files && rec.affected_files.length > 0) {
+    if (rec.affected_files.length === 1) {
+      filePath = rec.affected_files[0].path
+    } else {
+      return respond({
+        ok: false,
+        needsFileSelection: true,
+        candidates: rec.affected_files.map((f) => f.path),
+        error: `This recommendation affects ${rec.affected_files.length} files — pick one to generate a fix for.`,
+      })
+    }
+  }
+
   if (!filePath) {
-    const basename = guessFilename(`${rec.title} ${rec.description ?? ''}`)
-    if (!basename) {
+    const text = `${rec.title} ${rec.description ?? ''}`
+    const basename = guessFilename(text)
+    const routePath = guessRoutePath(text)
+
+    if (!basename && !routePath) {
       return respond({ ok: false, needsFileSelection: true, candidates: [], error: 'Could not identify a file from this recommendation — specify a file path.' })
     }
-    if (provider === 'github') {
-      const candidates = await findFileInGithub(token, repo, basename, repo.defaultBranch)
-      if (candidates.length === 0) {
-        return respond({ ok: false, needsFileSelection: true, candidates: [], error: `No file named "${basename}" found in the repo.` })
-      }
-      if (candidates.length > 1) {
-        return respond({ ok: false, needsFileSelection: true, candidates, error: `Multiple files named "${basename}" found — pick one.` })
-      }
-      filePath = candidates[0]
-    } else {
-      // Non-GitHub providers: no tree-search implemented yet — ask the human to confirm the path.
-      return respond({ ok: false, needsFileSelection: true, candidates: [basename], error: 'Specify the full repo-relative path for this file.' })
+
+    if (provider !== 'github') {
+      return respond({ ok: false, needsFileSelection: true, candidates: basename ? [basename] : [], error: 'Specify the full repo-relative path for this file.' })
     }
+
+    let candidates: string[] = []
+    if (basename) candidates = await findFileInGithub(token, repo, basename, repo.defaultBranch)
+    if (candidates.length === 0 && routePath) candidates = await findFileForRoute(token, repo, routePath, repo.defaultBranch)
+
+    if (candidates.length === 0) {
+      const subject = basename ? `"${basename}"` : `route "${routePath}"`
+      return respond({ ok: false, needsFileSelection: true, candidates: [], error: `No file matching ${subject} found in the repo — specify a file path.` })
+    }
+    if (candidates.length > 1) {
+      const subject = basename ? `named "${basename}"` : `for route "${routePath}"`
+      return respond({ ok: false, needsFileSelection: true, candidates, error: `Multiple files ${subject} found — pick one.` })
+    }
+    filePath = candidates[0]
   }
 
   const fileResult = await (await loadGitAdapter(provider)).getFileContent(token, repo, filePath, repo.defaultBranch)
@@ -142,12 +202,22 @@ async function handleGenerate(rec: RecRow, explicitPath?: string) {
   const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
   if (!apiKey) return respond({ ok: false, error: 'ANTHROPIC_API_KEY not set' }, 500)
 
-  const prompt = `You are the PAAQ Fix Agent. Given a recommendation and the real current content of the file it likely affects, propose a concrete code fix.
+  const patchPlanText = rec.patch_plan?.length
+    ? `\nPatch plan from investigation:\n${rec.patch_plan.map((s, i) => `  ${i + 1}. ${s}`).join('\n')}`
+    : ''
+
+  const rootCauseText = rec.root_cause ? `\nRoot cause: ${rec.root_cause}` : ''
+
+  const affectedFnText = rec.affected_files?.find((f) => f.path === filePath)?.function
+    ? `\nTarget function: ${rec.affected_files.find((f) => f.path === filePath)!.function}`
+    : ''
+
+  const prompt = `You are the PAAQ Fix Agent. Given a recommendation and the real current content of the affected file, produce a concrete, targeted code fix.
 
 Recommendation:
   Title: ${rec.title}
   Type: ${rec.type}
-  Description: ${rec.description ?? 'none'}
+  Description: ${rec.description ?? 'none'}${rootCauseText}${affectedFnText}${patchPlanText}
 
 File: ${filePath}
 Current content:
@@ -164,7 +234,8 @@ Return ONLY this JSON structure, no markdown, no explanation:
 
 Rules:
 - newContent must be the COMPLETE file after the fix, not a diff or snippet
-- Only change what's necessary to address the recommendation
+- Only change what is necessary to address the recommendation — minimal surgical change
+- Use the patch plan and root cause to guide exactly what to change
 - If you cannot confidently produce a fix, set confidence below 40 and explain why in summary`
 
   const anthropic = new Anthropic({ apiKey })

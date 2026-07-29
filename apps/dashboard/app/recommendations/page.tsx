@@ -8,11 +8,13 @@ import { cn } from '@/lib/utils'
 import {
   ListChecks, CheckCircle2, XCircle, UserCheck, Archive, Sparkles,
   ChevronDown, ChevronRight, Zap, Eye, FlaskConical, MessageSquare,
-  AlertTriangle, TrendingUp, Clock, User,
+  AlertTriangle, TrendingUp, Clock, User, FileCode2, Timer,
 } from 'lucide-react'
 import type { Tone } from '@/lib/data'
 import { FixExecution } from '@/components/dashboard/fix-execution'
 import { ApprovalPolicyPill, useApprovalMode } from '@/components/dashboard/approval-policy'
+
+type AffectedFile = { path: string; function?: string; reason?: string }
 
 type DbRecommendation = {
   id: string
@@ -20,6 +22,11 @@ type DbRecommendation = {
   type: string
   title: string
   description: string | null
+  root_cause: string | null
+  affected_files: AffectedFile[] | null
+  risk_level: string | null
+  estimated_fix_time: string | null
+  business_impact: string | null
   confidence: number | null
   impact_score: number | null
   effort: string | null
@@ -149,7 +156,7 @@ export default function RecommendationsPage() {
     const sb = createClient()
     return sb
       .from('recommendations')
-      .select('id, investigation_id, type, title, description, confidence, impact_score, effort, expected_improvement, suggested_owner, priority, status, approved_by, created_at')
+      .select('id, investigation_id, type, title, description, root_cause, affected_files, risk_level, estimated_fix_time, business_impact, confidence, impact_score, effort, expected_improvement, suggested_owner, priority, status, approved_by, created_at')
       .eq('project_id', projectId)
       .order('created_at', { ascending: false })
       .then(({ data }) => {
@@ -317,6 +324,11 @@ export default function RecommendationsPage() {
                       <span className="rounded-full border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
                         {TYPE_LABELS[rec.type] ?? rec.type}
                       </span>
+                      {rec.risk_level && (
+                        <ToneBadge tone={rec.risk_level === 'critical' ? 'critical' : rec.risk_level === 'high' ? 'warning' : 'intel'}>
+                          {rec.risk_level} risk
+                        </ToneBadge>
+                      )}
                       {rec.effort && (
                         <span className={cn('text-[10px] font-medium', effortColor(rec.effort))}>
                           {rec.effort} effort
@@ -334,7 +346,31 @@ export default function RecommendationsPage() {
                     {rec.description && (
                       <p className="mt-1 text-xs leading-relaxed text-muted-foreground line-clamp-2">{rec.description}</p>
                     )}
+                    {rec.root_cause && (
+                      <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground/80 italic line-clamp-2">
+                        Root cause: {rec.root_cause}
+                      </p>
+                    )}
                   </div>
+
+                  {/* Affected files chips */}
+                  {rec.affected_files && rec.affected_files.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1">
+                      <FileCode2 className="h-3 w-3 text-muted-foreground/50 shrink-0" />
+                      {rec.affected_files.slice(0, 3).map((f) => (
+                        <span
+                          key={f.path}
+                          title={f.reason ?? f.path}
+                          className="rounded border border-border/50 bg-muted/40 px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground max-w-[160px] truncate"
+                        >
+                          {f.path.split('/').pop()}
+                        </span>
+                      ))}
+                      {rec.affected_files.length > 3 && (
+                        <span className="text-[9px] text-muted-foreground/60">+{rec.affected_files.length - 3} more</span>
+                      )}
+                    </div>
+                  )}
 
                   {/* Impact + confidence */}
                   <div className="grid grid-cols-2 gap-2">
@@ -371,6 +407,12 @@ export default function RecommendationsPage() {
                       <div className="flex items-center gap-1 text-xs font-medium text-healthy">
                         <CheckCircle2 className="h-3 w-3" />
                         {rec.expected_improvement}
+                      </div>
+                    )}
+                    {rec.estimated_fix_time && (
+                      <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                        <Timer className="h-3 w-3" />
+                        {rec.estimated_fix_time}
                       </div>
                     )}
                     {rec.suggested_owner && (
