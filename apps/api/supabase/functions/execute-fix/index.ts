@@ -419,23 +419,25 @@ async function handleMerge(rec: RecRow, actingUserId?: string) {
   // Write to deployment_registry so Deployment Intelligence shows this fix.
   const branch = rec.fix_branch ?? `paaq-fix-${rec.id.slice(0, 8)}`
   const changedFiles = (rec.fix_changeset ?? []).map((c) => ({ path: c.path }))
-  await supabase.from('deployment_registry').insert({
-    project_id: rec.project_id,
-    version: branch,
-    environment: 'production',
-    deployed_at: now,
-    deployed_by: actingUserId ? `user:${actingUserId}` : 'PAAQ AI',
-    status: 'success',
-    git_commit: branch,
-    release_notes: `AI Fix: ${rec.title}`,
-    changed_features: changedFiles.map((f) => f.path),
-    ai_fix: true,
-    recommendation_id: rec.id,
-    pr_url: rec.fix_pr_url,
-    pr_number: rec.fix_pr_number,
-    ai_summary: rec.description,
-    changed_files: changedFiles,
-  }).catch(() => { /* non-fatal — don't fail the merge response */ })
+  try {
+    await supabase.from('deployment_registry').insert({
+      project_id: rec.project_id,
+      version: branch,
+      environment: 'production',
+      deployed_at: now,
+      deployed_by: actingUserId ? `user:${actingUserId}` : 'PAAQ AI',
+      status: 'success',
+      git_commit: branch,
+      release_notes: `AI Fix: ${rec.title}`,
+      changed_features: changedFiles.map((f) => f.path),
+      ai_fix: true,
+      recommendation_id: rec.id,
+      pr_url: rec.fix_pr_url,
+      pr_number: rec.fix_pr_number,
+      ai_summary: rec.description,
+      changed_files: changedFiles,
+    })
+  } catch { /* non-fatal — don't fail the merge response */ }
 
   return respond({ ok: true, merged: true })
 }
