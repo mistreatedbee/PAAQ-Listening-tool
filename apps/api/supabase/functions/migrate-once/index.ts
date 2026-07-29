@@ -54,7 +54,7 @@ Deno.serve(async () => {
     `)
 
     await client.end()
-    return new Response(JSON.stringify({ ok: true, message: 'Migrations applied + pg_cron heartbeat scheduled every 4 hours' }), {
+    return new Response(JSON.stringify({ ok: true, message: 'Migrations applied' }), {
       headers: { 'Content-Type': 'application/json' },
     })
   } catch (e) {

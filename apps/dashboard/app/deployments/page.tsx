@@ -376,9 +376,9 @@ export default function DeploymentsPage() {
           </p>
           <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-muted/30 px-3 py-2">
             <code className="flex-1 truncate font-mono text-[11px] text-foreground">
-              {`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/deployment-webhook?projectKey=${app.project_id_key}`}
+              {`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/deployment-webhook?projectKey=${app.apiKey}`}
             </code>
-            <CopyButton text={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/deployment-webhook?projectKey=${app.project_id_key}`} />
+            <CopyButton text={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/deployment-webhook?projectKey=${app.apiKey}`} />
           </div>
           <p className="text-[10px] text-muted-foreground/60">
             Supports: Vercel • GitHub Actions • Netlify • Docker Hub • Generic JSON
