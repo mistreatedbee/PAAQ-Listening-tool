@@ -147,6 +147,26 @@ async function fetchGithubTree(token: string, repo: RepoRef, ref: string): Promi
   return (body?.tree ?? []) as { path: string; type: string }[]
 }
 
+// Files over this line count use surgical patch mode instead of full-file rewrite,
+// preventing silent truncation when Claude's output limit is hit.
+const LARGE_FILE_LINE_THRESHOLD = 100
+
+type PatchEntry = { search: string; replace: string }
+
+function applyPatches(
+  content: string,
+  patches: PatchEntry[],
+): { ok: true; content: string } | { ok: false; error: string } {
+  let result = content
+  for (const patch of patches) {
+    if (!result.includes(patch.search)) {
+      return { ok: false, error: `Patch target not found: "${patch.search.slice(0, 80)}"` }
+    }
+    result = result.replace(patch.search, patch.replace)
+  }
+  return { ok: true, content: result }
+}
+
 const SOURCE_EXT = /\.(ts|tsx|js|jsx|mjs|py|go|dart|rb|java|kt|swift|cs|vue|svelte|rs)$/
 const STOP_WORDS = new Set([
   'the','and','for','with','this','that','from','into','could','should',
@@ -273,54 +293,101 @@ async function handleGenerate(rec: RecRow, explicitPath?: string) {
     ? `\nTarget function: ${rec.affected_files.find((f) => f.path === filePath)!.function}`
     : ''
 
-  const prompt = `You are the PAAQ Fix Agent. Given a recommendation and the real current content of the affected file, produce a concrete, targeted code fix.
+  const fileLines = fileResult.content.split('\n').length
+  const isLargeFile = fileLines > LARGE_FILE_LINE_THRESHOLD
+  const fileContext = fileResult.content.slice(0, 14000)
 
-Recommendation:
+  const recContext = `Recommendation:
   Title: ${rec.title}
   Type: ${rec.type}
-  Description: ${rec.description ?? 'none'}${rootCauseText}${affectedFnText}${patchPlanText}
+  Description: ${rec.description ?? 'none'}${rootCauseText}${affectedFnText}${patchPlanText}`
+
+  const prompt = isLargeFile
+    ? `You are the PAAQ Fix Agent. Apply a surgical patch to this file — do NOT rewrite the whole file.
+
+${recContext}
+
+File: ${filePath} (${fileLines} lines)
+Current content:
+\`\`\`
+${fileContext}
+\`\`\`
+
+Return ONLY this JSON, no markdown, no explanation:
+{
+  "summary": "one sentence describing the fix",
+  "confidence": 0-100,
+  "mode": "patch",
+  "patches": [
+    { "search": "exact verbatim substring to find in the file", "replace": "replacement string" }
+  ]
+}
+
+Rules:
+- Each "search" MUST be an exact verbatim copy from the file above (any character difference will fail)
+- Make each search string long enough to be unique in the file — include 2-3 lines of surrounding context
+- Only change what is necessary — minimal surgical change
+- Do NOT include the full file content — only the targeted patch(es)`
+    : `You are the PAAQ Fix Agent. Given a recommendation and the current file content, produce a concrete, targeted code fix.
+
+${recContext}
 
 File: ${filePath}
 Current content:
 \`\`\`
-${fileResult.content.slice(0, 12000)}
+${fileContext}
 \`\`\`
 
 Return ONLY this JSON structure, no markdown, no explanation:
 {
   "summary": "one sentence describing the fix",
   "confidence": 0-100,
-  "changes": [ { "path": "${filePath}", "newContent": "<the full file content after applying the fix>" } ]
+  "changes": [ { "path": "${filePath}", "newContent": "<the complete file content after the fix>" } ]
 }
 
 Rules:
 - newContent must be the COMPLETE file after the fix, not a diff or snippet
 - Only change what is necessary to address the recommendation — minimal surgical change
-- Use the patch plan and root cause to guide exactly what to change
 - If you cannot confidently produce a fix, set confidence below 40 and explain why in summary`
 
   const anthropic = new Anthropic({ apiKey })
   const msg = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+    model: 'claude-sonnet-4-6',
     max_tokens: 8000,
     messages: [{ role: 'user', content: prompt }],
   })
   const raw = msg.content[0]?.type === 'text' ? msg.content[0].text.replace(/```json?\n?/g, '').replace(/```/g, '').trim() : null
   if (!raw) return respond({ ok: false, error: 'No response from Claude' }, 500)
 
-  let result: { summary: string; confidence: number; changes: { path: string; newContent: string }[] }
+  let parsed: {
+    summary: string
+    confidence: number
+    mode?: string
+    patches?: PatchEntry[]
+    changes?: { path: string; newContent: string }[]
+  }
   try {
-    result = JSON.parse(raw)
+    parsed = JSON.parse(raw)
   } catch {
     return respond({ ok: false, error: 'Failed to parse Claude response' }, 500)
   }
 
-  if (!result.changes || result.changes.length === 0 || result.changes.length > 5) {
+  let changes: { path: string; newContent: string }[]
+
+  if (parsed.mode === 'patch' && parsed.patches?.length) {
+    const applied = applyPatches(fileResult.content, parsed.patches)
+    if (!applied.ok) return respond({ ok: false, error: `Patch failed: ${applied.error}` }, 500)
+    changes = [{ path: filePath, newContent: applied.content }]
+  } else {
+    changes = parsed.changes ?? []
+  }
+
+  if (changes.length === 0 || changes.length > 5) {
     return respond({ ok: false, error: 'Change set is empty or too large' }, 400)
   }
 
-  await supabase.from('recommendations').update({ fix_changeset: result.changes }).eq('id', rec.id)
-  return respond({ ok: true, summary: result.summary, confidence: result.confidence, changes: result.changes })
+  await supabase.from('recommendations').update({ fix_changeset: changes }).eq('id', rec.id)
+  return respond({ ok: true, summary: parsed.summary, confidence: parsed.confidence, changes })
 }
 
 async function handleOpenPr(rec: RecRow, overrideChangeset?: { path: string; newContent: string }[]) {
