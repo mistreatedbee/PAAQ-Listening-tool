@@ -144,11 +144,12 @@ Deno.serve(async (req) => {
     return respond({ error: 'projectKey query param required — copy it from your Setup page' }, 400)
   }
 
-  // Resolve project
+  // Resolve project — accept either the short project_id_key (proj_xxx) or the raw UUID
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(projectKey)
   const { data: proj } = await supabase
     .from('tenant_projects')
     .select('id')
-    .eq('project_id_key', projectKey)
+    .eq(isUuid ? 'id' : 'project_id_key', projectKey)
     .maybeSingle()
   if (!proj) return respond({ error: 'Project not found for this projectKey' }, 404)
 
