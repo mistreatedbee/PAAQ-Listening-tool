@@ -18,6 +18,7 @@ const supabase = createClient(
 )
 
 type DeployRow = {
+  tenant_id: string
   project_id: string
   version: string
   environment: string
@@ -148,7 +149,7 @@ Deno.serve(async (req) => {
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(projectKey)
   const { data: proj } = await supabase
     .from('tenant_projects')
-    .select('id')
+    .select('id, tenant_id')
     .eq(isUuid ? 'id' : 'project_id_key', projectKey)
     .maybeSingle()
   if (!proj) return respond({ error: 'Project not found for this projectKey' }, 404)
@@ -181,7 +182,8 @@ Deno.serve(async (req) => {
   }
 
   const row: DeployRow = {
-    project_id: proj.id,
+    tenant_id:    proj.tenant_id,
+    project_id:   proj.id,
     version:      parsed.version      ?? 'deployment',
     environment:  parsed.environment  ?? 'production',
     deployed_at:  parsed.deployed_at  ?? new Date().toISOString(),
