@@ -5,7 +5,7 @@ import { createClient } from '@/utils/supabase/client'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import {
   Rocket, GitCommit, Tag, Radio, Sparkles, GitPullRequest,
-  FileCode2, ExternalLink, GitMerge,
+  FileCode2, ExternalLink, GitMerge, Globe, Copy, Check,
 } from 'lucide-react'
 import { PageHeader, Card, ToneBadge } from '@/components/kit'
 import { cn } from '@/lib/utils'
@@ -29,6 +29,34 @@ type DbDeployment = {
   ai_summary: string | null
   ai_confidence: number | null
   changed_files: { path: string }[] | null
+  source: string | null
+}
+
+const SOURCE_LABELS: Record<string, string> = {
+  'vercel': 'Vercel', 'github-actions': 'GitHub', 'netlify': 'Netlify',
+  'docker': 'Docker', 'manual': 'Manual', 'paaq-ai': 'PAAQ AI', 'generic': 'Webhook',
+}
+
+function SourceBadge({ source }: { source: string | null }) {
+  const label = source ? (SOURCE_LABELS[source] ?? source) : 'Manual'
+  return (
+    <span className="rounded-md border border-border/50 bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+      {label}
+    </span>
+  )
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+      className="flex items-center gap-1 rounded-md border border-border/50 bg-muted/50 px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+    >
+      {copied ? <Check className="h-3 w-3 text-healthy" /> : <Copy className="h-3 w-3" />}
+      {copied ? 'Copied' : 'Copy'}
+    </button>
+  )
 }
 
 type EnvFilter = 'all' | 'production' | 'staging' | 'development'
@@ -133,6 +161,7 @@ function ManualDeployRow({ d }: { d: DbDeployment }) {
           <span className="rounded-md border border-border/50 bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
             {d.environment}
           </span>
+          <SourceBadge source={d.source} />
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
           <span>{fmt(d.deployed_at)}</span>
@@ -168,7 +197,7 @@ export default function DeploymentsPage() {
     const sb = createClient()
 
     sb.from('deployment_registry')
-      .select('id, version, environment, deployed_at, deployed_by, release_notes, status, git_commit, git_tag, changed_features, ai_fix, recommendation_id, pr_url, pr_number, ai_summary, ai_confidence, changed_files')
+      .select('id, version, environment, deployed_at, deployed_by, release_notes, status, git_commit, git_tag, changed_features, ai_fix, recommendation_id, pr_url, pr_number, ai_summary, ai_confidence, changed_files, source')
       .eq('project_id', app.id)
       .order('deployed_at', { ascending: false })
       .limit(50)
@@ -265,6 +294,28 @@ export default function DeploymentsPage() {
         ))}
       </div>
 
+      {/* Webhook setup card */}
+      {app.id !== '__loading__' && (
+        <Card className="p-5 space-y-3">
+          <div className="flex items-center gap-2">
+            <Globe className="h-4 w-4 text-intel" />
+            <p className="text-sm font-semibold text-foreground">Connect External Deployments</p>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Point your CI/CD webhook at this URL to capture Vercel, GitHub Actions, Netlify, Docker, and any other deployment source automatically.
+          </p>
+          <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-muted/30 px-3 py-2">
+            <code className="flex-1 truncate font-mono text-[11px] text-foreground">
+              {`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/deployment-webhook?projectKey=${app.id}`}
+            </code>
+            <CopyButton text={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/deployment-webhook?projectKey=${app.id}`} />
+          </div>
+          <p className="text-[10px] text-muted-foreground/60">
+            Supports: Vercel • GitHub Actions • Netlify • Docker Hub • Generic JSON
+          </p>
+        </Card>
+      )}
+
       {loading ? (
         <Card className="p-10 text-center text-sm text-muted-foreground">Loading…</Card>
       ) : visible.length === 0 ? (
@@ -272,7 +323,7 @@ export default function DeploymentsPage() {
           <Rocket className="mx-auto mb-3 h-8 w-8 text-muted-foreground opacity-20" />
           <p className="text-sm font-medium text-foreground">No deployments yet</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            AI-generated fixes will appear here automatically after Execute Fix merges to main.
+            AI-generated fixes and external deployments will appear here automatically.
           </p>
         </Card>
       ) : (
