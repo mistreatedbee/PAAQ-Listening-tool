@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
+import { createClient } from '@/utils/supabase/client'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { ToneBadge } from '@/components/kit'
 import { cn } from '@/lib/utils'
@@ -282,6 +283,36 @@ export default function SetupPage() {
   const [discoverIdx, setDiscoverIdx] = useState(-1)
 
   const hasApps = allApps.length > 0
+  const [discoveryProgress, setDiscoveryProgress] = useState<boolean[]>([false, false, false, false, false, false])
+
+  useEffect(() => {
+    if (app.id === '__loading__' || !hasApps) return
+    const sb = createClient()
+    Promise.all([
+      sb.from('events').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
+      sb.from('feature_health').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
+      sb.from('performance_metrics').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
+      sb.from('user_journeys').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
+      sb.from('api_requests').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
+      sb.from('ai_insights').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
+    ]).then(([
+      { count: evCount },
+      { count: fhCount },
+      { count: pmCount },
+      { count: ujCount },
+      { count: arCount },
+      { count: aiCount },
+    ]) => {
+      setDiscoveryProgress([
+        (evCount ?? 0) > 0,
+        (fhCount ?? 0) > 0,
+        (pmCount ?? 0) > 0,
+        (ujCount ?? 0) > 0,
+        (arCount ?? 0) > 0 || (evCount ?? 0) > 10,
+        (aiCount ?? 0) > 0,
+      ])
+    })
+  }, [app.id, hasApps])
 
   const startVerification = useCallback(() => {
     setVerifying(true)
@@ -825,26 +856,33 @@ export default function SetupPage() {
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-ai" />
             <p className="text-sm font-semibold text-foreground">AI Discovery</p>
-            <ToneBadge tone="ai">Active</ToneBadge>
+            {discoveryProgress.every(Boolean)
+              ? <ToneBadge tone="healthy">Complete</ToneBadge>
+              : <ToneBadge tone="ai">In Progress</ToneBadge>
+            }
           </div>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {DISCOVER_STEPS.map((ds, i) => (
-              <div key={ds} className="flex items-center gap-2 rounded-lg border border-ai/15 bg-background/40 px-3 py-2">
-                {i < 2
-                  ? <CheckCircle2 className="h-3.5 w-3.5 text-healthy shrink-0" />
-                  : i === 2
-                  ? <Loader2 className="h-3.5 w-3.5 text-ai animate-spin shrink-0" />
-                  : <div className="h-3.5 w-3.5 rounded-full border-2 border-border/30 opacity-30 shrink-0" />
-                }
-                <p className="text-[10px] font-medium text-muted-foreground">{ds}</p>
-                {i < 2 && <span className="ml-auto text-[9px] font-bold text-healthy">Done</span>}
-                {i === 2 && <span className="ml-auto text-[9px] font-bold text-ai">Running</span>}
-              </div>
-            ))}
+            {DISCOVER_STEPS.map((ds, i) => {
+              const isDone = discoveryProgress[i]
+              const isActive = !isDone && (i === 0 || discoveryProgress[i - 1])
+              return (
+                <div key={ds} className="flex items-center gap-2 rounded-lg border border-ai/15 bg-background/40 px-3 py-2">
+                  {isDone
+                    ? <CheckCircle2 className="h-3.5 w-3.5 text-healthy shrink-0" />
+                    : isActive
+                    ? <Loader2 className="h-3.5 w-3.5 text-ai animate-spin shrink-0" />
+                    : <div className="h-3.5 w-3.5 rounded-full border-2 border-border/30 opacity-30 shrink-0" />
+                  }
+                  <p className="text-[10px] font-medium text-muted-foreground">{ds}</p>
+                  {isDone   && <span className="ml-auto text-[9px] font-bold text-healthy">Done</span>}
+                  {isActive && <span className="ml-auto text-[9px] font-bold text-ai">Active</span>}
+                </div>
+              )
+            })}
           </div>
           <p className="text-[10px] text-muted-foreground/60 flex items-center gap-1">
             <Clock className="h-3 w-3" />
-            Agents are continuously learning — coverage improves over time
+            Run AI Analysis from any page to advance discovery — coverage improves continuously
           </p>
         </div>
       )}

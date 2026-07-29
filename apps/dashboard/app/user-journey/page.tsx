@@ -18,9 +18,26 @@ type Journey = {
   created_at: string
 }
 
+type SessionMeta = {
+  id: string
+  status: string | null
+  duration: number | null
+  started_at: string | null
+  ended_at: string | null
+}
+
+function fmtDuration(seconds: number | null) {
+  if (!seconds) return '—'
+  if (seconds < 60) return `${seconds}s`
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return s > 0 ? `${m}m ${s}s` : `${m}m`
+}
+
 export default function UserJourneyPage() {
   const { app } = useConnectedApp()
   const [journeys, setJourneys] = useState<Journey[]>([])
+  const [sessions, setSessions] = useState<Record<string, SessionMeta>>({})
   const [loading, setLoading] = useState(true)
   const [analysing, setAnalysing] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
@@ -37,6 +54,19 @@ export default function UserJourneyPage() {
     const rows = (data ?? []) as Journey[]
     setJourneys(rows)
     if (rows.length > 0 && !selected) setSelected(rows[0])
+
+    // Fetch session metadata for enrichment
+    const sessionIds = [...new Set(rows.map((r) => r.session_id).filter(Boolean))]
+    if (sessionIds.length > 0) {
+      const { data: sessionData } = await sb
+        .from('sessions')
+        .select('id, status, duration, started_at, ended_at')
+        .in('id', sessionIds)
+      const map: Record<string, SessionMeta> = {}
+      for (const s of (sessionData ?? []) as SessionMeta[]) map[s.id] = s
+      setSessions(map)
+    }
+
     setLoading(false)
   }
 
@@ -209,13 +239,21 @@ export default function UserJourneyPage() {
               </Card>
 
               <Card className="p-4">
-                <div className="flex flex-wrap gap-3">
+                <div className="flex flex-wrap gap-4">
                   {[
-                    { label: 'Steps', value: selected.steps?.length ?? 0 },
-                    { label: 'Status', value: selected.completed ? 'Completed' : 'Abandoned' },
-                    { label: 'Drop-off', value: selected.drop_off_step ?? '—' },
+                    { label: 'Steps', value: String(selected.steps?.length ?? 0) },
+                    { label: 'Outcome', value: selected.completed ? 'Completed' : 'Abandoned' },
+                    { label: 'Drop-off at', value: selected.drop_off_step ?? '—' },
+                    { label: 'Duration', value: fmtDuration(sessions[selected.session_id]?.duration ?? null) },
+                    { label: 'Session status', value: sessions[selected.session_id]?.status ?? '—' },
+                    {
+                      label: 'Started',
+                      value: sessions[selected.session_id]?.started_at
+                        ? new Date(sessions[selected.session_id].started_at!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                        : '—',
+                    },
                   ].map((s) => (
-                    <div key={s.label} className="flex flex-col">
+                    <div key={s.label} className="flex flex-col min-w-[80px]">
                       <span className="text-[10px] text-muted-foreground">{s.label}</span>
                       <span className="text-sm font-semibold text-foreground">{s.value}</span>
                     </div>

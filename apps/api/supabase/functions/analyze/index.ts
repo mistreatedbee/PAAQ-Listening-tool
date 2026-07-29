@@ -275,6 +275,24 @@ Rules:
     insightRows.length > 0 ? supabase.from('ai_insights').insert(insightRows) : Promise.resolve(),
   ])
 
+  // Auto-build product memory from the AI insights just generated so the knowledge
+  // base grows autonomously after every analysis run — no manual upload required.
+  if (projectId && insightRows.length > 0) {
+    const summaryContent = insightRows.map((ins) =>
+      `[${ins.category ?? 'insight'}] ${ins.title}: ${ins.description ?? ''}`
+    ).join('\n')
+
+    const knowledgeUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/knowledge-build`
+    fetch(knowledgeUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+      },
+      body: JSON.stringify({ projectId, content: summaryContent, title: 'AI Analysis — auto-generated', method: 'auto' }),
+    }).catch(() => { /* non-fatal */ })
+  }
+
   return respond({
     ok: true,
     features: featureRowsWithSummaries.length,
