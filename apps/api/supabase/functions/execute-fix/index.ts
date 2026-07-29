@@ -353,11 +353,15 @@ Rules:
   const anthropic = new Anthropic({ apiKey })
   const msg = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 8000,
+    max_tokens: isLargeFile ? 8000 : 16000,
     messages: [{ role: 'user', content: prompt }],
   })
   const raw = msg.content[0]?.type === 'text' ? msg.content[0].text.replace(/```json?\n?/g, '').replace(/```/g, '').trim() : null
   if (!raw) return respond({ ok: false, error: 'No response from Claude' }, 500)
+
+  if (msg.stop_reason === 'max_tokens') {
+    return respond({ ok: false, error: 'Claude response was truncated (hit max_tokens) — try a smaller file or narrower fix.' }, 500)
+  }
 
   let parsed: {
     summary: string
@@ -369,7 +373,18 @@ Rules:
   try {
     parsed = JSON.parse(raw)
   } catch {
-    return respond({ ok: false, error: 'Failed to parse Claude response' }, 500)
+    // Claude sometimes wraps the JSON in a stray sentence despite instructions;
+    // fall back to the outermost {...} span before giving up.
+    const start = raw.indexOf('{')
+    const end = raw.lastIndexOf('}')
+    if (start === -1 || end === -1 || end <= start) {
+      return respond({ ok: false, error: 'Failed to parse Claude response' }, 500)
+    }
+    try {
+      parsed = JSON.parse(raw.slice(start, end + 1))
+    } catch {
+      return respond({ ok: false, error: 'Failed to parse Claude response' }, 500)
+    }
   }
 
   let changes: { path: string; newContent: string }[]

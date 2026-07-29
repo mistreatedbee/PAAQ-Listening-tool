@@ -85,7 +85,16 @@ Rules:
   try {
     result = JSON.parse(raw)
   } catch {
-    return respond({ error: 'Failed to parse Claude response', raw }, 500)
+    const start = raw.indexOf('{')
+    const end = raw.lastIndexOf('}')
+    if (start === -1 || end === -1 || end <= start) {
+      return respond({ error: 'Failed to parse Claude response', raw }, 500)
+    }
+    try {
+      result = JSON.parse(raw.slice(start, end + 1))
+    } catch {
+      return respond({ error: 'Failed to parse Claude response', raw }, 500)
+    }
   }
 
   return respond({ ok: true, fix: result })
