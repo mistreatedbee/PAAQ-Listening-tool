@@ -387,7 +387,7 @@ export default function AppManagementPage() {
       initCode: platform === 'flutter'
         ? `import 'package:paaq_intelligence/paaq_intelligence.dart';\n\nawait PAAQ.initialize(\n  sdkToken: '${tok}',\n  projectId: '${apiKey}',\n);`
         : platform === 'reactnative'
-        ? `import { PAAQProvider } from '@paaq/react-native-sdk';\n\n<PAAQProvider sdkToken="${tok}" projectId="${apiKey}">\n  <YourApp />\n</PAAQProvider>`
+        ? `import { PAAQ } from '@paaq/react-native-sdk';\n\n// Call once in your App component or index.js\nawait PAAQ.initialize({\n  sdkToken: '${tok}',\n  projectId: '${apiKey}',\n});`
         : `import { PAAQProvider } from '@paaq/web-sdk';\n\n<PAAQProvider sdkToken="${tok}" projectId="${apiKey}">\n  <YourApp />\n</PAAQProvider>`,
     },
     backend: {

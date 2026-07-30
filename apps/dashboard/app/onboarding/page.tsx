@@ -124,16 +124,16 @@ function installSnippet(platformId: string, sdkToken: string, projectId: string)
       init: `import 'package:paaq_intelligence/paaq_intelligence.dart';\n\nvoid main() async {\n  WidgetsFlutterBinding.ensureInitialized();\n  await PAAQ.initialize(sdkToken: '${t}', projectId: '${p}');\n  runApp(const MyApp());\n}`,
     }
     case 'reactnative': return {
-      cmd: 'npm install @paaq/mobile-sdk',
-      init: `import { PAAQProvider } from '@paaq/mobile-sdk';\n\nexport default function App() {\n  return (\n    <PAAQProvider sdkToken="${t}" projectId="${p}">\n      <YourApp />\n    </PAAQProvider>\n  );\n}`,
+      cmd: 'npm install @paaq/react-native-sdk @react-native-async-storage/async-storage',
+      init: `import { PAAQ } from '@paaq/react-native-sdk';\n\n// In your App.tsx useEffect or index.js\nawait PAAQ.initialize({\n  sdkToken: '${t}',\n  projectId: '${p}',\n});\n\n// Track events anywhere\nPAAQ.track('button_pressed', { name: 'signup' });\nPAAQ.screen('HomeScreen');`,
     }
     case 'ios': return {
-      cmd: '# Add via Swift Package Manager',
-      init: `import PAAQSDK\n\n@main\nclass AppDelegate: UIResponder, UIApplicationDelegate {\n  func application(_ app: UIApplication,\n    didFinishLaunchingWithOptions opts: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {\n    PAAQ.initialize(sdkToken: "${t}", projectId: "${p}")\n    return true\n  }\n}`,
+      cmd: '# Add PaaqIntelligence via Swift Package Manager in Xcode',
+      init: `import PaaqIntelligence\n\n@main\nstruct MyApp: App {\n  init() {\n    Task {\n      await PAAQ.initialize(\n        sdkToken: "${t}",\n        projectId: "${p}"\n      )\n    }\n  }\n  var body: some Scene {\n    WindowGroup { ContentView() }\n  }\n}`,
     }
     case 'android': return {
-      cmd: "implementation 'io.paaq:android-sdk:1.0.0'",
-      init: `import io.paaq.PAAQ\n\nclass MyApp : Application() {\n  override fun onCreate() {\n    super.onCreate()\n    PAAQ.initialize(this) {\n      sdkToken = "${t}"\n      projectId = "${p}"\n    }\n  }\n}`,
+      cmd: `// In settings.gradle.kts add JitPack, then:\nimplementation("com.github.mistreatedbee.PAAQ-Listening-tool:android-sdk:1.0.0")`,
+      init: `import io.paaq.intelligence.PAAQ\n\nclass MyApplication : Application() {\n  override fun onCreate() {\n    super.onCreate()\n    PAAQ.initialize(\n      context = this,\n      sdkToken = "${t}",\n      projectId = "${p}"\n    )\n  }\n}`,
     }
     case 'nodejs': return {
       cmd: 'npm install @paaq/server-sdk',

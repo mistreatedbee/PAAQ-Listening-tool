@@ -1,0 +1,31 @@
+{
+  "name": "@paaq/react-native-sdk",
+  "version": "1.0.0",
+  "description": "PAAQ Intelligence SDK for React Native and Expo apps",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --external react-native @react-native-async-storage/async-storage",
+    "dev": "tsup src/index.ts --format esm --dts --watch"
+  },
+  "keywords": ["paaq", "analytics", "intelligence", "sdk", "react-native", "expo", "mobile"],
+  "license": "MIT",
+  "peerDependencies": {
+    "react-native": ">=0.68.0",
+    "@react-native-async-storage/async-storage": ">=1.18.0"
+  },
+  "devDependencies": {
+    "@types/react-native": "^0.72.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.5.0"
+  }
+}
