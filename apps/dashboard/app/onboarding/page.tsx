@@ -120,8 +120,8 @@ function installSnippet(platformId: string, sdkToken: string, projectId: string)
       init: `<script>\n  window.PAAQ_CONFIG = { sdkToken: '${t}', projectId: '${p}' };\n</script>\n<script src="https://cdn.paaq.ai/web-sdk.js" async></script>`,
     }
     case 'flutter': return {
-      cmd: 'flutter pub add paaq_mobile_sdk',
-      init: `import 'package:paaq_mobile_sdk/paaq_mobile_sdk.dart';\n\nvoid main() async {\n  WidgetsFlutterBinding.ensureInitialized();\n  await PAAQ.initialize(sdkToken: '${t}', projectId: '${p}');\n  runApp(const MyApp());\n}`,
+      cmd: 'flutter pub add paaq_intelligence',
+      init: `import 'package:paaq_intelligence/paaq_intelligence.dart';\n\nvoid main() async {\n  WidgetsFlutterBinding.ensureInitialized();\n  await PAAQ.initialize(sdkToken: '${t}', projectId: '${p}');\n  runApp(const MyApp());\n}`,
     }
     case 'reactnative': return {
       cmd: 'npm install @paaq/mobile-sdk',

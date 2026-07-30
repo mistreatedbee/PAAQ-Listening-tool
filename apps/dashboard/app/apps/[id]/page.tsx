@@ -380,12 +380,12 @@ export default function AppManagementPage() {
   const LAYER_SETUP: Record<LayerKey, { installCmd: string | null; initCode: string | null }> = {
     frontend: {
       installCmd: platform === 'flutter'
-        ? 'flutter pub add paaq_mobile_sdk'
+        ? 'flutter pub add paaq_intelligence'
         : platform === 'reactnative'
         ? 'npm install @paaq/react-native-sdk'
         : 'npm install @paaq/web-sdk',
       initCode: platform === 'flutter'
-        ? `import 'package:paaq_mobile_sdk/paaq.dart';\n\nawait PAAQ.initialize(\n  sdkToken: '${tok}',\n  projectId: '${apiKey}',\n);`
+        ? `import 'package:paaq_intelligence/paaq_intelligence.dart';\n\nawait PAAQ.initialize(\n  sdkToken: '${tok}',\n  projectId: '${apiKey}',\n);`
         : platform === 'reactnative'
         ? `import { PAAQProvider } from '@paaq/react-native-sdk';\n\n<PAAQProvider sdkToken="${tok}" projectId="${apiKey}">\n  <YourApp />\n</PAAQProvider>`
         : `import { PAAQProvider } from '@paaq/web-sdk';\n\n<PAAQProvider sdkToken="${tok}" projectId="${apiKey}">\n  <YourApp />\n</PAAQProvider>`,

@@ -97,7 +97,7 @@ function buildChecklist(type: AppTypeId, tech: string, _method: string, apiKey: 
   const installCmd = isBack && isPy
     ? 'pip install paaq-server-sdk'
     : isMobile && isFlutter
-    ? 'flutter pub add paaq_mobile_sdk'
+    ? 'flutter pub add paaq_intelligence'
     : isBack
     ? 'npm install @paaq/server-sdk'
     : isWeb
