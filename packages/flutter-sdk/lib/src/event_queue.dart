@@ -4,10 +4,10 @@ import 'api_client.dart';
 import 'config.dart';
 
 /// Batches events and flushes them to the API on a timer or when the
-/// queue reaches [ListeningConfig.maxQueueSize].
+/// queue reaches [PaaqConfig.maxQueueSize].
 class EventQueue {
   final ApiClient _client;
-  final ListeningConfig _config;
+  final PaaqConfig _config;
 
   final List<PAQEvent> _queue = [];
   Timer? _timer;

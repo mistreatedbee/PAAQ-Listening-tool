@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'config.dart';
 import 'api_client.dart';
 import 'event_queue.dart';
@@ -6,55 +7,57 @@ import 'device_info.dart';
 import 'models/event.dart';
 import 'models/session.dart';
 
-/// Entry point for the PAAQ Listening SDK.
+/// Entry point for the PAAQ Intelligence SDK.
 ///
 /// Usage:
 /// ```dart
-/// await Listening.initialize(
-///   apiKey: 'your_api_key',
-///   projectId: 'your_project_id',
+/// await PAAQ.initialize(
+///   sdkToken: 'sdk_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+///   projectId: 'proj_xxxxxxxx',
 /// );
 /// ```
-class Listening {
-  static Listening? _instance;
+class PAAQ {
+  static PAAQ? _instance;
 
-  final ListeningConfig _config;
+  final PaaqConfig _config;
   final ApiClient _api;
   final EventQueue _queue;
   final ErrorTracker _errors;
 
   String? _userId;
+  String _deviceId = '';
   PAQSession? _session;
+  Timer? _heartbeatTimer;
 
-  Listening._(this._config)
+  PAAQ._(this._config)
       : _api = ApiClient(_config),
         _queue = EventQueue(ApiClient(_config), _config),
         _errors = ErrorTracker(ApiClient(_config));
 
   /// Initialize the SDK. Call once at app startup before runApp().
   static Future<void> initialize({
-    required String apiKey,
+    required String sdkToken,
     required String projectId,
     String? baseUrl,
     bool debug = false,
   }) async {
-    final config = ListeningConfig(
-      apiKey: apiKey,
+    final config = PaaqConfig(
+      sdkToken: sdkToken,
       projectId: projectId,
       baseUrl: baseUrl ?? 'https://mookyonwpovxscsbqwwl.supabase.co/functions/v1',
       debug: debug,
     );
 
-    _instance = Listening._(config);
+    _instance = PAAQ._(config);
     _instance!._errors.install();
     _instance!._queue.start();
 
-    // Start a session automatically on initialize.
     await _instance!._startSession();
+    _instance!._scheduleHeartbeat();
   }
 
-  static Listening get _i {
-    assert(_instance != null, 'Call Listening.initialize() before using the SDK.');
+  static PAAQ get _i {
+    assert(_instance != null, 'Call PAAQ.initialize() before using the SDK.');
     return _instance!;
   }
 
@@ -77,7 +80,7 @@ class Listening {
     _i._track(PAQEvent(
       name: eventName,
       properties: properties,
-      screen: _i._errors._currentScreen,
+      screen: _i._errors.currentScreen,
       userId: _i._userId,
       sessionId: _i._session?.id,
     ));
@@ -105,6 +108,7 @@ class Listening {
 
   /// Dispose the SDK (call in app lifecycle onDetach).
   static Future<void> dispose() async {
+    _i._heartbeatTimer?.cancel();
     await _i._endSession();
     _i._queue.dispose();
   }
@@ -114,14 +118,11 @@ class Listening {
   void _track(PAQEvent event) => _queue.enqueue(event);
 
   Future<void> _startSession() async {
-    final deviceInfo = await DeviceInfoCollector.collect();
-    final sessionId = await _api.startSession({
-      'user_id': _userId,
-      ...deviceInfo.map((k, v) => MapEntry(k, v ?? '')),
-    });
-    if (sessionId != null) {
-      _session = PAQSession(id: sessionId);
-      _errors.setSession(sessionId);
+    _deviceId = await DeviceInfoCollector.deviceId();
+    final result = await _api.initHandshake(_deviceId);
+    if (result.ok && result.sessionId != null) {
+      _session = PAQSession(id: result.sessionId!);
+      _errors.setSession(result.sessionId);
     }
   }
 
@@ -131,5 +132,16 @@ class Listening {
     s.end();
     await _api.endSession(s.id, s.durationSeconds);
     _session = null;
+  }
+
+  void _scheduleHeartbeat() {
+    _heartbeatTimer?.cancel();
+    // Keeps sdk_installations.last_seen fresh for as long as the app is
+    // actually running — no relaunch needed for Connection Status to see
+    // this as connected.
+    _heartbeatTimer = Timer.periodic(
+      Duration(seconds: _config.heartbeatInterval),
+      (_) => _api.heartbeat(_deviceId),
+    );
   }
 }

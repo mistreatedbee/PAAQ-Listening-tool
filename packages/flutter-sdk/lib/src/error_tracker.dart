@@ -9,6 +9,8 @@ class ErrorTracker {
 
   ErrorTracker(this._client);
 
+  String? get currentScreen => _currentScreen;
+
   void install() {
     FlutterError.onError = (FlutterErrorDetails details) {
       _capture(

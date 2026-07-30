@@ -1,5 +1,5 @@
-name: paaq_listening_sdk
-description: PAAQ Listening Platform SDK for Flutter. Automatically tracks sessions, events, errors, and performance.
+name: paaq_intelligence
+description: PAAQ Intelligence SDK for Flutter. Automatically tracks sessions, events, errors, and performance.
 version: 0.1.0
 homepage: https://github.com/mistreatedbee/PAAQ-Listening-tool
 

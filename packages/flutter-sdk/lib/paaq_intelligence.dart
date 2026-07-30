@@ -1,4 +1,4 @@
-library paaq_listening_sdk;
+library paaq_intelligence;
 
 export 'src/listening.dart';
 export 'src/config.dart';

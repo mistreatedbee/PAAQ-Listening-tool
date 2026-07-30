@@ -1,8 +1,24 @@
 import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 
 class DeviceInfoCollector {
+  static const _deviceIdKey = 'paaq_device_id';
+
+  /// A stable per-install identifier, persisted across app launches so the
+  /// same physical install always maps to the same sdk_installations row.
+  static Future<String> deviceId() async {
+    final prefs = await SharedPreferences.getInstance();
+    var id = prefs.getString(_deviceIdKey);
+    if (id == null) {
+      id = const Uuid().v4();
+      await prefs.setString(_deviceIdKey, id);
+    }
+    return id;
+  }
+
   static Future<Map<String, String?>> collect() async {
     final packageInfo = await PackageInfo.fromPlatform();
     final plugin = DeviceInfoPlugin();
