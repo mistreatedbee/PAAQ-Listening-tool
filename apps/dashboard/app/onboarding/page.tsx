@@ -95,7 +95,10 @@ const TEAM_SIZES = ['Just me', '2–10', '11–50', '51–200', '200+']
 
 // ─── Install snippets ─────────────────────────────────────────────────────────
 
-function installSnippet(platformId: string, sdkToken: string, projectId: string): { cmd: string; init: string } {
+type InstallStep = { title: string; note?: string; code?: string }
+type SnippetResult = { cmd: string; init: string; steps?: InstallStep[] }
+
+function installSnippet(platformId: string, sdkToken: string, projectId: string): SnippetResult {
   const t = sdkToken || 'sdk_live_your_token_here'
   const p = projectId || 'proj_your_id'
   switch (platformId) {
@@ -128,12 +131,41 @@ function installSnippet(platformId: string, sdkToken: string, projectId: string)
       init: `import { PAAQ } from '@paaq/react-native-sdk';\n\n// In your App.tsx useEffect or index.js\nawait PAAQ.initialize({\n  sdkToken: '${t}',\n  projectId: '${p}',\n});\n\n// Track events anywhere\nPAAQ.track('button_pressed', { name: 'signup' });\nPAAQ.screen('HomeScreen');`,
     }
     case 'ios': return {
-      cmd: '# Add PaaqIntelligence via Swift Package Manager in Xcode',
+      cmd: 'https://github.com/mistreatedbee/paaq-intelligence-ios',
       init: `import PaaqIntelligence\n\n@main\nstruct MyApp: App {\n  init() {\n    Task {\n      await PAAQ.initialize(\n        sdkToken: "${t}",\n        projectId: "${p}"\n      )\n    }\n  }\n  var body: some Scene {\n    WindowGroup { ContentView() }\n  }\n}`,
+      steps: [
+        {
+          title: '1. Add via Swift Package Manager',
+          note: 'In Xcode → File → Add Package Dependencies, paste this URL:',
+          code: 'https://github.com/mistreatedbee/paaq-intelligence-ios',
+        },
+        {
+          title: '2. Select version & target',
+          note: 'Set "Up to Next Major Version" from 1.0.0, select PaaqIntelligence as the target, then click Add Package.',
+        },
+        {
+          title: '3. Initialize in your app entry point',
+          code: `import PaaqIntelligence\n\n@main\nstruct MyApp: App {\n  init() {\n    Task {\n      await PAAQ.initialize(\n        sdkToken: "${t}",\n        projectId: "${p}"\n      )\n    }\n  }\n  var body: some Scene {\n    WindowGroup { ContentView() }\n  }\n}`,
+        },
+      ],
     }
     case 'android': return {
-      cmd: `// In settings.gradle.kts add JitPack, then:\nimplementation("com.github.mistreatedbee.PAAQ-Listening-tool:android-sdk:1.0.0")`,
+      cmd: `implementation("com.github.mistreatedbee:paaq-intelligence-android:1.0.0")`,
       init: `import io.paaq.intelligence.PAAQ\n\nclass MyApplication : Application() {\n  override fun onCreate() {\n    super.onCreate()\n    PAAQ.initialize(\n      context = this,\n      sdkToken = "${t}",\n      projectId = "${p}"\n    )\n  }\n}`,
+      steps: [
+        {
+          title: '1. Add JitPack to settings.gradle.kts',
+          code: `dependencyResolutionManagement {\n    repositories {\n        google()\n        mavenCentral()\n        maven { url = uri("https://jitpack.io") }\n    }\n}`,
+        },
+        {
+          title: '2. Add dependency to build.gradle.kts',
+          code: `dependencies {\n    implementation("com.github.mistreatedbee:paaq-intelligence-android:1.0.0")\n}`,
+        },
+        {
+          title: '3. Sync project, then initialize in Application.kt',
+          code: `import io.paaq.intelligence.PAAQ\n\nclass MyApplication : Application() {\n  override fun onCreate() {\n    super.onCreate()\n    PAAQ.initialize(\n      context = this,\n      sdkToken = "${t}",\n      projectId = "${p}"\n    )\n  }\n}`,
+        },
+      ],
     }
     case 'nodejs': return {
       cmd: 'npm install @paaq/server-sdk',
@@ -695,7 +727,7 @@ function SdkSetupScreen({ product, credentials, onBack, onNext }: {
   product: ProductData; credentials: Credentials; onBack: () => void; onNext: () => void
 }) {
   const techOption = ALL_TECH.find((t) => t.label === product.technology)
-  const { cmd, init } = installSnippet(techOption?.platformId ?? 'other', credentials.sdkToken, credentials.projectId)
+  const { cmd, init, steps } = installSnippet(techOption?.platformId ?? 'other', credentials.sdkToken, credentials.projectId)
 
   const rows = [
     { label: 'Project ID',      value: credentials.projectId,     hint: 'Use in SDK initialization',          secret: false },
@@ -769,27 +801,51 @@ function SdkSetupScreen({ product, credentials, onBack, onNext }: {
 
       <LabeledDivider>Install the SDK</LabeledDivider>
 
-      <div>
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-sm font-semibold" style={{ color: C.textPrimary }}>1. Install package</span>
-          <CopyButton text={cmd} />
+      {steps && steps.length > 0 ? (
+        <div className="space-y-4">
+          {steps.map((step, i) => (
+            <div key={i} className="rounded-2xl border p-4" style={{ borderColor: C.border, background: '#fff' }}>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <span className="text-sm font-semibold" style={{ color: C.textPrimary }}>{step.title}</span>
+                {step.code && <CopyButton text={step.code} />}
+              </div>
+              {step.note && (
+                <p className="mb-2 text-xs leading-relaxed" style={{ color: C.textMuted }}>{step.note}</p>
+              )}
+              {step.code && (
+                <div className="overflow-x-auto rounded-xl border p-3 font-mono text-xs leading-relaxed whitespace-pre"
+                  style={{ borderColor: C.border, background: '#f8fafc', color: C.teal }}>
+                  {step.code}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
-        <div className="overflow-x-auto rounded-xl border p-4 font-mono text-xs"
-          style={{ borderColor: C.border, background: '#f8fafc', color: C.teal }}>
-          {cmd}
-        </div>
-      </div>
+      ) : (
+        <>
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-sm font-semibold" style={{ color: C.textPrimary }}>1. Install package</span>
+              <CopyButton text={cmd} />
+            </div>
+            <div className="overflow-x-auto rounded-xl border p-4 font-mono text-xs"
+              style={{ borderColor: C.border, background: '#f8fafc', color: C.teal }}>
+              {cmd}
+            </div>
+          </div>
 
-      <div>
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-sm font-semibold" style={{ color: C.textPrimary }}>2. Initialise with your credentials</span>
-          <CopyButton text={init} label="Copy code" />
-        </div>
-        <pre className="overflow-x-auto rounded-xl p-4 font-mono text-xs leading-relaxed"
-          style={{ background: '#0d1117', color: '#86efac' }}>
-          {init}
-        </pre>
-      </div>
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-sm font-semibold" style={{ color: C.textPrimary }}>2. Initialise with your credentials</span>
+              <CopyButton text={init} label="Copy code" />
+            </div>
+            <pre className="overflow-x-auto rounded-xl p-4 font-mono text-xs leading-relaxed"
+              style={{ background: '#0d1117', color: '#86efac' }}>
+              {init}
+            </pre>
+          </div>
+        </>
+      )}
 
       <Rule />
 
