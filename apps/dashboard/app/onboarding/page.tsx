@@ -105,46 +105,139 @@ function installSnippet(platformId: string, sdkToken: string, projectId: string)
     case 'react': return {
       cmd: 'npm install @paaq/web-sdk',
       init: `import { PAAQProvider } from '@paaq/web-sdk';\n\nexport default function App() {\n  return (\n    <PAAQProvider sdkToken="${t}" projectId="${p}">\n      <YourApp />\n    </PAAQProvider>\n  );\n}`,
+      steps: [
+        {
+          title: 'Step 1 — Install PAAQ',
+          note: 'Open the Terminal app on your Mac (press ⌘+Space, type "Terminal", hit Enter). Then navigate to your project folder and run:',
+          code: 'npm install @paaq/web-sdk',
+        },
+        {
+          title: 'Step 2 — Wrap your app with PAAQ',
+          note: 'Open your main App.jsx (or App.tsx) file. Your credentials are already filled in — just paste this:',
+          code: `import { PAAQProvider } from '@paaq/web-sdk';\n\nexport default function App() {\n  return (\n    <PAAQProvider sdkToken="${t}" projectId="${p}">\n      <YourApp />\n    </PAAQProvider>\n  );\n}`,
+        },
+      ],
     }
     case 'nextjs': return {
       cmd: 'npm install @paaq/web-sdk',
       init: `import { PAAQProvider } from '@paaq/web-sdk';\n\nexport default function RootLayout({ children }) {\n  return (\n    <html><body>\n      <PAAQProvider sdkToken="${t}" projectId="${p}">\n        {children}\n      </PAAQProvider>\n    </body></html>\n  );\n}`,
+      steps: [
+        {
+          title: 'Step 1 — Install PAAQ',
+          note: 'Open Terminal in your Next.js project folder and run:',
+          code: 'npm install @paaq/web-sdk',
+        },
+        {
+          title: 'Step 2 — Add to your root layout',
+          note: 'Open app/layout.tsx (or app/layout.js) and wrap children with PAAQProvider — your credentials are already filled in:',
+          code: `import { PAAQProvider } from '@paaq/web-sdk';\n\nexport default function RootLayout({ children }) {\n  return (\n    <html><body>\n      <PAAQProvider sdkToken="${t}" projectId="${p}">\n        {children}\n      </PAAQProvider>\n    </body></html>\n  );\n}`,
+        },
+      ],
     }
     case 'vue': return {
       cmd: 'npm install @paaq/web-sdk',
       init: `import { createApp } from 'vue';\nimport { PAAQPlugin } from '@paaq/web-sdk';\n\nconst app = createApp(App);\napp.use(PAAQPlugin, { sdkToken: '${t}', projectId: '${p}' });\napp.mount('#app');`,
+      steps: [
+        {
+          title: 'Step 1 — Install PAAQ',
+          note: 'Open Terminal in your Vue project folder and run:',
+          code: 'npm install @paaq/web-sdk',
+        },
+        {
+          title: 'Step 2 — Register the PAAQ plugin',
+          note: 'Open src/main.js (or main.ts) and add the PAAQ plugin — your credentials are already filled in:',
+          code: `import { createApp } from 'vue';\nimport { PAAQPlugin } from '@paaq/web-sdk';\n\nconst app = createApp(App);\napp.use(PAAQPlugin, { sdkToken: '${t}', projectId: '${p}' });\napp.mount('#app');`,
+        },
+      ],
     }
     case 'angular': return {
       cmd: 'npm install @paaq/web-sdk',
       init: `import { PAAQ } from '@paaq/web-sdk';\n\n// In main.ts\nPAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });`,
+      steps: [
+        {
+          title: 'Step 1 — Install PAAQ',
+          note: 'Open Terminal in your Angular project folder and run:',
+          code: 'npm install @paaq/web-sdk',
+        },
+        {
+          title: 'Step 2 — Initialize in main.ts',
+          note: 'Open src/main.ts and add these two lines before bootstrapApplication:',
+          code: `import { PAAQ } from '@paaq/web-sdk';\n\nPAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });`,
+        },
+      ],
     }
     case 'vanilla': return {
-      cmd: '# Add to your HTML <head>',
-      init: `<script>\n  window.PAAQ_CONFIG = { sdkToken: '${t}', projectId: '${p}' };\n</script>\n<script src="https://cdn.paaq.ai/web-sdk.js" async></script>`,
+      cmd: '<!-- No install needed — just paste into your HTML -->',
+      init: `<script type="module">\n  import { PAAQ } from 'https://unpkg.com/@paaq/web-sdk@1.0.0/dist/index.mjs';\n  PAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });\n</script>`,
+      steps: [
+        {
+          title: 'Step 1 — Open your website\'s HTML file',
+          note: 'Find your main HTML file (usually index.html) and open it in any text editor — Notepad on Windows, TextEdit on Mac, or any code editor.',
+        },
+        {
+          title: 'Step 2 — Paste this code just before </body>',
+          note: 'Scroll to the very bottom of the file. Find the </body> tag and paste this code right above it. No npm or build tools needed:',
+          code: `<script type="module">\n  import { PAAQ } from 'https://unpkg.com/@paaq/web-sdk@1.0.0/dist/index.mjs';\n  PAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });\n</script>`,
+        },
+        {
+          title: 'Step 3 — Save and reload your page',
+          note: 'Save the file, then open or refresh your website in a browser. PAAQ will start tracking automatically — click "Verify connection" below to confirm it worked.',
+        },
+      ],
     }
     case 'flutter': return {
       cmd: 'flutter pub add paaq_intelligence',
       init: `import 'package:paaq_intelligence/paaq_intelligence.dart';\n\nvoid main() async {\n  WidgetsFlutterBinding.ensureInitialized();\n  await PAAQ.initialize(sdkToken: '${t}', projectId: '${p}');\n  runApp(const MyApp());\n}`,
+      steps: [
+        {
+          title: 'Step 1 — Add PAAQ to your Flutter project',
+          note: 'Open Terminal in your Flutter project folder and run this command:',
+          code: 'flutter pub add paaq_intelligence',
+        },
+        {
+          title: 'Step 2 — Initialize in main.dart',
+          note: 'Open lib/main.dart. Find the main() function and update it — your credentials are already filled in:',
+          code: `import 'package:paaq_intelligence/paaq_intelligence.dart';\n\nvoid main() async {\n  WidgetsFlutterBinding.ensureInitialized();\n  await PAAQ.initialize(sdkToken: '${t}', projectId: '${p}');\n  runApp(const MyApp());\n}`,
+        },
+      ],
     }
     case 'reactnative': return {
       cmd: 'npm install @paaq/react-native-sdk @react-native-async-storage/async-storage',
-      init: `import { PAAQ } from '@paaq/react-native-sdk';\n\n// In your App.tsx useEffect or index.js\nawait PAAQ.initialize({\n  sdkToken: '${t}',\n  projectId: '${p}',\n});\n\n// Track events anywhere\nPAAQ.track('button_pressed', { name: 'signup' });\nPAAQ.screen('HomeScreen');`,
+      init: `import { PAAQ } from '@paaq/react-native-sdk';\n\nuseEffect(() => {\n  PAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });\n}, []);`,
+      steps: [
+        {
+          title: 'Step 1 — Install PAAQ',
+          note: 'Open Terminal in your React Native project folder and run:',
+          code: 'npm install @paaq/react-native-sdk @react-native-async-storage/async-storage',
+        },
+        {
+          title: 'Step 2 — Link native modules (iOS only)',
+          note: 'If your app targets iOS, run this once to link the native storage module:',
+          code: 'cd ios && pod install && cd ..',
+        },
+        {
+          title: 'Step 3 — Initialize in your App.tsx',
+          note: 'Open App.tsx (or App.js) and add PAAQ inside a useEffect hook — your credentials are already filled in:',
+          code: `import { PAAQ } from '@paaq/react-native-sdk';\n\nuseEffect(() => {\n  PAAQ.initialize({\n    sdkToken: '${t}',\n    projectId: '${p}',\n  });\n}, []);`,
+        },
+      ],
     }
     case 'ios': return {
       cmd: 'https://github.com/mistreatedbee/paaq-intelligence-ios',
       init: `import PaaqIntelligence\n\n@main\nstruct MyApp: App {\n  init() {\n    Task {\n      await PAAQ.initialize(\n        sdkToken: "${t}",\n        projectId: "${p}"\n      )\n    }\n  }\n  var body: some Scene {\n    WindowGroup { ContentView() }\n  }\n}`,
       steps: [
         {
-          title: '1. Add via Swift Package Manager',
-          note: 'In Xcode → File → Add Package Dependencies, paste this URL:',
+          title: 'Step 1 — Open Xcode and add the package',
+          note: 'In Xcode, click File in the top menu → Add Package Dependencies. In the search box (top right of the dialog), paste this URL and press Enter:',
           code: 'https://github.com/mistreatedbee/paaq-intelligence-ios',
         },
         {
-          title: '2. Select version & target',
-          note: 'Set "Up to Next Major Version" from 1.0.0, select PaaqIntelligence as the target, then click Add Package.',
+          title: 'Step 2 — Select version and add',
+          note: 'In the dialog: set version to "Up to Next Major Version" from 1.0.0. Make sure PaaqIntelligence is ticked as the target. Click Add Package.',
         },
         {
-          title: '3. Initialize in your app entry point',
+          title: 'Step 3 — Initialize in your app',
+          note: 'Open the Swift file marked with @main (usually YourAppName.swift). Replace or update the struct to look like this — your credentials are already filled in:',
           code: `import PaaqIntelligence\n\n@main\nstruct MyApp: App {\n  init() {\n    Task {\n      await PAAQ.initialize(\n        sdkToken: "${t}",\n        projectId: "${p}"\n      )\n    }\n  }\n  var body: some Scene {\n    WindowGroup { ContentView() }\n  }\n}`,
         },
       ],
@@ -154,40 +247,110 @@ function installSnippet(platformId: string, sdkToken: string, projectId: string)
       init: `import io.paaq.intelligence.PAAQ\n\nclass MyApplication : Application() {\n  override fun onCreate() {\n    super.onCreate()\n    PAAQ.initialize(\n      context = this,\n      sdkToken = "${t}",\n      projectId = "${p}"\n    )\n  }\n}`,
       steps: [
         {
-          title: '1. Add JitPack to settings.gradle.kts',
-          code: `dependencyResolutionManagement {\n    repositories {\n        google()\n        mavenCentral()\n        maven { url = uri("https://jitpack.io") }\n    }\n}`,
+          title: 'Step 1 — Add JitPack repository',
+          note: 'Open settings.gradle.kts (in the root of your Android project — not the app/ folder). Find the repositories block and add the JitPack line:',
+          code: `dependencyResolutionManagement {\n    repositories {\n        google()\n        mavenCentral()\n        maven { url = uri("https://jitpack.io") }  // add this line\n    }\n}`,
         },
         {
-          title: '2. Add dependency to build.gradle.kts',
+          title: 'Step 2 — Add the PAAQ package',
+          note: 'Open build.gradle.kts inside the app/ folder. Find the dependencies { } block and add this line:',
           code: `dependencies {\n    implementation("com.github.mistreatedbee:paaq-intelligence-android:1.0.0")\n}`,
         },
         {
-          title: '3. Sync project, then initialize in Application.kt',
+          title: 'Step 3 — Sync and initialize',
+          note: 'Click "Sync Now" when Android Studio prompts you. Then open (or create) Application.kt and add your PAAQ setup — credentials already filled in:',
           code: `import io.paaq.intelligence.PAAQ\n\nclass MyApplication : Application() {\n  override fun onCreate() {\n    super.onCreate()\n    PAAQ.initialize(\n      context = this,\n      sdkToken = "${t}",\n      projectId = "${p}"\n    )\n  }\n}`,
         },
       ],
     }
     case 'nodejs': return {
       cmd: 'npm install @paaq/server-sdk',
-      init: `import { PAAQ } from '@paaq/server-sdk';\n\nPAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });\n\napp.use(PAAQ.middleware());`,
+      init: `import { PAAQ } from '@paaq/server-sdk';\n\nPAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });\napp.use(PAAQ.middleware());`,
+      steps: [
+        {
+          title: 'Step 1 — Install PAAQ',
+          note: 'Open Terminal in your Node.js project folder and run:',
+          code: 'npm install @paaq/server-sdk',
+        },
+        {
+          title: 'Step 2 — Initialize in your server file',
+          note: 'Open your main server file (usually index.js, server.js, or app.js) and add these lines at the very top:',
+          code: `import { PAAQ } from '@paaq/server-sdk';\n\nPAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });\n\n// Automatically tracks every API request:\napp.use(PAAQ.middleware());`,
+        },
+      ],
     }
     case 'python': return {
       cmd: 'pip install paaq-server-sdk',
-      init: `from paaq import PAAQ\n\nPAAQ.initialize(sdk_token='${t}', project_id='${p}')\n\n# Flask / FastAPI\napp.add_middleware(PAAQ.middleware)`,
+      init: `from paaq import PAAQ\n\nPAAQ.initialize(sdk_token='${t}', project_id='${p}')`,
+      steps: [
+        {
+          title: 'Step 1 — Install PAAQ',
+          note: 'Open Terminal in your Python project folder and run:',
+          code: 'pip install paaq-server-sdk',
+        },
+        {
+          title: 'Step 2 — Initialize at startup',
+          note: 'At the top of your main Python file (e.g. main.py, app.py), add:',
+          code: `from paaq import PAAQ\n\nPAAQ.initialize(sdk_token='${t}', project_id='${p}')`,
+        },
+      ],
     }
     case 'go': return {
       cmd: 'go get github.com/paaq/go-sdk',
-      init: `import "github.com/paaq/go-sdk"\n\nfunc main() {\n    paaq.Initialize(paaq.Config{\n        SDKToken:  "${t}",\n        ProjectID: "${p}",\n    })\n    http.Handle("/", paaq.Middleware(yourHandler))\n    http.ListenAndServe(":8080", nil)\n}`,
+      init: `import paaq "github.com/paaq/go-sdk"\n\npaaq.Initialize(paaq.Config{ SDKToken: "${t}", ProjectID: "${p}" })`,
+      steps: [
+        {
+          title: 'Step 1 — Install PAAQ',
+          note: 'Open Terminal in your Go project folder and run:',
+          code: 'go get github.com/paaq/go-sdk',
+        },
+        {
+          title: 'Step 2 — Initialize in main.go',
+          note: 'Open main.go and add PAAQ initialization at the start of main():',
+          code: `import paaq "github.com/paaq/go-sdk"\n\npaaq.Initialize(paaq.Config{\n    SDKToken:  "${t}",\n    ProjectID: "${p}",\n})`,
+        },
+      ],
     }
     case 'java': return {
-      cmd: `// Add to pom.xml\n<dependency>\n  <groupId>ai.paaq</groupId>\n  <artifactId>paaq-java-sdk</artifactId>\n  <version>1.0.0</version>\n</dependency>`,
-      init: `import ai.paaq.PAAQ;\n\n@SpringBootApplication\npublic class Application {\n  public static void main(String[] args) {\n    PAAQ.initialize(new PAAQConfig()\n      .sdkToken("${t}")\n      .projectId("${p}"));\n    SpringApplication.run(Application.class, args);\n  }\n}`,
+      cmd: `<dependency>\n  <groupId>ai.paaq</groupId>\n  <artifactId>paaq-java-sdk</artifactId>\n  <version>1.0.0</version>\n</dependency>`,
+      init: `import ai.paaq.PAAQ;\n\nPAAQ.initialize(new PAAQConfig().sdkToken("${t}").projectId("${p}"));`,
+      steps: [
+        {
+          title: 'Step 1 — Add PAAQ to pom.xml',
+          note: 'Open pom.xml and paste this inside the <dependencies> block:',
+          code: `<dependency>\n  <groupId>ai.paaq</groupId>\n  <artifactId>paaq-java-sdk</artifactId>\n  <version>1.0.0</version>\n</dependency>`,
+        },
+        {
+          title: 'Step 2 — Initialize in your Application class',
+          note: 'Add this to your main Application class or Spring Boot startup:',
+          code: `import ai.paaq.PAAQ;\n\nPAAQ.initialize(new PAAQConfig()\n  .sdkToken("${t}")\n  .projectId("${p}"));`,
+        },
+      ],
     }
     case 'dotnet': return {
       cmd: 'dotnet add package PAAQ.ServerSDK',
-      init: `using PAAQ;\n\n// In Program.cs\nbuilder.Services.AddPAAQ(options => {\n    options.SDKToken = "${t}";\n    options.ProjectId = "${p}";\n});\napp.UsePAAQ();`,
+      init: `using PAAQ;\n\nbuilder.Services.AddPAAQ(o => { o.SDKToken = "${t}"; o.ProjectId = "${p}"; });\napp.UsePAAQ();`,
+      steps: [
+        {
+          title: 'Step 1 — Install PAAQ',
+          note: 'Open Terminal in your .NET project folder and run:',
+          code: 'dotnet add package PAAQ.ServerSDK',
+        },
+        {
+          title: 'Step 2 — Register in Program.cs',
+          note: 'Open Program.cs and add PAAQ to your service registration — your credentials are already filled in:',
+          code: `using PAAQ;\n\nbuilder.Services.AddPAAQ(options => {\n    options.SDKToken = "${t}";\n    options.ProjectId = "${p}";\n});\napp.UsePAAQ();`,
+        },
+      ],
     }
-    default: return { cmd: 'npm install @paaq/web-sdk', init: `PAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });` }
+    default: return {
+      cmd: 'npm install @paaq/web-sdk',
+      init: `PAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });`,
+      steps: [
+        { title: 'Step 1 — Install', code: 'npm install @paaq/web-sdk' },
+        { title: 'Step 2 — Initialize', code: `PAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });` },
+      ],
+    }
   }
 }
 
@@ -728,6 +891,26 @@ function SdkSetupScreen({ product, credentials, onBack, onNext }: {
 }) {
   const techOption = ALL_TECH.find((t) => t.label === product.technology)
   const { cmd, init, steps } = installSnippet(techOption?.platformId ?? 'other', credentials.sdkToken, credentials.projectId)
+  const [checkState, setCheckState] = useState<'idle' | 'checking' | 'connected' | 'timeout'>('idle')
+
+  const checkConnection = async () => {
+    setCheckState('checking')
+    const sb = createClient()
+    const deadline = Date.now() + 30_000
+    const poll = async (): Promise<void> => {
+      if (Date.now() >= deadline) { setCheckState('timeout'); return }
+      const cutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+      const { data } = await sb
+        .from('sdk_installations')
+        .select('id')
+        .eq('project_id', credentials.projectId)
+        .gte('last_seen', cutoff)
+        .limit(1)
+      if (data && data.length > 0) { setCheckState('connected') }
+      else { setTimeout(poll, 3000) }
+    }
+    poll()
+  }
 
   const rows = [
     { label: 'Project ID',      value: credentials.projectId,     hint: 'Use in SDK initialization',          secret: false },
@@ -847,14 +1030,68 @@ function SdkSetupScreen({ product, credentials, onBack, onNext }: {
         </>
       )}
 
+      {/* Connection verification */}
+      <div className="rounded-2xl border p-4" style={{ borderColor: C.border, background: 'rgba(39,166,206,0.03)' }}>
+        <div className="mb-1 text-sm font-semibold" style={{ color: C.textPrimary }}>Test your connection</div>
+        <p className="mb-3 text-xs leading-relaxed" style={{ color: C.textMuted }}>
+          After adding the SDK to your app and running it at least once, click the button below.
+          We&apos;ll check if PAAQ has received a signal from your app — it only takes a few seconds.
+        </p>
+
+        {checkState === 'idle' && (
+          <button type="button" onClick={checkConnection}
+            className="flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-all hover:shadow-sm"
+            style={{ borderColor: C.teal, color: C.teal, background: C.tealSoft }}>
+            <Activity className="h-4 w-4" />
+            Verify connection
+          </button>
+        )}
+
+        {checkState === 'checking' && (
+          <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: C.teal }}>
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Listening for your app… (checking every 3 seconds)
+          </div>
+        )}
+
+        {checkState === 'connected' && (
+          <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: C.green }}>
+            <CheckCircle2 className="h-4 w-4" />
+            Connected! PAAQ is receiving data from your app.
+          </div>
+        )}
+
+        {checkState === 'timeout' && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: '#dc2626' }}>
+              <X className="h-4 w-4" />
+              No signal detected yet.
+            </div>
+            <p className="text-xs leading-relaxed" style={{ color: C.textMuted }}>
+              Make sure you&apos;ve added the code, saved the file, and run the app. Then try again.
+            </p>
+            <button type="button" onClick={checkConnection}
+              className="flex items-center gap-2 rounded-xl border px-4 py-2 text-xs font-semibold"
+              style={{ borderColor: C.border, color: C.textSecondary }}>
+              <Activity className="h-3.5 w-3.5" />
+              Try again
+            </button>
+          </div>
+        )}
+      </div>
+
       <Rule />
 
       <div className="flex gap-3">
         <SecondaryButton onClick={downloadTxt}>
           <Download className="h-4 w-4" /> Download .txt
         </SecondaryButton>
-        <PrimaryButton onClick={onNext} className="flex-1">
-          I've added the SDK <ArrowRight className="h-4 w-4" />
+        <PrimaryButton onClick={checkState === 'connected' ? onNext : onNext} className="flex-1">
+          {checkState === 'connected' ? (
+            <><CheckCircle2 className="h-4 w-4" /> Continue to dashboard</>
+          ) : (
+            <>I&apos;ll add the SDK later <ArrowRight className="h-4 w-4" /></>
+          )}
         </PrimaryButton>
       </div>
 
