@@ -2,16 +2,15 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { RefreshCw, CheckCircle, XCircle, AlertTriangle, Clock } from 'lucide-react'
+import { RefreshCw, CheckCircle, XCircle, AlertTriangle, Clock, HelpCircle } from 'lucide-react'
 
-type ServiceStatus = 'healthy' | 'degraded' | 'down' | 'checking'
+type ServiceStatus = 'healthy' | 'degraded' | 'down' | 'checking' | 'not_monitored'
 
 type Service = {
   name: string
   category: string
   status: ServiceStatus
   latencyMs?: number
-  uptime?: string
   note?: string
 }
 
@@ -24,37 +23,45 @@ export default function SystemHealthPage() {
     setChecking(true)
     const sb = createClient()
 
-    const checks: Service[] = [
+    const checking_: Service[] = [
       { name: 'Database (Postgres)', category: 'Core Infrastructure', status: 'checking' },
       { name: 'Realtime',            category: 'Core Infrastructure', status: 'checking' },
       { name: 'Storage',             category: 'Core Infrastructure', status: 'checking' },
       { name: 'Auth',                category: 'Core Infrastructure', status: 'checking' },
       { name: 'Edge Functions',      category: 'Compute',             status: 'checking' },
-      { name: 'Claude AI (Haiku)',   category: 'AI Services',         status: 'checking' },
-      { name: 'Stripe Webhooks',     category: 'Integrations',        status: 'checking' },
-      { name: 'Agora SDK',           category: 'Integrations',        status: 'checking' },
-      { name: 'Next.js Dashboard',   category: 'Applications',        status: 'checking' },
-      { name: 'Admin Platform',      category: 'Applications',        status: 'checking' },
+      { name: 'Claude AI',           category: 'AI Services',         status: 'checking' },
+      { name: 'Stripe Webhooks',     category: 'Integrations',        status: 'not_monitored', note: 'No Stripe integration found in this codebase' },
+      { name: 'Agora SDK',           category: 'Integrations',        status: 'not_monitored', note: 'No Agora integration found in this codebase' },
+      { name: 'Next.js Dashboard',   category: 'Applications',        status: 'healthy', note: 'You are viewing this page right now' },
+      { name: 'Admin Platform',      category: 'Applications',        status: 'healthy', note: 'This app' },
     ]
+    setServices(checking_)
 
-    setServices(checks)
-
-    // Probe Supabase database
+    // Real probe: Supabase database, measured from the browser.
     const dbStart = Date.now()
     const { error: dbErr } = await sb.from('tenants').select('id').limit(1)
     const dbMs = Date.now() - dbStart
 
+    // Real probes, run server-side (avoids exposing service-role-only checks
+    // like Auth settings / Anthropic key to the browser).
+    const edgeStart = Date.now()
+    const { data: remote, error: remoteErr } = await sb.functions.invoke('platform-health', { body: {} })
+    const edgeMs = Date.now() - edgeStart
+
+    const statusFor = (probe?: { ok: boolean }): ServiceStatus =>
+      !probe ? 'down' : probe.ok ? 'healthy' : 'down'
+
     const results: Service[] = [
-      { name: 'Database (Postgres)', category: 'Core Infrastructure', status: dbErr ? 'down' : 'healthy', latencyMs: dbMs, uptime: '99.98%' },
-      { name: 'Realtime',            category: 'Core Infrastructure', status: 'healthy', latencyMs: 12,   uptime: '99.95%' },
-      { name: 'Storage',             category: 'Core Infrastructure', status: 'healthy', latencyMs: 28,   uptime: '99.97%' },
-      { name: 'Auth',                category: 'Core Infrastructure', status: 'healthy', latencyMs: 34,   uptime: '99.99%' },
-      { name: 'Edge Functions',      category: 'Compute',             status: 'healthy', latencyMs: 142,  uptime: '99.91%' },
-      { name: 'Claude AI (Haiku)',   category: 'AI Services',         status: 'healthy', latencyMs: 820,  uptime: '99.80%', note: 'Anthropic API' },
-      { name: 'Stripe Webhooks',     category: 'Integrations',        status: 'healthy', latencyMs: 65,   uptime: '99.95%' },
-      { name: 'Agora SDK',           category: 'Integrations',        status: 'healthy', latencyMs: 88,   uptime: '99.90%' },
-      { name: 'Next.js Dashboard',   category: 'Applications',        status: 'healthy', latencyMs: 180,  uptime: '99.85%', note: 'Client dashboard' },
-      { name: 'Admin Platform',      category: 'Applications',        status: 'healthy', latencyMs: 95,   uptime: '99.90%', note: 'This app' },
+      { name: 'Database (Postgres)', category: 'Core Infrastructure', status: dbErr ? 'down' : 'healthy', latencyMs: dbMs },
+      { name: 'Realtime',            category: 'Core Infrastructure', status: statusFor(remote?.realtime), latencyMs: remote?.realtime?.latencyMs, note: remote?.realtime?.error },
+      { name: 'Storage',             category: 'Core Infrastructure', status: statusFor(remote?.storage),  latencyMs: remote?.storage?.latencyMs,  note: remote?.storage?.error },
+      { name: 'Auth',                category: 'Core Infrastructure', status: statusFor(remote?.auth),      latencyMs: remote?.auth?.latencyMs,      note: remote?.auth?.error },
+      { name: 'Edge Functions',      category: 'Compute',             status: remoteErr ? 'down' : 'healthy', latencyMs: edgeMs, note: remoteErr?.message },
+      { name: 'Claude AI',           category: 'AI Services',         status: statusFor(remote?.claude),    latencyMs: remote?.claude?.latencyMs,   note: remote?.claude?.error ?? 'Anthropic API' },
+      { name: 'Stripe Webhooks',     category: 'Integrations',        status: 'not_monitored', note: 'No Stripe integration found in this codebase' },
+      { name: 'Agora SDK',           category: 'Integrations',        status: 'not_monitored', note: 'No Agora integration found in this codebase' },
+      { name: 'Next.js Dashboard',   category: 'Applications',        status: 'healthy', note: 'You are viewing this page right now' },
+      { name: 'Admin Platform',      category: 'Applications',        status: 'healthy', note: 'This app' },
     ]
 
     setServices(results)
@@ -65,13 +72,15 @@ export default function SystemHealthPage() {
   useEffect(() => { checkHealth() }, [])
 
   const categories = [...new Set(services.map((s) => s.category))]
-  const allHealthy = services.every((s) => s.status === 'healthy')
-  const anyDown = services.some((s) => s.status === 'down')
+  const monitored = services.filter((s) => s.status !== 'not_monitored')
+  const allHealthy = monitored.every((s) => s.status === 'healthy')
+  const anyDown = monitored.some((s) => s.status === 'down')
 
   const StatusIcon = ({ status }: { status: ServiceStatus }) => {
-    if (status === 'healthy')  return <CheckCircle className="h-4 w-4"   style={{ color: 'var(--healthy)' }} />
-    if (status === 'degraded') return <AlertTriangle className="h-4 w-4" style={{ color: 'var(--warning)' }} />
-    if (status === 'down')     return <XCircle className="h-4 w-4"       style={{ color: 'var(--critical)' }} />
+    if (status === 'healthy')       return <CheckCircle className="h-4 w-4"   style={{ color: 'var(--healthy)' }} />
+    if (status === 'degraded')      return <AlertTriangle className="h-4 w-4" style={{ color: 'var(--warning)' }} />
+    if (status === 'down')          return <XCircle className="h-4 w-4"       style={{ color: 'var(--critical)' }} />
+    if (status === 'not_monitored') return <HelpCircle className="h-4 w-4"    style={{ color: 'var(--text-dim)' }} />
     return <Clock className="h-4 w-4 animate-spin" style={{ color: 'var(--text-muted)' }} />
   }
 
@@ -102,10 +111,11 @@ export default function SystemHealthPage() {
           : <AlertTriangle className="h-5 w-5" style={{ color: 'var(--warning)' }} />}
         <div>
           <p className="font-semibold" style={{ color: 'var(--text)' }}>
-            {anyDown ? 'Platform Incident Detected' : allHealthy ? 'All Systems Operational' : 'Partial Degradation'}
+            {anyDown ? 'Platform Incident Detected' : allHealthy ? 'All Monitored Systems Operational' : 'Partial Degradation'}
           </p>
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            {services.filter((s) => s.status === 'healthy').length} of {services.length} services healthy
+            {monitored.filter((s) => s.status === 'healthy').length} of {monitored.length} monitored services healthy
+            {services.length > monitored.length ? ` · ${services.length - monitored.length} not monitored` : ''}
           </p>
         </div>
       </div>
@@ -130,11 +140,8 @@ export default function SystemHealthPage() {
                       {svc.latencyMs}ms
                     </span>
                   )}
-                  {svc.uptime && (
-                    <span style={{ color: 'var(--healthy)' }}>{svc.uptime} uptime</span>
-                  )}
                   <span className={`badge ${svc.status === 'healthy' ? 'badge-healthy' : svc.status === 'degraded' ? 'badge-warning' : svc.status === 'down' ? 'badge-critical' : 'badge-muted'}`}>
-                    {svc.status === 'checking' ? 'checking…' : svc.status}
+                    {svc.status === 'checking' ? 'checking…' : svc.status === 'not_monitored' ? 'not monitored' : svc.status}
                   </span>
                 </div>
               </div>

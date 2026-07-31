@@ -2,6 +2,7 @@
 // "SQLite" in the UI means libSQL/Turso — a networked, SQLite-compatible
 // service. Plain local .sqlite files aren't reachable from an edge function.
 import { createClient } from 'npm:@libsql/client'
+import { isTransient } from '../retry.ts'
 import type { DbAdapter, IntrospectResult, TableInfo, TestResult } from './types.ts'
 
 function friendlyError(err: unknown): string {
@@ -22,15 +23,22 @@ function quoteIdent(id: string): string {
 }
 
 export async function testConnection(connStr: string): Promise<TestResult> {
-  const client = createClient({ url: connStr })
-  try {
-    await client.execute('SELECT 1')
-    return { ok: true }
-  } catch (err) {
-    return { ok: false, error: friendlyError(err) }
-  } finally {
-    client.close()
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const client = createClient({ url: connStr })
+    try {
+      await client.execute('SELECT 1')
+      return { ok: true }
+    } catch (err) {
+      if (attempt === 0 && isTransient(err)) {
+        await new Promise((r) => setTimeout(r, 300))
+        continue
+      }
+      return { ok: false, error: friendlyError(err) }
+    } finally {
+      client.close()
+    }
   }
+  return { ok: false, error: 'Could not reach host — check the database URL' }
 }
 
 export async function introspectSchema(connStr: string): Promise<IntrospectResult> {

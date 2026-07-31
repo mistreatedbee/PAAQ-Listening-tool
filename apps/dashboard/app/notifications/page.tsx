@@ -5,8 +5,8 @@ import { createClient } from '@/utils/supabase/client'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { Card, ToneBadge } from '@/components/kit'
 import {
-  Bell, Sparkles, ShieldAlert, Rocket, Gauge, Route,
-  Search, TriangleAlert, Lightbulb, Radio, Filter,
+  Bell, Sparkles, ShieldAlert, Rocket, Search, TriangleAlert,
+  Lightbulb, Radio, Filter, CheckCheck,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Tone } from '@/lib/data'
@@ -14,13 +14,23 @@ import type { Tone } from '@/lib/data'
 type Source = 'insight' | 'investigation' | 'recommendation' | 'anomaly' | 'deployment' | 'error'
 type CategoryFilter = 'all' | Source
 
+type DbNotification = {
+  id: string
+  category: string | null
+  type: string | null
+  message: string
+  severity: 'critical' | 'warning' | 'info' | 'success'
+  read_at: string | null
+  created_at: string
+}
+
 type FeedItem = {
   id: string
   source: Source
   title: string
-  body: string
   tone: Tone
   tag: string
+  read: boolean
   created_at: string
 }
 
@@ -34,13 +44,13 @@ function timeAgo(ts: string) {
   return `${Math.floor(h / 24)}d ago`
 }
 
-const SOURCE_META: Record<Source, { label: string; Icon: typeof Bell; tone: Tone }> = {
-  insight:        { label: 'AI Insight',       Icon: Lightbulb,    tone: 'ai' },
-  investigation:  { label: 'Investigation',    Icon: Search,        tone: 'intel' },
-  recommendation: { label: 'Recommendation',   Icon: Sparkles,      tone: 'ai' },
-  anomaly:        { label: 'Anomaly',           Icon: TriangleAlert, tone: 'warning' },
-  deployment:     { label: 'Deployment',        Icon: Rocket,        tone: 'healthy' },
-  error:          { label: 'Error',             Icon: ShieldAlert,   tone: 'critical' },
+const SOURCE_META: Record<Source, { label: string; Icon: typeof Bell }> = {
+  insight:        { label: 'AI Insight',     Icon: Lightbulb },
+  investigation:  { label: 'Investigation',  Icon: Search },
+  recommendation: { label: 'Recommendation', Icon: Sparkles },
+  anomaly:        { label: 'Anomaly',        Icon: TriangleAlert },
+  deployment:     { label: 'Deployment',     Icon: Rocket },
+  error:          { label: 'Error',          Icon: ShieldAlert },
 }
 
 const FILTERS: { id: CategoryFilter; label: string }[] = [
@@ -53,17 +63,24 @@ const FILTERS: { id: CategoryFilter; label: string }[] = [
   { id: 'error',          label: 'Errors' },
 ]
 
-function insightTone(priority: string | null): Tone {
-  if (priority === 'critical') return 'critical'
-  if (priority === 'high') return 'warning'
-  return 'ai'
+function severityTone(severity: string): Tone {
+  if (severity === 'critical') return 'critical'
+  if (severity === 'warning') return 'warning'
+  if (severity === 'success') return 'healthy'
+  return 'intel'
 }
 
-function priorityTag(priority: string | null) {
-  if (priority === 'critical') return 'Critical'
-  if (priority === 'high') return 'High'
-  if (priority === 'medium') return 'Medium'
-  return 'Info'
+function toFeedItem(n: DbNotification): FeedItem {
+  const source = (n.category ?? 'insight') as Source
+  return {
+    id: n.id,
+    source: source in SOURCE_META ? source : 'insight',
+    title: n.message,
+    tone: severityTone(n.severity),
+    tag: n.severity,
+    read: n.read_at !== null,
+    created_at: n.created_at,
+  }
 }
 
 export default function NotificationsPage() {
@@ -78,141 +95,42 @@ export default function NotificationsPage() {
     const sb = createClient()
 
     const load = async () => {
-      const [
-        { data: insights },
-        { data: investigations },
-        { data: recommendations },
-        { data: anomalies },
-        { data: deployments },
-        { data: errors },
-      ] = await Promise.all([
-        sb.from('ai_insights')
-          .select('id, title, description, priority, category, created_at')
-          .eq('project_id', app.id)
-          .order('created_at', { ascending: false })
-          .limit(30),
-        sb.from('investigations')
-          .select('id, title, status, priority, created_at')
-          .eq('project_id', app.id)
-          .order('created_at', { ascending: false })
-          .limit(20),
-        sb.from('recommendations')
-          .select('id, title, type, status, risk_level, created_at')
-          .eq('project_id', app.id)
-          .order('created_at', { ascending: false })
-          .limit(20),
-        sb.from('anomaly_events')
-          .select('id, type, severity, detected_pattern, created_at')
-          .eq('project_id', app.id)
-          .order('created_at', { ascending: false })
-          .limit(20),
-        sb.from('deployment_registry')
-          .select('id, version, status, ai_fix, ai_summary, environment, deployed_at')
-          .eq('project_id', app.id)
-          .order('deployed_at', { ascending: false })
-          .limit(15),
-        sb.from('errors')
-          .select('id, error_type, message, severity, created_at')
-          .eq('project_id', app.id)
-          .eq('status', 'open')
-          .order('created_at', { ascending: false })
-          .limit(15),
-      ])
-
-      const items: FeedItem[] = []
-
-      for (const r of insights ?? []) {
-        items.push({
-          id: `insight-${r.id}`,
-          source: 'insight',
-          title: r.title ?? 'AI Insight',
-          body: r.description ?? '',
-          tone: insightTone(r.priority),
-          tag: priorityTag(r.priority),
-          created_at: r.created_at,
-        })
-      }
-
-      for (const r of investigations ?? []) {
-        items.push({
-          id: `investigation-${r.id}`,
-          source: 'investigation',
-          title: r.title ?? 'Investigation',
-          body: `Status: ${r.status ?? 'unknown'}`,
-          tone: r.status === 'completed' ? 'healthy' : 'intel',
-          tag: r.status ?? 'open',
-          created_at: r.created_at,
-        })
-      }
-
-      for (const r of recommendations ?? []) {
-        items.push({
-          id: `rec-${r.id}`,
-          source: 'recommendation',
-          title: r.title ?? 'Recommendation',
-          body: r.type ?? '',
-          tone: r.risk_level === 'critical' ? 'critical' : r.risk_level === 'high' ? 'warning' : 'ai',
-          tag: r.risk_level ?? r.status ?? 'pending',
-          created_at: r.created_at,
-        })
-      }
-
-      for (const r of anomalies ?? []) {
-        items.push({
-          id: `anomaly-${r.id}`,
-          source: 'anomaly',
-          title: r.type ?? 'Anomaly detected',
-          body: r.detected_pattern ?? '',
-          tone: r.severity === 'critical' || r.severity === 'fatal' ? 'critical' : 'warning',
-          tag: r.severity ?? 'warning',
-          created_at: r.created_at,
-        })
-      }
-
-      for (const r of deployments ?? []) {
-        items.push({
-          id: `deploy-${r.id}`,
-          source: 'deployment',
-          title: r.ai_fix ? `AI Fix deployed — ${r.version}` : `Deployment — ${r.version}`,
-          body: r.ai_summary ?? `${r.environment ?? 'production'} · ${r.status}`,
-          tone: r.status === 'success' ? 'healthy' : r.status === 'failed' ? 'critical' : 'intel',
-          tag: r.status ?? 'deployed',
-          created_at: r.deployed_at ?? r.id,
-        })
-      }
-
-      for (const r of errors ?? []) {
-        items.push({
-          id: `error-${r.id}`,
-          source: 'error',
-          title: r.error_type ?? 'Runtime Error',
-          body: r.message ?? '',
-          tone: r.severity === 'fatal' ? 'critical' : r.severity === 'error' ? 'critical' : 'warning',
-          tag: r.severity ?? 'error',
-          created_at: r.created_at,
-        })
-      }
-
-      items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-      setFeed(items)
+      const { data } = await sb.from('notifications')
+        .select('id, category, type, message, severity, read_at, created_at')
+        .eq('project_id', app.id)
+        .order('created_at', { ascending: false })
+        .limit(50)
+      setFeed(((data ?? []) as DbNotification[]).map(toFeedItem))
       setLoading(false)
     }
 
     load()
 
-    // Live subscriptions on the most active tables
-    const channel = sb.channel(`activity-feed:${app.id}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ai_insights', filter: `project_id=eq.${app.id}` }, load)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'recommendations', filter: `project_id=eq.${app.id}` }, load)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'anomaly_events', filter: `project_id=eq.${app.id}` }, load)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'deployment_registry', filter: `project_id=eq.${app.id}` }, load)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'errors', filter: `project_id=eq.${app.id}` }, load)
+    const channel = sb.channel(`notifications:${app.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `project_id=eq.${app.id}` }, load)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'notifications', filter: `project_id=eq.${app.id}` }, load)
       .subscribe((status) => setLive(status === 'SUBSCRIBED'))
 
     return () => { sb.removeChannel(channel) }
   }, [app.id])
 
+  const markAsRead = async (id: string) => {
+    const sb = createClient()
+    setFeed((prev) => prev.map((f) => (f.id === id ? { ...f, read: true } : f)))
+    await sb.from('notifications').update({ read_at: new Date().toISOString() }).eq('id', id)
+  }
+
+  const markAllAsRead = async () => {
+    const sb = createClient()
+    setFeed((prev) => prev.map((f) => ({ ...f, read: true })))
+    await sb.from('notifications')
+      .update({ read_at: new Date().toISOString() })
+      .eq('project_id', app.id)
+      .is('read_at', null)
+  }
+
   const visible = filter === 'all' ? feed : feed.filter((f) => f.source === filter)
+  const unreadCount = feed.filter((f) => !f.read).length
 
   const counts = {
     insight:        feed.filter((f) => f.source === 'insight').length,
@@ -238,11 +156,21 @@ export default function NotificationsPage() {
             </p>
           </div>
         </div>
-        {live && (
-          <span className="flex items-center gap-1.5 rounded-full border border-healthy/25 bg-healthy/10 px-2.5 py-1 text-[10px] font-semibold text-healthy">
-            <Radio className="h-3 w-3 animate-pulse" /> LIVE
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {unreadCount > 0 && (
+            <button
+              onClick={markAllAsRead}
+              className="flex items-center gap-1.5 rounded-lg border border-border/70 bg-card/60 px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <CheckCheck className="h-3.5 w-3.5" /> Mark all as read
+            </button>
+          )}
+          {live && (
+            <span className="flex items-center gap-1.5 rounded-full border border-healthy/25 bg-healthy/10 px-2.5 py-1 text-[10px] font-semibold text-healthy">
+              <Radio className="h-3 w-3 animate-pulse" /> LIVE
+            </span>
+          )}
+        </div>
       </div>
 
       {/* KPI strip */}
@@ -320,7 +248,14 @@ export default function NotificationsPage() {
               const meta = SOURCE_META[item.source]
               const Icon = meta.Icon
               return (
-                <div key={item.id} className="flex items-start gap-3 px-5 py-3.5 hover:bg-accent/20 transition-colors">
+                <button
+                  key={item.id}
+                  onClick={() => !item.read && markAsRead(item.id)}
+                  className={cn(
+                    'flex w-full items-start gap-3 px-5 py-3.5 text-left hover:bg-accent/20 transition-colors',
+                    !item.read && 'bg-ai/[0.03]',
+                  )}
+                >
                   <div className={cn(
                     'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border',
                     item.tone === 'critical' ? 'border-critical/30 bg-critical/10 text-critical'
@@ -337,16 +272,14 @@ export default function NotificationsPage() {
                         {meta.label}
                       </span>
                       <ToneBadge tone={item.tone}>{item.tag}</ToneBadge>
+                      {!item.read && <span className="h-1.5 w-1.5 rounded-full bg-ai" />}
                     </div>
                     <p className="mt-0.5 text-sm font-medium text-foreground leading-snug">{item.title}</p>
-                    {item.body && (
-                      <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">{item.body}</p>
-                    )}
                   </div>
                   <span className="shrink-0 text-[10px] text-muted-foreground/60 tabular-nums">
                     {timeAgo(item.created_at)}
                   </span>
-                </div>
+                </button>
               )
             })}
           </div>

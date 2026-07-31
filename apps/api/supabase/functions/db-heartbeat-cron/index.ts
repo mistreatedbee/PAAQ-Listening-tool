@@ -8,6 +8,7 @@
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { decryptSecret } from '../_shared/crypto.ts'
+import { withRetryResult } from '../_shared/retry.ts'
 import type { DbAdapter } from '../_shared/db-engines/types.ts'
 
 const supabase = createClient(
@@ -42,10 +43,12 @@ async function loadAdapter(engine: Engine): Promise<DbAdapter> {
 }
 
 async function runHeartbeatSweep() {
-  const { data: connectors, error } = await supabase
-    .from('database_connectors')
-    .select('project_id, engine, ciphertext, iv, tenant_projects!inner(tenant_id)')
-    .eq('status', 'connected')
+  const { data: connectors, error } = await withRetryResult(() =>
+    supabase
+      .from('database_connectors')
+      .select('project_id, engine, ciphertext, iv, consecutive_failures, tenant_projects!inner(tenant_id)')
+      .eq('status', 'connected'),
+  )
 
   if (error || !connectors) {
     console.error('db-heartbeat-cron: failed to load connectors', error)
@@ -58,14 +61,20 @@ async function runHeartbeatSweep() {
     try {
       const adapter = await loadAdapter(row.engine as Engine)
       const connectionString = await decryptSecret(row.ciphertext, row.iv)
+      const startedAt = Date.now()
       const result = await adapter.testConnection(connectionString)
+      const latencyMs = Date.now() - startedAt
 
-      await supabase.from('database_connectors').update({
-        last_test_at: now,
-        last_test_ok: result.ok,
-        last_error: result.ok ? null : result.error,
-        updated_at: now,
-      }).eq('project_id', row.project_id)
+      await withRetryResult(() =>
+        supabase.from('database_connectors').update({
+          last_test_at: now,
+          last_test_ok: result.ok,
+          last_error: result.ok ? null : result.error,
+          last_latency_ms: latencyMs,
+          consecutive_failures: result.ok ? 0 : (row.consecutive_failures ?? 0) + 1,
+          updated_at: now,
+        }).eq('project_id', row.project_id),
+      )
 
       // Only real, successful connections advance the liveness signal that
       // the dashboard's Connection Status panel reads from.

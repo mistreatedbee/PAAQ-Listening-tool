@@ -11,6 +11,7 @@
  * belongs to — customers copy this from their Setup page.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { withRetryResult } from '../_shared/retry.ts'
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -153,11 +154,13 @@ Deno.serve(async (req) => {
 
   // Resolve project — accept either the short project_id_key (proj_xxx) or the raw UUID
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(projectKey)
-  const { data: proj } = await supabase
-    .from('tenant_projects')
-    .select('id, tenant_id')
-    .eq(isUuid ? 'id' : 'project_id_key', projectKey)
-    .maybeSingle()
+  const { data: proj } = await withRetryResult(() =>
+    supabase
+      .from('tenant_projects')
+      .select('id, tenant_id')
+      .eq(isUuid ? 'id' : 'project_id_key', projectKey)
+      .maybeSingle(),
+  )
   if (!proj) return respond({ error: 'Project not found for this projectKey' }, 404)
 
   const body = await req.json().catch(() => ({})) as Record<string, unknown>
@@ -207,11 +210,13 @@ Deno.serve(async (req) => {
     build_log,
   }
 
-  const { data: inserted, error } = await supabase
-    .from('deployment_registry')
-    .insert(row)
-    .select('id')
-    .single()
+  const { data: inserted, error } = await withRetryResult(() =>
+    supabase
+      .from('deployment_registry')
+      .insert(row)
+      .select('id')
+      .single(),
+  )
   if (error) return respond({ ok: false, error: error.message }, 500)
 
   // Auto-trigger AI diagnosis for failed deployments that have a build log

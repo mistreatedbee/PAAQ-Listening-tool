@@ -6,6 +6,14 @@ package-lock.json
 
 # Supabase CLI local link cache
 apps/api/supabase/.temp/
+supabase/.temp/
+
+# Gradle build cache
+**/.gradle/
+
+# Python bytecode cache
+__pycache__/
+*.pyc
 
 # Next.js
 apps/dashboard/.next/

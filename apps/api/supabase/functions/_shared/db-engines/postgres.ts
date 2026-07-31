@@ -1,4 +1,5 @@
 import { Client } from 'https://deno.land/x/postgres@v0.19.3/mod.ts'
+import { isTransient } from '../retry.ts'
 import type { DbAdapter, IntrospectResult, TableInfo, TestResult } from './types.ts'
 
 function isPermissionError(err: unknown): boolean {
@@ -24,16 +25,26 @@ function quoteIdent(id: string): string {
 }
 
 export async function testConnection(connStr: string): Promise<TestResult> {
-  const client = new Client(connStr)
-  try {
-    await client.connect()
-    await client.queryObject('SELECT 1')
-    return { ok: true }
-  } catch (err) {
-    return { ok: false, error: friendlyError(err) }
-  } finally {
-    try { await client.end() } catch { /* ignore */ }
+  // At most one retry, and only for a transient network failure — a real
+  // auth/permission rejection must fail on the first attempt, never be
+  // masked by a delayed retry.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const client = new Client(connStr)
+    try {
+      await client.connect()
+      await client.queryObject('SELECT 1')
+      return { ok: true }
+    } catch (err) {
+      if (attempt === 0 && isTransient(err)) {
+        await new Promise((r) => setTimeout(r, 300))
+        continue
+      }
+      return { ok: false, error: friendlyError(err) }
+    } finally {
+      try { await client.end() } catch { /* ignore */ }
+    }
   }
+  return { ok: false, error: 'Could not reach host — check hostname and port' }
 }
 
 export async function introspectSchema(connStr: string): Promise<IntrospectResult> {

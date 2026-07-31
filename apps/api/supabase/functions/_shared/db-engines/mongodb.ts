@@ -1,5 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 import { MongoClient } from 'npm:mongodb@6'
+import { isTransient } from '../retry.ts'
 import type { DbAdapter, IntrospectResult, TableInfo, TestResult } from './types.ts'
 
 function friendlyError(err: unknown): string {
@@ -25,12 +26,19 @@ async function withClient<T>(connStr: string, fn: (client: any) => Promise<T>): 
 }
 
 export async function testConnection(connStr: string): Promise<TestResult> {
-  try {
-    await withClient(connStr, async (client) => { await client.db().command({ ping: 1 }) })
-    return { ok: true }
-  } catch (err) {
-    return { ok: false, error: friendlyError(err) }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await withClient(connStr, async (client) => { await client.db().command({ ping: 1 }) })
+      return { ok: true }
+    } catch (err) {
+      if (attempt === 0 && isTransient(err)) {
+        await new Promise((r) => setTimeout(r, 300))
+        continue
+      }
+      return { ok: false, error: friendlyError(err) }
+    }
   }
+  return { ok: false, error: 'Could not reach host — check hostname and port' }
 }
 
 export async function introspectSchema(connStr: string): Promise<IntrospectResult> {
