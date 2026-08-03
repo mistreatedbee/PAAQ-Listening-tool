@@ -7,9 +7,8 @@
  * fake pg_cron heartbeat in migrate-once/index.ts for why that matters here.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { decryptSecret } from '../_shared/crypto.ts'
 import { withRetryResult } from '../_shared/retry.ts'
-import type { DbAdapter } from '../_shared/db-engines/types.ts'
+import { checkAndRecordDbHeartbeat } from '../_shared/db-heartbeat.ts'
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -22,31 +21,18 @@ function checkInternalSecret(req: Request): boolean {
   return expected.length > 0 && provided === expected
 }
 
-type Engine = 'postgres' | 'mysql' | 'mongodb' | 'sqlite' | 'redis' | 'supabase'
-
-async function loadAdapter(engine: Engine): Promise<DbAdapter> {
-  switch (engine) {
-    case 'postgres':
-    case 'supabase':
-      return (await import('../_shared/db-engines/postgres.ts')).postgresAdapter
-    case 'mysql':
-      return (await import('../_shared/db-engines/mysql.ts')).mysqlAdapter
-    case 'mongodb':
-      return (await import('../_shared/db-engines/mongodb.ts')).mongodbAdapter
-    case 'sqlite':
-      return (await import('../_shared/db-engines/libsql.ts')).libsqlAdapter
-    case 'redis':
-      return (await import('../_shared/db-engines/redis.ts')).redisAdapter
-    default:
-      throw new Error(`Unsupported engine: ${engine}`)
-  }
-}
-
+/**
+ * Backstop sweep for projects with no live website traffic to trigger the
+ * inline per-request check in events/index.ts — e.g. a backend-only
+ * integration, or a site with no visitors since the last check. Passing
+ * minIntervalMs: 0 forces a real re-check regardless of last_test_at,
+ * since this function's own schedule is already the throttle.
+ */
 async function runHeartbeatSweep() {
   const { data: connectors, error } = await withRetryResult(() =>
     supabase
       .from('database_connectors')
-      .select('project_id, engine, ciphertext, iv, consecutive_failures, tenant_projects!inner(tenant_id)')
+      .select('project_id')
       .eq('status', 'connected'),
   )
 
@@ -56,50 +42,15 @@ async function runHeartbeatSweep() {
   }
 
   for (const row of connectors) {
-    const now = new Date().toISOString()
-    const tenantId = (row.tenant_projects as unknown as { tenant_id: string }).tenant_id
-    try {
-      const adapter = await loadAdapter(row.engine as Engine)
-      const connectionString = await decryptSecret(row.ciphertext, row.iv)
-      const startedAt = Date.now()
-      const result = await adapter.testConnection(connectionString)
-      const latencyMs = Date.now() - startedAt
-
-      await withRetryResult(() =>
-        supabase.from('database_connectors').update({
-          last_test_at: now,
-          last_test_ok: result.ok,
-          last_error: result.ok ? null : result.error,
-          last_latency_ms: latencyMs,
-          consecutive_failures: result.ok ? 0 : (row.consecutive_failures ?? 0) + 1,
-          updated_at: now,
-        }).eq('project_id', row.project_id),
-      )
-
-      // Only real, successful connections advance the liveness signal that
-      // the dashboard's Connection Status panel reads from.
-      if (result.ok) {
-        await supabase.from('sdk_installations').upsert(
-          {
-            tenant_id: tenantId,
-            project_id: row.project_id,
-            platform: row.engine,
-            device_id: 'db-connector',
-            sdk_version: '1.0.0',
-            last_seen: now,
-            status: 'active',
-          },
-          { onConflict: 'tenant_id,project_id,device_id,platform' },
-        )
-      }
-    } catch (err) {
-      console.error(`db-heartbeat-cron: check failed for project ${row.project_id}`, err)
-    }
+    await checkAndRecordDbHeartbeat(supabase, row.project_id, 0)
   }
 }
 
 // Every 30 minutes — frequent enough to keep the 25h "connected" window
-// meaningful, infrequent enough not to hammer customer databases.
+// meaningful, infrequent enough not to hammer customer databases. Runs
+// alongside (not instead of) the per-request check in events/index.ts,
+// since Deno.cron scheduling isn't guaranteed to be enabled on every
+// deployment target — this is the backstop, not the primary signal.
 Deno.cron('db-connector-heartbeat', '*/30 * * * *', runHeartbeatSweep)
 
 Deno.serve(async (req) => {

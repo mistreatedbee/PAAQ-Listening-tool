@@ -1,6 +1,16 @@
 const BASE_URL = 'https://mookyonwpovxscsbqwwl.supabase.co/functions/v1'
 const SDK_VERSION = '1.0.0'
 
+type ErrorPayload = {
+  error_type: string
+  message: string
+  stack_trace?: string | null
+  screen?: string | null
+  severity?: 'fatal' | 'error' | 'warning' | 'info'
+  context?: Record<string, unknown> | null
+  session_id?: string | null
+}
+
 type EventPayload = {
   event_name: string
   session_id: string | null
@@ -76,6 +86,7 @@ async function init(
       _sessionId = data.sessionId
       if (data.config) _config = data.config
       scheduleFlush()
+      installGlobalHandlers()
     }
     return data
   } catch (err) {
@@ -118,9 +129,61 @@ async function flush(): Promise<void> {
   }
 }
 
+async function sendError(payload: ErrorPayload): Promise<void> {
+  if (!_sdkToken) return
+  try {
+    await fetch(`${BASE_URL}/errors`, {
+      method: 'POST',
+      headers: buildHeaders(),
+      body: JSON.stringify({ ...payload, session_id: payload.session_id ?? _sessionId }),
+    })
+  } catch {
+    // fire-and-forget
+  }
+}
+
+function trackError(
+  error: unknown,
+  options: { severity?: ErrorPayload['severity']; screen?: string; context?: Record<string, unknown> } = {},
+): void {
+  const err = error instanceof Error ? error : new Error(String(error))
+  void sendError({
+    error_type: err.name || 'Error',
+    message: err.message,
+    stack_trace: err.stack ?? null,
+    screen: options.screen ?? (typeof window !== 'undefined' ? window.location.pathname : null),
+    severity: options.severity ?? 'error',
+    context: options.context ?? null,
+  })
+}
+
+function installGlobalHandlers(): void {
+  if (typeof window === 'undefined') return
+  window.addEventListener('error', (event) => {
+    void sendError({
+      error_type: event.error?.name ?? 'UncaughtError',
+      message: event.message || String(event.error),
+      stack_trace: event.error?.stack ?? null,
+      screen: window.location.pathname,
+      severity: 'error',
+    })
+  })
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event.reason
+    const err = reason instanceof Error ? reason : new Error(String(reason))
+    void sendError({
+      error_type: err.name || 'UnhandledRejection',
+      message: err.message,
+      stack_trace: err.stack ?? null,
+      screen: window.location.pathname,
+      severity: 'error',
+    })
+  })
+}
+
 function scheduleFlush() {
   if (_flushTimer) clearInterval(_flushTimer)
   _flushTimer = setInterval(() => void flush(), _config.syncIntervalSeconds * 1000)
 }
 
-export const paaq = { init, track, identify, page, flush }
+export const paaq = { init, track, identify, page, flush, trackError }

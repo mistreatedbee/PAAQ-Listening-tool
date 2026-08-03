@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { checkAndRecordDbHeartbeat } from '../_shared/db-heartbeat.ts'
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -87,6 +88,82 @@ Deno.serve(async (req) => {
     ;({ error } = await supabase.from('events').insert(fallback))
   }
   if (error) return respond({ error: error.message }, 500)
+
+  const now = new Date().toISOString()
+  const platform = req.headers.get('x-platform') ?? 'react'
+  const sdkVersion = req.headers.get('x-sdk-version') ?? '0'
+
+  const FRONTEND_PLATFORMS = new Set(['react', 'nextjs', 'vue', 'angular', 'vanilla'])
+
+  // Call upsert_sdk_heartbeat via direct fetch to the PostgREST RPC endpoint.
+  // Using fetch (not supabase.rpc) so we can inspect the response and verify
+  // the call is actually reaching the database.
+  const supabaseUrl  = Deno.env.get('SUPABASE_URL')!
+  const serviceKey   = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  const rpcHeaders   = {
+    'Content-Type':  'application/json',
+    'apikey':        serviceKey,
+    'Authorization': `Bearer ${serviceKey}`,
+  }
+
+  const heartbeat = async (
+    p_tenant_id: string,
+    p_project_id: string,
+    p_platform: string,
+    p_device_id: string,
+    p_sdk_version: string,
+  ) => {
+    const res = await fetch(`${supabaseUrl}/rest/v1/rpc/upsert_sdk_heartbeat`, {
+      method: 'POST',
+      headers: rpcHeaders,
+      body: JSON.stringify({ p_tenant_id, p_project_id, p_platform, p_device_id, p_sdk_version, p_last_seen: now }),
+    })
+    if (!res.ok) {
+      console.error('heartbeat rpc failed', res.status, await res.text())
+    }
+  }
+
+  const heartbeatCalls: Promise<void>[] = [
+    // 1. Update the layer that actually sent this request.
+    heartbeat(tokenRow.tenant_id, project.id, platform, `events-proxy-${platform}`, sdkVersion),
+  ]
+
+  // 2. Frontend traffic → also mark the backend layer as active.
+  //    The web app is serving users, so its backend API is running too.
+  if (FRONTEND_PLATFORMS.has(platform)) {
+    heartbeatCalls.push(
+      heartbeat(tokenRow.tenant_id, project.id, 'nodejs', 'events-proxy-backend', '0'),
+    )
+  }
+
+  // 3. Also advance the Database SDK layer if the project has a connected
+  //    database connector — traffic flowing means the app (and its DB) is live.
+  const { data: connector } = await supabase
+    .from('database_connectors')
+    .select('engine, tenant_projects!inner(tenant_id)')
+    .eq('project_id', project.id)
+    .eq('status', 'connected')
+    .maybeSingle()
+
+  if (connector) {
+    const tenantId = (connector.tenant_projects as unknown as { tenant_id: string }).tenant_id
+    heartbeatCalls.push(
+      heartbeat(tenantId, project.id, connector.engine, 'db-connector', '1.0.0'),
+    )
+  }
+
+  await Promise.all(heartbeatCalls)
+
+  // Background: real DB connection test for health metrics — kept separate
+  // so it doesn't slow down the response.
+  const dbCheckPromise = checkAndRecordDbHeartbeat(supabase, project.id)
+  // deno-lint-ignore no-explicit-any
+  const runtime = globalThis as any
+  if (typeof runtime.EdgeRuntime?.waitUntil === 'function') {
+    runtime.EdgeRuntime.waitUntil(dbCheckPromise)
+  } else {
+    dbCheckPromise.catch(() => {})
+  }
 
   return respond({ ok: true, inserted: rows.length })
 })

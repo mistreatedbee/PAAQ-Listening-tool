@@ -1,5 +1,5 @@
 const BASE_URL = 'https://mookyonwpovxscsbqwwl.supabase.co/functions/v1'
-const SDK_VERSION = '1.0.0'
+const SDK_VERSION = '1.0.1'
 const HEARTBEAT_INTERVAL_SECONDS = 5 * 60
 
 type EventPayload = {
@@ -30,6 +30,14 @@ export type InitResult = {
   error?: string
 }
 
+type ErrorPayload = {
+  error_type: string
+  message: string
+  stack_trace?: string | null
+  severity?: 'fatal' | 'error' | 'warning' | 'info'
+  context?: Record<string, unknown> | null
+}
+
 // Minimal structural types so this has no hard dependency on @types/express —
 // works with Express, Fastify-with-http-adapter, or plain http.
 type MinimalRequest = { method?: string; path?: string; url?: string }
@@ -46,6 +54,7 @@ let _queue: EventPayload[] = []
 let _config: PaaqConfig = { batchSize: 50, syncIntervalSeconds: 30 }
 let _flushTimer: ReturnType<typeof setInterval> | null = null
 let _heartbeatTimer: ReturnType<typeof setInterval> | null = null
+let _lastHeartbeatAt = 0
 
 function buildHeaders() {
   return {
@@ -85,6 +94,8 @@ async function initialize(options: InitOptions): Promise<InitResult> {
       if (data.config) _config = data.config
       scheduleFlush()
       scheduleHeartbeat()
+      pingIfActive()
+      installProcessHandlers()
     }
     return data
   } catch (err) {
@@ -93,6 +104,7 @@ async function initialize(options: InitOptions): Promise<InitResult> {
 }
 
 function track(eventName: string, properties: Record<string, unknown> = {}) {
+  pingIfActive()
   _queue.push({
     event_name: eventName,
     session_id: _sessionId,
@@ -134,6 +146,19 @@ async function heartbeat(): Promise<void> {
   }
 }
 
+// On serverless (Vercel, Lambda, etc.) the process freezes between
+// invocations, so a setInterval scheduled 5 minutes out often never gets to
+// fire even once before the runtime suspends it. Piggybacking a throttled
+// ping on real activity (a request, a tracked event) means last_seen keeps
+// advancing as long as the backend is actually being used, regardless of
+// whether the process stays warm long enough for its own timers.
+function pingIfActive() {
+  const now = Date.now()
+  if (now - _lastHeartbeatAt < HEARTBEAT_INTERVAL_SECONDS * 1000) return
+  _lastHeartbeatAt = now
+  void heartbeat()
+}
+
 function scheduleFlush() {
   if (_flushTimer) clearInterval(_flushTimer)
   _flushTimer = setInterval(() => void flush(), _config.syncIntervalSeconds * 1000)
@@ -142,10 +167,14 @@ function scheduleFlush() {
 
 function scheduleHeartbeat() {
   if (_heartbeatTimer) clearInterval(_heartbeatTimer)
-  // Keeps sdk_installations.last_seen fresh for as long as this process is
-  // actually alive — no manual restart or real request needed for the
-  // dashboard's Connection Status panel to see the backend as connected.
-  _heartbeatTimer = setInterval(() => void heartbeat(), HEARTBEAT_INTERVAL_SECONDS * 1000)
+  // Fallback only, for long-lived processes that go quiet (no requests, no
+  // track() calls) — pingIfActive() from real activity is the primary
+  // signal, since this timer may never fire on a serverless runtime that
+  // freezes the process between invocations.
+  _heartbeatTimer = setInterval(() => {
+    _lastHeartbeatAt = Date.now()
+    void heartbeat()
+  }, HEARTBEAT_INTERVAL_SECONDS * 1000)
   _heartbeatTimer.unref?.()
 }
 
@@ -159,6 +188,43 @@ function middleware() {
   }
 }
 
+async function sendError(payload: ErrorPayload): Promise<void> {
+  if (!_sdkToken) return
+  try {
+    await fetch(`${BASE_URL}/errors`, {
+      method: 'POST',
+      headers: buildHeaders(),
+      body: JSON.stringify({ ...payload, session_id: _sessionId }),
+    })
+  } catch {
+    // fire-and-forget
+  }
+}
+
+function trackError(
+  error: unknown,
+  options: { severity?: ErrorPayload['severity']; context?: Record<string, unknown> } = {},
+): void {
+  const err = error instanceof Error ? error : new Error(String(error))
+  void sendError({
+    error_type: err.name || 'Error',
+    message: err.message,
+    stack_trace: err.stack ?? null,
+    severity: options.severity ?? 'error',
+    context: options.context ?? null,
+  })
+}
+
+function installProcessHandlers(): void {
+  process.on('uncaughtException', (err) => {
+    void sendError({ error_type: err.name, message: err.message, stack_trace: err.stack ?? null, severity: 'fatal' })
+  })
+  process.on('unhandledRejection', (reason) => {
+    const err = reason instanceof Error ? reason : new Error(String(reason))
+    void sendError({ error_type: err.name || 'UnhandledRejection', message: err.message, stack_trace: err.stack ?? null, severity: 'error' })
+  })
+}
+
 /** Stops the background timers — call on graceful shutdown so the process can exit. */
 function shutdown() {
   if (_flushTimer) clearInterval(_flushTimer)
@@ -168,4 +234,4 @@ function shutdown() {
   void flush()
 }
 
-export const PAAQ = { initialize, track, identify, middleware, flush, shutdown }
+export const PAAQ = { initialize, track, identify, middleware, flush, shutdown, trackError }

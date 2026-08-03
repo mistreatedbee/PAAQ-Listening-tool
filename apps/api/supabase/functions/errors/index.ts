@@ -71,6 +71,7 @@ Deno.serve(async (req) => {
     screen:      e.screen ?? null,
     severity:    e.severity ?? 'error',
     status:      'open',
+    context:     (e.context && typeof e.context === 'object' && !Array.isArray(e.context)) ? e.context : null,
   }))
 
   const { error } = await supabase.from('errors').insert(rows)
