@@ -136,6 +136,8 @@ private actor PaaqInstance {
     private var reportedScrollMilestones: Set<Int> = []
     private var fieldStartedAt: [String: Date] = [:]
     private var fieldBackspaceCounts: [String: Int] = [:]
+    private var screenshotTask: Task<Void, Never>?
+    private var screenshotSequence = 0
 
     func start(config: PaaqConfig) async -> Bool {
         debug = config.debug
@@ -156,6 +158,7 @@ private actor PaaqInstance {
             startHeartbeatLoop()
             registerLifecycleObservers()
             installTouchTracking()
+            startScreenshotLoop()
             return result.sessionId != nil
         } catch {
             log("Init failed: \(error)")
@@ -189,6 +192,7 @@ private actor PaaqInstance {
         flushTask?.cancel()
         heartbeatTask?.cancel()
         backgroundGraceTask?.cancel()
+        screenshotTask?.cancel()
         await flush()
         await endSession(outcome: outcome)
     }
@@ -331,6 +335,51 @@ private actor PaaqInstance {
 
     func trackFieldBackspace(_ fieldName: String) {
         fieldBackspaceCounts[fieldName, default: 0] += 1
+    }
+
+    // MARK: - Visual session replay (screenshots)
+    // No screen-recording permission needed — this only renders the app's
+    // own current view hierarchy into an image (the same technique used for
+    // view snapshotting), not a system screen capture. Paused automatically
+    // while any form field is focused (masking by default).
+
+    private static let screenshotInterval: UInt64 = 5_000_000_000 // 5s in nanoseconds
+
+    private func startScreenshotLoop() {
+        screenshotTask?.cancel()
+        screenshotTask = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: PaaqInstance.screenshotInterval)
+                await captureAndUploadScreenshot()
+            }
+        }
+    }
+
+    private func captureAndUploadScreenshot() async {
+        guard fieldStartedAt.isEmpty else { return } // paused while any form field is focused
+        guard let id = sessionId, let api else { return }
+#if canImport(UIKit)
+        guard let jpegData = await MainActor.run(body: { () -> Data? in
+            guard let window = UIApplication.shared.connectedScenes
+                .compactMap({ ($0 as? UIWindowScene)?.keyWindow })
+                .first ?? UIApplication.shared.windows.first(where: { $0.isKeyWindow })
+            else { return nil }
+            let renderer = UIGraphicsImageRenderer(bounds: window.bounds)
+            let image = renderer.image { _ in
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: false)
+            }
+            return image.jpegData(compressionQuality: 0.5)
+        }) else { return }
+        let sequence = screenshotSequence
+        screenshotSequence += 1
+        await api.uploadRecordingChunk(
+            sessionId: id,
+            sequence: sequence,
+            capturedAtIso: ISO8601DateFormatter().string(from: Date()),
+            bytes: jpegData,
+            contentType: "image/jpeg"
+        )
+#endif
     }
 
     func trackFieldBlur(_ fieldName: String, formName: String?, hadError: Bool, completed: Bool) {

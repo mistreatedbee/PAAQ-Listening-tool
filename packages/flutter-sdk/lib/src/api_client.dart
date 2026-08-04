@@ -88,6 +88,35 @@ class ApiClient {
         'outcome': outcome,
       });
 
+  /// Uploads one recording chunk (a PNG screenshot for Flutter) to the
+  /// private session-recordings bucket. Query-param metadata, raw bytes as
+  /// the body — mirrors the web SDK's upload shape.
+  Future<void> uploadRecordingChunk({
+    required String sessionId,
+    required int sequence,
+    required String capturedAtIso,
+    required List<int> bytes,
+    required String contentType,
+  }) async {
+    try {
+      final uri = Uri.parse('${config.baseUrl}/session-recording-upload').replace(
+        queryParameters: {
+          'session_id': sessionId,
+          'kind': 'screenshots',
+          'sequence': sequence.toString(),
+          'captured_at': capturedAtIso,
+        },
+      );
+      await http.post(
+        uri,
+        headers: {..._headers, 'Content-Type': contentType},
+        body: bytes,
+      );
+    } catch (_) {
+      // fire-and-forget — a missed screenshot just leaves a gap in playback
+    }
+  }
+
   Future<bool> _post(String endpoint, dynamic body) async {
     try {
       final res = await http.post(

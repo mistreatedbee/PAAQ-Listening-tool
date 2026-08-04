@@ -6,12 +6,16 @@ import 'event_queue.dart';
 import 'error_tracker.dart';
 import 'device_info.dart';
 import 'touch_tracker.dart';
+import 'screenshot_tracker.dart';
 import 'models/event.dart';
 import 'models/session.dart';
 
 /// Grace period after backgrounding before a session is considered ended —
 /// distinguishes a brief app-switch from the user actually being done.
 const _backgroundGracePeriod = Duration(seconds: 30);
+
+/// How often to capture a real screenshot for visual session replay.
+const _screenshotInterval = Duration(seconds: 5);
 
 /// Entry point for the PAAQ Intelligence SDK.
 ///
@@ -41,6 +45,8 @@ class PAAQ with WidgetsBindingObserver {
   final Set<int> _reportedScrollMilestones = {};
   final Map<String, DateTime> _fieldStartedAt = {};
   final Map<String, int> _fieldBackspaceCounts = {};
+  Timer? _screenshotTimer;
+  int _screenshotSequence = 0;
 
   PAAQ._(this._config)
       : _api = ApiClient(_config),
@@ -70,6 +76,33 @@ class PAAQ with WidgetsBindingObserver {
     await _instance!._startSession();
     _instance!._scheduleHeartbeat();
     _instance!._installTouchTracking();
+    _instance!._startScreenshotLoop();
+  }
+
+  // ── Visual session replay (screenshots) ─────────────────────────────
+  // Opt-in via PaaqScreenshotBoundary (see screenshot_tracker.dart) — a
+  // no-op if the app never wraps its root in one. Paused automatically
+  // while any form field is focused (masking by default).
+
+  void _startScreenshotLoop() {
+    _screenshotTimer?.cancel();
+    _screenshotTimer = Timer.periodic(_screenshotInterval, (_) => _captureAndUploadScreenshot());
+  }
+
+  Future<void> _captureAndUploadScreenshot() async {
+    if (_fieldStartedAt.isNotEmpty) return;
+    final id = _session?.id;
+    if (id == null) return;
+    final bytes = await PaaqScreenshotRegistry.captureNow();
+    if (bytes == null) return;
+    final sequence = _screenshotSequence++;
+    await _api.uploadRecordingChunk(
+      sessionId: id,
+      sequence: sequence,
+      capturedAtIso: DateTime.now().toUtc().toIso8601String(),
+      bytes: bytes,
+      contentType: 'image/png',
+    );
   }
 
   void _installTouchTracking() {
@@ -215,6 +248,7 @@ class PAAQ with WidgetsBindingObserver {
     _i._explicitDispose = true;
     _i._backgroundGraceTimer?.cancel();
     _i._heartbeatTimer?.cancel();
+    _i._screenshotTimer?.cancel();
     WidgetsBinding.instance.removeObserver(_i);
     await _i._endSession(outcome: 'completed');
     _i._queue.dispose();

@@ -12,6 +12,8 @@ import { NavigationMap } from '@/components/sessions/navigation-map'
 import { AiSummaryPanel, type SessionAiSummary } from '@/components/sessions/ai-summary-panel'
 import { TimelineScrubber } from '@/components/sessions/timeline-scrubber'
 import { FormAnalyticsPanel, type FormFieldStat } from '@/components/sessions/form-analytics-panel'
+import { DomReplayPlayer } from '@/components/sessions/dom-replay-player'
+import { ScreenshotReplayPlayer } from '@/components/sessions/screenshot-replay-player'
 
 export default function SessionDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -132,6 +134,12 @@ export default function SessionDetailPage() {
         lifetimeSessionCount={lifetimeSessionCount}
         environment={environment}
       />
+
+      {session.platform === 'web' ? (
+        <DomReplayPlayer sessionId={session.id} />
+      ) : (
+        <ScreenshotReplayPlayer sessionId={session.id} />
+      )}
 
       {events.length > 0 && (
         <TimelineScrubber startedAt={session.started_at} endedAt={session.ended_at} onTimeChange={setScrubTime} />

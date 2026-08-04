@@ -14,7 +14,7 @@
   },
   "files": ["dist"],
   "scripts": {
-    "build": "tsup src/index.ts --format cjs,esm --dts --external react-native react @react-native-async-storage/async-storage",
+    "build": "tsup src/index.ts --format cjs,esm --dts --external react-native react @react-native-async-storage/async-storage react-native-view-shot",
     "dev": "tsup src/index.ts --format esm --dts --watch"
   },
   "keywords": ["paaq", "analytics", "intelligence", "sdk", "react-native", "expo", "mobile"],
@@ -22,7 +22,11 @@
   "peerDependencies": {
     "react": ">=18.0.0",
     "react-native": ">=0.68.0",
-    "@react-native-async-storage/async-storage": ">=1.18.0"
+    "@react-native-async-storage/async-storage": ">=1.18.0",
+    "react-native-view-shot": ">=3.8.0"
+  },
+  "peerDependenciesMeta": {
+    "react-native-view-shot": { "optional": true }
   },
   "devDependencies": {
     "@types/react": "^18.2.0",

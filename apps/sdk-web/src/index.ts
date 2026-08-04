@@ -1,3 +1,5 @@
+import { record } from 'rrweb'
+
 const BASE_URL = 'https://mookyonwpovxscsbqwwl.supabase.co/functions/v1'
 const SDK_VERSION = '1.0.0'
 
@@ -131,6 +133,7 @@ async function init(
       installClickTracking()
       installScrollTracking()
       installFormTracking()
+      installDomRecording()
     }
     return data
   } catch (err) {
@@ -269,6 +272,9 @@ function installSessionEndHandlers(): void {
 
 function endOnce(outcome: string): void {
   void flush()
+  _recordingStop?.()
+  if (_recordingFlushTimer) clearInterval(_recordingFlushTimer)
+  void flushRecording()
   void endSession(outcome)
 }
 
@@ -286,6 +292,66 @@ async function endSession(outcome: string): Promise<void> {
     } catch {
       // fire-and-forget
     }
+  }
+}
+
+// ── Visual session replay (web) ─────────────────────────────────────────
+// Real DOM-reconstruction recording via rrweb — structural events (DOM
+// snapshots + mutations), not pixels/screenshots. maskAllInputs blocks the
+// *value* of every input/textarea/select by default (renders as bullets on
+// playback) so password/PII fields are never exposed without a developer
+// having to do anything; block elements with class "paaq-block" to hide
+// content entirely, or class "paaq-mask" to mask arbitrary text nodes.
+const RECORDING_FLUSH_INTERVAL_MS = 10_000
+const RECORDING_MAX_BUFFERED_EVENTS = 200
+
+let _recordingBuffer: unknown[] = []
+let _recordingSequence = 0
+let _recordingFlushTimer: ReturnType<typeof setInterval> | null = null
+let _recordingStop: (() => void) | null = null
+
+function installDomRecording(): void {
+  if (typeof document === 'undefined' || _recordingStop) return
+  _recordingStop = record({
+    emit(event) {
+      _recordingBuffer.push(event)
+      if (_recordingBuffer.length >= RECORDING_MAX_BUFFERED_EVENTS) void flushRecording()
+    },
+    maskAllInputs: true,
+    blockClass: 'paaq-block',
+    maskTextClass: 'paaq-mask',
+    // Periodic full snapshot so the player can render mid-recording without
+    // replaying every incremental mutation from session start.
+    checkoutEveryNms: 60_000,
+  }) ?? null
+
+  if (_recordingFlushTimer) clearInterval(_recordingFlushTimer)
+  _recordingFlushTimer = setInterval(() => void flushRecording(), RECORDING_FLUSH_INTERVAL_MS)
+}
+
+async function flushRecording(): Promise<void> {
+  if (_recordingBuffer.length === 0 || !_sdkToken || !_sessionId) return
+  const batch = _recordingBuffer.splice(0)
+  const sequence = _recordingSequence++
+  const params = new URLSearchParams({
+    session_id: _sessionId,
+    kind: 'dom',
+    sequence: String(sequence),
+    captured_at: new Date().toISOString(),
+  })
+  try {
+    await fetch(`${BASE_URL}/session-recording-upload?${params}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${_sdkToken}`,
+        'X-Project-ID': _projectKey,
+      },
+      body: JSON.stringify(batch),
+      keepalive: true,
+    })
+  } catch {
+    // fire-and-forget — a missed chunk just leaves a gap in playback
   }
 }
 

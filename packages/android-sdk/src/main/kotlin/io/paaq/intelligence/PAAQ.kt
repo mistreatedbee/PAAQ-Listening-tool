@@ -3,9 +3,13 @@ package io.paaq.intelligence
 import android.app.Activity
 import android.app.Application
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.os.Build
 import android.os.Bundle
 import kotlinx.coroutines.*
+import java.io.ByteArrayOutputStream
+import java.lang.ref.WeakReference
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -13,6 +17,9 @@ import java.util.*
  * considered ended — distinguishes a brief app-switch from the user
  * actually being done. */
 private const val BACKGROUND_GRACE_MS = 30_000L
+
+/** How often to capture a real screenshot for visual session replay. */
+private const val SCREENSHOT_INTERVAL_MS = 5_000L
 
 /**
  * PAAQ Intelligence SDK — Android
@@ -40,6 +47,10 @@ object PAAQ {
     private var heartbeatJob: Job? = null
     private var backgroundGraceJob: Job? = null
     private var activityCallbacks: Application.ActivityLifecycleCallbacks? = null
+    private var currentActivity: WeakReference<Activity>? = null
+    private var formFieldFocused = false
+    private var screenshotJob: Job? = null
+    private var screenshotSequence = 0
     private val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
         timeZone = TimeZone.getTimeZone("UTC")
     }
@@ -70,6 +81,7 @@ object PAAQ {
                 startFlushLoop(flushInterval)
                 startHeartbeatLoop(config.heartbeatIntervalSeconds)
                 registerLifecycleCallbacks(context)
+                startScreenshotLoop()
             } catch (e: Exception) {
                 log("Init failed: ${e.message}")
             }
@@ -106,6 +118,7 @@ object PAAQ {
             override fun onActivityResumed(activity: Activity) {
                 screen(activity.javaClass.simpleName)
                 installTouchTracking(activity)
+                currentActivity = WeakReference(activity)
             }
             override fun onActivityStarted(activity: Activity) {
                 startedActivities++
@@ -123,12 +136,53 @@ object PAAQ {
                     }
                 }
             }
-            override fun onActivityPaused(activity: Activity) {}
+            override fun onActivityPaused(activity: Activity) {
+                if (currentActivity?.get() === activity) currentActivity = null
+            }
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
             override fun onActivityDestroyed(activity: Activity) {}
         }
         activityCallbacks = callbacks
         app.registerActivityLifecycleCallbacks(callbacks)
+    }
+
+    // ── Visual session replay (screenshots) ─────────────────────────────
+    // No OS-level screen-recording permission needed — this only renders the
+    // app's own current view hierarchy into a bitmap (the same technique
+    // used for view snapshotting), not a system screen capture. Paused
+    // automatically while any form field is focused (masking by default).
+
+    private fun startScreenshotLoop() {
+        screenshotJob?.cancel()
+        screenshotJob = scope.launch {
+            while (isActive) {
+                delay(SCREENSHOT_INTERVAL_MS)
+                captureAndUploadScreenshot()
+            }
+        }
+    }
+
+    private suspend fun captureAndUploadScreenshot() {
+        if (formFieldFocused) return
+        val id = sessionId ?: return
+        val bytes = withContext(Dispatchers.Main) {
+            val activity = currentActivity?.get() ?: return@withContext null
+            try {
+                val view = activity.window?.decorView?.rootView ?: return@withContext null
+                if (view.width <= 0 || view.height <= 0) return@withContext null
+                val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.RGB_565)
+                val canvas = Canvas(bitmap)
+                view.draw(canvas)
+                val stream = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 50, stream)
+                bitmap.recycle()
+                stream.toByteArray()
+            } catch (_: Exception) {
+                null
+            }
+        } ?: return
+        val sequence = screenshotSequence++
+        api?.uploadRecordingChunk(id, sequence, now(), bytes, "image/jpeg")
     }
 
     private fun installTouchTracking(activity: Activity) {
@@ -173,6 +227,7 @@ object PAAQ {
     fun trackFieldFocus(fieldName: String) {
         fieldStartedAtMs[fieldName] = System.currentTimeMillis()
         fieldBackspaceCounts[fieldName] = 0
+        formFieldFocused = true // pauses screenshot capture while any field is focused — masking by default
     }
 
     fun trackFieldBackspace(fieldName: String) {
@@ -182,6 +237,7 @@ object PAAQ {
     fun trackFieldBlur(fieldName: String, formName: String? = null, hadError: Boolean = false, completed: Boolean = false) {
         val startedAt = fieldStartedAtMs.remove(fieldName)
         val backspaces = fieldBackspaceCounts.remove(fieldName) ?: 0
+        if (fieldStartedAtMs.isEmpty()) formFieldFocused = false // only resume capture once no field is focused
         track("\$form_field", mapOf(
             "fieldName" to fieldName,
             "formName" to (formName ?: ""),
@@ -242,6 +298,7 @@ object PAAQ {
         flushJob?.cancel()
         heartbeatJob?.cancel()
         backgroundGraceJob?.cancel()
+        screenshotJob?.cancel()
         scope.launch {
             flush()
             endSession("completed")

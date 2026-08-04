@@ -9,6 +9,8 @@ const HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000
 // Grace period after backgrounding before a session is considered ended —
 // distinguishes a brief app-switch from the user actually being done.
 const BACKGROUND_GRACE_MS = 30_000
+// How often to capture a real screenshot for visual session replay.
+const SCREENSHOT_INTERVAL_MS = 5_000
 
 type EventPayload = {
   event_name: string
@@ -127,6 +129,7 @@ export async function initialize(options: InitOptions): Promise<InitResult> {
       scheduleFlush()
       scheduleHeartbeat()
       watchAppState()
+      startScreenshotLoop()
       log('Initialized, sessionId', _sessionId)
     }
     return data
@@ -236,10 +239,12 @@ export async function dispose(): Promise<void> {
   if (_flushTimer) clearInterval(_flushTimer)
   if (_heartbeatTimer) clearInterval(_heartbeatTimer)
   if (_backgroundGraceTimer) clearTimeout(_backgroundGraceTimer)
+  if (_screenshotTimer) clearInterval(_screenshotTimer)
   _appStateSubscription?.remove()
   _flushTimer = null
   _heartbeatTimer = null
   _backgroundGraceTimer = null
+  _screenshotTimer = null
   _appStateSubscription = null
   await flush()
   await endSession('completed')
@@ -345,10 +350,52 @@ function handleGlobalTouch(x: number, y: number): void {
   }, DEAD_TAP_DELAY_MS)
 }
 
+// ── Visual session replay (screenshots) ─────────────────────────────────
+// Needs a real screenshot library — RN has no built-in "capture the current
+// screen" API. react-native-view-shot is an OPTIONAL peer dependency:
+// required dynamically only when a capture actually runs, so apps that
+// don't install it just silently get no screenshots (everything else in
+// this SDK still works). Reuses the same <PaaqTouchTracker> root wrapper as
+// the capture boundary rather than asking apps to add a second wrapper.
+let _viewShotRef: View | null = null
+let _screenshotTimer: ReturnType<typeof setInterval> | null = null
+let _screenshotSequence = 0
+
+function startScreenshotLoop(): void {
+  if (_screenshotTimer) clearInterval(_screenshotTimer)
+  _screenshotTimer = setInterval(() => void captureAndUploadScreenshot(), SCREENSHOT_INTERVAL_MS)
+}
+
+async function captureAndUploadScreenshot(): Promise<void> {
+  if (_fieldStartedAt.size > 0) return // paused while any form field is focused
+  if (!_sessionId || !_sdkToken || !_viewShotRef) return
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { captureRef } = require('react-native-view-shot')
+    const dataUri: string = await captureRef(_viewShotRef, { format: 'jpg', quality: 0.5, result: 'data-uri' })
+    const blob = await (await fetch(dataUri)).blob()
+    const sequence = _screenshotSequence++
+    const params = new URLSearchParams({
+      session_id: _sessionId,
+      kind: 'screenshots',
+      sequence: String(sequence),
+      captured_at: new Date().toISOString(),
+    })
+    await fetch(`${BASE_URL}/session-recording-upload?${params}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'image/jpeg', Authorization: `Bearer ${_sdkToken}`, 'X-Project-ID': _projectKey },
+      body: blob,
+    })
+  } catch {
+    // react-native-view-shot not installed, or capture failed — skip silently
+  }
+}
+
 /**
  * Wrap your app's root view to enable tap tracking (rage/dead-tap
- * detection) — RN has no app-wide touch hook in pure JS, so this is the
- * opt-in mechanism:
+ * detection) and, if react-native-view-shot is installed, screenshot-based
+ * visual session replay — RN has no app-wide touch or screen-capture hook
+ * in pure JS, so this is the opt-in mechanism for both:
  *
  *   <PaaqTouchTracker><App /></PaaqTouchTracker>
  *
@@ -357,10 +404,18 @@ function handleGlobalTouch(x: number, y: number): void {
  */
 export function PaaqTouchTracker(props: { children?: React.ReactNode } & ViewProps) {
   const { children, ...rest } = props
+  const ref = React.useRef<View>(null)
+
+  React.useEffect(() => {
+    _viewShotRef = ref.current
+    return () => { _viewShotRef = null }
+  }, [])
+
   return React.createElement(
     View,
     {
       ...rest,
+      ref,
       style: [{ flex: 1 }, rest.style],
       onStartShouldSetResponderCapture: (event: GestureResponderEvent) => {
         const { pageX, pageY } = event.nativeEvent

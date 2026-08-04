@@ -6,3 +6,4 @@ export 'src/models/event.dart';
 export 'src/models/session.dart';
 export 'src/navigator_observer.dart';
 export 'src/scroll_tracker.dart';
+export 'src/screenshot_tracker.dart';

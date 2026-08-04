@@ -121,6 +121,30 @@ actor PaaqApiClient {
         }
     }
 
+    /// Uploads one recording chunk (a JPEG screenshot for iOS) to the private
+    /// session-recordings bucket. Query-param metadata, raw bytes as the
+    /// body — mirrors the web SDK's upload shape.
+    func uploadRecordingChunk(sessionId: String, sequence: Int, capturedAtIso: String, bytes: Data, contentType: String) async {
+        guard var components = URLComponents(string: "\(baseURL)/session-recording-upload") else { return }
+        components.queryItems = [
+            URLQueryItem(name: "session_id", value: sessionId),
+            URLQueryItem(name: "kind", value: "screenshots"),
+            URLQueryItem(name: "sequence", value: String(sequence)),
+            URLQueryItem(name: "captured_at", value: capturedAtIso),
+        ]
+        guard let url = components.url else { return }
+        do {
+            var req = URLRequest(url: url)
+            req.httpMethod = "POST"
+            headers.forEach { req.setValue($1, forHTTPHeaderField: $0) }
+            req.setValue(contentType, forHTTPHeaderField: "Content-Type")
+            req.httpBody = bytes
+            _ = try await session.data(for: req)
+        } catch {
+            // fire-and-forget
+        }
+    }
+
     func heartbeat() async {
         do {
             var req = URLRequest(url: URL(string: "\(baseURL)/sdk-heartbeat")!)

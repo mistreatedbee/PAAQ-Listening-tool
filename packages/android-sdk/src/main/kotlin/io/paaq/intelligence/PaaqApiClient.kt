@@ -38,6 +38,37 @@ internal class PaaqApiClient(private val config: PaaqConfig, private val deviceI
         } catch (_: Exception) { null }
     }
 
+    /**
+     * Uploads one recording chunk (a JPEG screenshot for Android) to the
+     * private session-recordings bucket. Query-param metadata, raw bytes as
+     * the body — mirrors the web SDK's upload shape.
+     */
+    suspend fun uploadRecordingChunk(
+        sessionId: String,
+        sequence: Int,
+        capturedAtIso: String,
+        bytes: ByteArray,
+        contentType: String,
+    ) = withContext(Dispatchers.IO) {
+        try {
+            val encodedCapturedAt = java.net.URLEncoder.encode(capturedAtIso, "UTF-8")
+            val url = "$BASE_URL/session-recording-upload?session_id=$sessionId&kind=screenshots&sequence=$sequence&captured_at=$encodedCapturedAt"
+            val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                connectTimeout = 10_000
+                readTimeout = 10_000
+                setRequestProperty("Content-Type", contentType)
+                setRequestProperty("Authorization", "Bearer ${config.sdkToken}")
+                setRequestProperty("X-Project-ID", config.projectId)
+            }
+            conn.outputStream.use { it.write(bytes) }
+            conn.responseCode
+        } catch (_: Exception) {
+            // fire-and-forget — a missed screenshot just leaves a gap in playback
+        }
+    }
+
     data class InitResult(val sessionId: String?, val batchSize: Int?, val flushIntervalSeconds: Long?)
 
     /**
