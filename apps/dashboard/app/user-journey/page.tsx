@@ -1,279 +1,481 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
-import { PageHeader, Card, CardHead, ToneBadge } from '@/components/kit'
-import { Route, RefreshCw, CheckCircle2, XCircle, ExternalLink } from 'lucide-react'
-import Link from 'next/link'
+import { PageHeader, Card, CardHead, ToneBadge, ProgressRing } from '@/components/kit'
+import { useBulkSelection, RowCheckbox, BulkActionsBar, ConfirmDeleteDialog } from '@/components/kit-bulk-actions'
+import { JourneyMap, type JourneyMapNode, type JourneyMapEdge } from '@/components/journey/journey-map'
+import {
+  Route, RefreshCw, Users, CheckCircle2, XCircle, Clock, TimerReset, Skull, Flame,
+  Smartphone, Monitor, Tablet, AlertTriangle, ExternalLink, Filter, Gauge, GitPullRequest, Rocket, Bug,
+} from 'lucide-react'
+import { cn } from '@/lib/utils'
+import type { Tone } from '@/lib/data'
 
-type Journey = {
-  id: string
-  session_id: string
-  journey_name: string
-  steps: Array<{ step: number; screen: string }>
-  completed: boolean
-  drop_off_step: string | null
-  drop_off_reason: string | null
-  ai_analysis: string | null
-  created_at: string
+// ── Types ────────────────────────────────────────────────────────────────
+type Metrics = {
+  totalSessions: number
+  activeUsers: number
+  completionPct: number | null
+  abandonmentPct: number | null
+  avgDurationSeconds: number | null
+  avgTimeToCompletionSeconds: number | null
+  topDropOffPage: string | null
+  highestFrictionPage: string | null
 }
 
-type SessionMeta = {
+type PathStat = {
+  signature: string
+  steps: string[]
+  sessionCount: number
+  completedCount: number
+  abandonedCount: number
+  completionRate: number
+  errorDensity: number
+}
+
+type AnalyticsResult = {
+  ok: boolean
+  metrics: Metrics
+  journeyHealthScore: number | null
+  journeyMap: { nodes: JourneyMapNode[]; edges: JourneyMapEdge[] }
+  paths: { common: PathStat[]; abandoned: PathStat[]; successful: PathStat[]; problematic: PathStat[] }
+  deviceIntel: {
+    platform: { value: string; count: number; pct: number }[]
+    deviceType: { value: string; count: number; pct: number }[]
+    osName: { value: string; count: number; pct: number }[]
+    browserName: { value: string; count: number; pct: number }[]
+  }
+  errorCorrelation: { screen: string; count: number }[]
+}
+
+type SessionListRow = {
   id: string
-  status: string | null
+  user_id: string | null
+  started_at: string
   duration: number | null
-  started_at: string | null
-  ended_at: string | null
+  status: string
+  outcome: string | null
+  platform: string | null
+  device_type: string | null
+  os_name: string | null
+  browser_name: string | null
+  rage_click_count: number
+  dead_click_count: number
+  page_count: number | null
 }
+
+type UserMeta = { id: string; external_user_id: string; email: string | null }
+
+const outcomeTone: Record<string, Tone> = {
+  completed: 'healthy', abandoned: 'warning', timed_out: 'warning',
+  logged_out: 'intel', crashed: 'critical', force_closed: 'critical',
+}
+const deviceIcon: Record<string, typeof Monitor> = { desktop: Monitor, mobile: Smartphone, tablet: Tablet }
+
+const RANGE_OPTIONS = [
+  { id: '24h', label: '24h', ms: 24 * 60 * 60 * 1000 },
+  { id: '7d', label: '7d', ms: 7 * 24 * 60 * 60 * 1000 },
+  { id: '30d', label: '30d', ms: 30 * 24 * 60 * 60 * 1000 },
+  { id: '90d', label: '90d', ms: 90 * 24 * 60 * 60 * 1000 },
+  { id: 'all', label: 'All time', ms: null as number | null },
+] as const
 
 function fmtDuration(seconds: number | null) {
-  if (!seconds) return '—'
+  if (seconds == null) return '—'
   if (seconds < 60) return `${seconds}s`
   const m = Math.floor(seconds / 60)
-  const s = seconds % 60
-  return s > 0 ? `${m}m ${s}s` : `${m}m`
+  return `${m}m ${seconds % 60}s`
+}
+
+function healthTone(score: number | null): Tone {
+  if (score == null) return 'intel'
+  if (score >= 75) return 'healthy'
+  if (score >= 50) return 'warning'
+  return 'critical'
 }
 
 export default function UserJourneyPage() {
   const { app } = useConnectedApp()
-  const [journeys, setJourneys] = useState<Journey[]>([])
-  const [sessions, setSessions] = useState<Record<string, SessionMeta>>({})
-  const [loading, setLoading] = useState(true)
-  const [analysing, setAnalysing] = useState(false)
-  const [toast, setToast] = useState<string | null>(null)
-  const [selected, setSelected] = useState<Journey | null>(null)
+  const router = useRouter()
 
-  const showToast = (msg: string) => {
-    setToast(msg)
-    setTimeout(() => setToast(null), 4000)
-  }
+  const [range, setRange] = useState<(typeof RANGE_OPTIONS)[number]['id']>('30d')
+  const [platformFilter, setPlatformFilter] = useState<string>('all')
+  const [deviceFilter, setDeviceFilter] = useState<string>('all')
+  const [outcomeFilter, setOutcomeFilter] = useState<string>('all')
+  const [hasErrorFilter, setHasErrorFilter] = useState(false)
+  const [pageFilter, setPageFilter] = useState('')
 
-  const fetchJourneys = async (projectId: string) => {
-    const sb = createClient()
-    const { data } = await sb.from('user_journeys').select('*').eq('project_id', projectId).order('created_at', { ascending: false }).limit(50)
-    const rows = (data ?? []) as Journey[]
-    setJourneys(rows)
-    if (rows.length > 0 && !selected) setSelected(rows[0])
+  const [analytics, setAnalytics] = useState<AnalyticsResult | null>(null)
+  const [analyticsLoading, setAnalyticsLoading] = useState(true)
 
-    // Fetch session metadata for enrichment
-    const sessionIds = [...new Set(rows.map((r) => r.session_id).filter(Boolean))]
-    if (sessionIds.length > 0) {
-      const { data: sessionData } = await sb
-        .from('sessions')
-        .select('id, status, duration, started_at, ended_at')
-        .in('id', sessionIds)
-      const map: Record<string, SessionMeta> = {}
-      for (const s of (sessionData ?? []) as SessionMeta[]) map[s.id] = s
-      setSessions(map)
+  const [sessions, setSessions] = useState<SessionListRow[]>([])
+  const [users, setUsers] = useState<Record<string, UserMeta>>({})
+  const [sessionsLoading, setSessionsLoading] = useState(true)
+
+  const [pathTab, setPathTab] = useState<'common' | 'abandoned' | 'successful' | 'problematic'>('common')
+  const bulk = useBulkSelection()
+  const [confirmMode, setConfirmMode] = useState<'selected' | 'all' | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  const filters = useMemo(() => {
+    const opt = RANGE_OPTIONS.find((r) => r.id === range)!
+    return {
+      from: opt.ms ? new Date(Date.now() - opt.ms).toISOString() : undefined,
+      platform: platformFilter === 'all' ? undefined : platformFilter,
+      deviceType: deviceFilter === 'all' ? undefined : deviceFilter,
+      outcome: outcomeFilter === 'all' ? undefined : outcomeFilter,
+      hasError: hasErrorFilter || undefined,
+      page: pageFilter.trim() || undefined,
     }
+  }, [range, platformFilter, deviceFilter, outcomeFilter, hasErrorFilter, pageFilter])
 
-    setLoading(false)
-  }
-
-  useEffect(() => {
+  // ── Aggregate analytics (health score, metrics, map, paths, device, errors) ──
+  const fetchAnalytics = async () => {
     if (app.id === '__loading__') return
-    fetchJourneys(app.id)
-  }, [app.id])
-
-  const runAnalysis = async () => {
-    setAnalysing(true)
-    showToast('Reconstructing user journeys with AI…')
-    const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/analyze`, {
+    setAnalyticsLoading(true)
+    const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/journey-analytics`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}` },
-      body: JSON.stringify({ project_id: app.id }),
-    })
-    const data = await res.json()
-    if (!res.ok) {
-      showToast(`Analysis failed — ${data.error ?? 'unknown error'}`)
-    } else {
-      await fetchJourneys(app.id)
-      showToast(`Analysis complete — ${data?.journeys ?? 0} journeys reconstructed`)
-    }
-    setAnalysing(false)
+      body: JSON.stringify({ project_id: app.id, filters }),
+    }).then((r) => r.json()).catch(() => null)
+    if (res?.ok) setAnalytics(res)
+    setAnalyticsLoading(false)
   }
 
-  // Group by journey_name for stats
-  const journeyGroups = journeys.reduce<Record<string, Journey[]>>((acc, j) => {
-    const key = j.journey_name ?? 'Unknown'
-    if (!acc[key]) acc[key] = []
-    acc[key].push(j)
-    return acc
-  }, {})
+  useEffect(() => { void fetchAnalytics() }, [app.id, filters]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const completionRate = journeys.length > 0
-    ? Math.round((journeys.filter((j) => j.completed).length / journeys.length) * 100)
-    : 0
+  // ── Session Explorer: live query against real sessions, same filters ────
+  useEffect(() => {
+    if (app.id === '__loading__') return
+    setSessionsLoading(true)
+    const sb = createClient()
+    let q = sb.from('sessions')
+      .select('id, user_id, started_at, duration, status, outcome, platform, device_type, os_name, browser_name, rage_click_count, dead_click_count, page_count')
+      .eq('project_id', app.id)
+      .order('started_at', { ascending: false })
+      .limit(200)
+    if (filters.from) q = q.gte('started_at', filters.from)
+    if (filters.platform) q = q.eq('platform', filters.platform)
+    if (filters.deviceType) q = q.eq('device_type', filters.deviceType)
+    if (filters.outcome) q = q.eq('outcome', filters.outcome)
+    q.then(async ({ data }) => {
+      const rows = (data ?? []) as SessionListRow[]
+      setSessions(rows)
+      setSessionsLoading(false)
+      const userIds = [...new Set(rows.map((r) => r.user_id).filter((v): v is string => !!v))]
+      if (userIds.length > 0) {
+        const { data: userRows } = await sb.from('users').select('id, external_user_id, email').in('id', userIds)
+        const map: Record<string, UserMeta> = {}
+        for (const u of (userRows ?? []) as UserMeta[]) map[u.id] = u
+        setUsers(map)
+      } else {
+        setUsers({})
+      }
+    })
+  }, [app.id, filters.from, filters.platform, filters.deviceType, filters.outcome])
+
+  const platforms = [...new Set(sessions.map((s) => s.platform).filter(Boolean))] as string[]
+  const devices = [...new Set(sessions.map((s) => s.device_type).filter(Boolean))] as string[]
+
+  const handleConfirmDelete = async () => {
+    setDeleting(true)
+    const sb = createClient()
+    if (confirmMode === 'selected') {
+      await sb.from('sessions').delete().in('id', [...bulk.selected])
+      setSessions((prev) => prev.filter((s) => !bulk.selected.has(s.id)))
+      bulk.clear()
+    } else if (confirmMode === 'all') {
+      await sb.from('sessions').delete().eq('project_id', app.id)
+      setSessions([])
+      bulk.clear()
+    }
+    setDeleting(false)
+    setConfirmMode(null)
+    void fetchAnalytics()
+  }
+
+  const m = analytics?.metrics
+  const health = analytics?.journeyHealthScore ?? null
+  const pathList = analytics?.paths[pathTab] ?? []
 
   return (
     <div className="flex flex-col gap-6">
-      {toast && (
-        <div className="fixed bottom-4 right-4 z-50 rounded-lg bg-foreground px-4 py-2.5 text-sm font-medium text-background shadow-lg">
-          {toast}
-        </div>
-      )}
-
       <PageHeader
         icon={<Route className="h-5 w-5" />}
         title="User Journey Explorer"
-        desc="Automatically reconstructed session paths. AI detects friction, failures and abandonment points."
+        desc="Real, live-computed cohort intelligence — health score, funnels, and paths across every captured session. No cached snapshots."
         actions={
           <button
-            onClick={runAnalysis}
-            disabled={analysing}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-ai px-3 py-1.5 text-sm font-medium text-ai-foreground hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
+            onClick={() => void fetchAnalytics()}
+            disabled={analyticsLoading}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-card/60 px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-60"
           >
-            <RefreshCw className={`h-4 w-4 ${analysing ? 'animate-spin' : ''}`} />
-            {analysing ? 'Analysing…' : 'Run AI Analysis'}
+            <RefreshCw className={cn('h-4 w-4', analyticsLoading && 'animate-spin')} />
+            Refresh
           </button>
         }
       />
 
-      {journeys.length > 0 && (
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { label: 'Sessions analysed', value: journeys.length },
-            { label: 'Completion rate', value: `${completionRate}%` },
-            { label: 'Unique journeys', value: Object.keys(journeyGroups).length },
-          ].map((s) => (
-            <Card key={s.label} className="p-4">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">{s.label}</p>
-              <p className="mt-1.5 text-2xl font-semibold text-foreground">{s.value}</p>
-            </Card>
-          ))}
-        </div>
+      {/* Health score + Key Metrics */}
+      <div className="grid gap-3 lg:grid-cols-4">
+        <Card className="flex items-center gap-4 p-4">
+          <ProgressRing value={health ?? 0} tone={healthTone(health)} size={72} stroke={6} label="Health" />
+          <div>
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Journey Health Score</p>
+            <p className="mt-0.5 text-2xl font-semibold text-foreground">{health != null ? `${health}/100` : '—'}</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">Completion, friction, errors &amp; AI drop-off risk, weighted</p>
+          </div>
+        </Card>
+
+        <MetricCard icon={<Users className="h-4 w-4" />} label="Total sessions / active users" value={m ? `${m.totalSessions}` : '—'} sub={m ? `${m.activeUsers} active users` : undefined} />
+        <MetricCard icon={<CheckCircle2 className="h-4 w-4" />} label="Completion rate" value={m?.completionPct != null ? `${m.completionPct}%` : '—'} tone="healthy" />
+        <MetricCard icon={<XCircle className="h-4 w-4" />} label="Abandonment rate" value={m?.abandonmentPct != null ? `${m.abandonmentPct}%` : '—'} tone="warning" />
+
+        <MetricCard icon={<Clock className="h-4 w-4" />} label="Avg session duration" value={fmtDuration(m?.avgDurationSeconds ?? null)} />
+        <MetricCard icon={<TimerReset className="h-4 w-4" />} label="Avg time-to-completion" value={fmtDuration(m?.avgTimeToCompletionSeconds ?? null)} />
+        <MetricCard icon={<Skull className="h-4 w-4" />} label="Top drop-off page" value={m?.topDropOffPage ?? '—'} mono />
+        <MetricCard icon={<Flame className="h-4 w-4" />} label="Highest-friction page" value={m?.highestFrictionPage ?? '—'} tone="critical" mono />
+      </div>
+
+      {/* Filters */}
+      <Card className="flex flex-wrap items-center gap-2 px-4 py-3">
+        <Filter className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <FilterGroup options={RANGE_OPTIONS.map((r) => ({ id: r.id, label: r.label }))} value={range} onChange={(v) => setRange(v as typeof range)} />
+        {platforms.length > 0 && <FilterGroup options={[{ id: 'all', label: 'All platforms' }, ...platforms.map((p) => ({ id: p, label: p }))]} value={platformFilter} onChange={setPlatformFilter} />}
+        {devices.length > 0 && <FilterGroup options={[{ id: 'all', label: 'All devices' }, ...devices.map((d) => ({ id: d, label: d }))]} value={deviceFilter} onChange={setDeviceFilter} />}
+        <FilterGroup options={[{ id: 'all', label: 'All outcomes' }, { id: 'completed', label: 'Completed' }, { id: 'abandoned', label: 'Abandoned' }, { id: 'crashed', label: 'Crashed' }]} value={outcomeFilter} onChange={setOutcomeFilter} />
+        <button
+          onClick={() => setHasErrorFilter((v) => !v)}
+          className={cn('flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors', hasErrorFilter ? 'bg-critical text-white' : 'text-muted-foreground hover:text-foreground')}
+        >
+          <AlertTriangle className="h-3 w-3" /> Has errors
+        </button>
+        <input
+          value={pageFilter}
+          onChange={(e) => setPageFilter(e.target.value)}
+          placeholder="Filter by page path…"
+          className="ml-auto w-48 rounded-lg border border-border/60 bg-background px-2.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ai/30"
+        />
+      </Card>
+
+      {/* Visual Journey Map */}
+      {analytics && <JourneyMap nodes={analytics.journeyMap.nodes} edges={analytics.journeyMap.edges} />}
+
+      {/* Path Analytics */}
+      {analytics && (
+        <Card>
+          <CardHead
+            title="Journey Path Analytics"
+            desc="Real multi-session paths, grouped by identical page sequences."
+            action={
+              <div className="flex gap-1">
+                {(['common', 'abandoned', 'successful', 'problematic'] as const).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setPathTab(t)}
+                    className={cn('rounded-lg px-2.5 py-1 text-xs font-medium capitalize transition-colors', pathTab === t ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground')}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+            }
+          />
+          <div className="space-y-2 px-5 pb-5">
+            {pathList.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">No {pathTab} paths with enough sessions in this range yet.</p>
+            ) : (
+              pathList.map((p) => (
+                <div key={p.signature} className="rounded-lg border border-border/50 bg-background/40 px-3 py-2.5">
+                  <div className="flex flex-wrap items-center gap-1.5 font-mono text-xs text-foreground">
+                    {p.steps.map((step, i) => (
+                      <span key={i} className="flex items-center gap-1.5">
+                        {i > 0 && <span className="text-muted-foreground">→</span>}
+                        {step}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
+                    <span>{p.sessionCount} sessions</span>
+                    <span>{p.completionRate}% completed</span>
+                    {p.abandonedCount > 0 && <span className="text-warning">{p.abandonedCount} abandoned</span>}
+                    {p.errorDensity > 0 && <span className="text-critical">{p.errorDensity} errors/session</span>}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
       )}
 
-      {loading ? (
-        <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">Loading…</div>
-      ) : journeys.length === 0 ? (
-        <Card className="p-10 text-center">
-          <Route className="mx-auto mb-3 h-8 w-8 text-muted-foreground opacity-20" />
-          <p className="text-sm font-medium text-foreground">No journey data yet</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Send events with screen names via the PAAQ SDK, then click "Run AI Analysis" to reconstruct journeys.
-          </p>
-        </Card>
-      ) : (
-        <div className="grid gap-4 lg:grid-cols-3">
-          {/* Journey list */}
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground px-1">Sessions</p>
-            <div className="space-y-1.5 max-h-[600px] overflow-y-auto scrollbar-thin">
-              {journeys.map((j) => (
-                <button
-                  key={j.id}
-                  onClick={() => setSelected(j)}
-                  className={`w-full rounded-lg border px-3 py-2.5 text-left transition-colors ${
-                    selected?.id === j.id
-                      ? 'border-ai/40 bg-ai/[0.06]'
-                      : 'border-border/60 bg-card/60 hover:bg-accent/30'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    {j.completed
-                      ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-healthy" />
-                      : <XCircle className="h-3.5 w-3.5 shrink-0 text-critical" />}
-                    <span className="truncate text-xs font-medium text-foreground">{j.journey_name}</span>
-                  </div>
-                  <p className="mt-0.5 text-[10px] text-muted-foreground">
-                    {j.steps?.length ?? 0} steps · {j.completed ? 'Completed' : `Dropped at ${j.drop_off_step ?? 'unknown'}`}
-                  </p>
-                </button>
-              ))}
-            </div>
+      {/* Device Intelligence */}
+      {analytics && (
+        <Card>
+          <CardHead title="Device Intelligence" desc="Real platform/device/OS/browser mix for sessions in this range." />
+          <div className="grid gap-4 px-5 pb-5 sm:grid-cols-2 lg:grid-cols-4">
+            <DeviceRollup title="Platform" rows={analytics.deviceIntel.platform} />
+            <DeviceRollup title="Device type" rows={analytics.deviceIntel.deviceType} />
+            <DeviceRollup title="OS" rows={analytics.deviceIntel.osName} />
+            <DeviceRollup title="Browser" rows={analytics.deviceIntel.browserName} />
           </div>
+        </Card>
+      )}
 
-          {/* Journey detail */}
-          {selected && (
-            <div className="space-y-4 lg:col-span-2">
-              <Card>
-                <CardHead
-                  title={selected.journey_name ?? 'Journey'}
-                  desc={selected.completed ? 'Completed successfully' : `Dropped off at: ${selected.drop_off_step ?? 'unknown'}`}
-                  action={
-                    <Link
-                      href={`/sessions/${selected.session_id}`}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-card/60 px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
-                    >
-                      <ExternalLink className="h-3.5 w-3.5" /> View full session
-                    </Link>
-                  }
-                />
-                <div className="px-5 pb-5">
-                  {/* Funnel visualization */}
-                  <div className="space-y-2">
-                    {(selected.steps ?? []).map((step, i) => {
-                      const totalSteps = selected.steps?.length ?? 1
-                      const width = Math.max(30, 100 - (i / totalSteps) * 50)
-                      const isDropOff = step.screen === selected.drop_off_step && !selected.completed
-                      return (
-                        <div key={i} className="flex items-center gap-3">
-                          <span className="w-5 shrink-0 text-[10px] font-mono text-muted-foreground text-right">{step.step}</span>
-                          <div className="flex-1">
-                            <div
-                              className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all ${
-                                isDropOff
-                                  ? 'bg-critical/10 border border-critical/30 text-critical'
-                                  : i === 0
-                                  ? 'bg-ai/10 border border-ai/20 text-foreground'
-                                  : 'bg-card/80 border border-border/50 text-foreground'
-                              }`}
-                              style={{ width: `${width}%`, minWidth: '40%' }}
-                            >
-                              {isDropOff && <XCircle className="h-3.5 w-3.5 shrink-0" />}
-                              {step.screen}
-                            </div>
-                          </div>
-                        </div>
-                      )
-                    })}
+      {/* Session Explorer */}
+      <Card>
+        <CardHead
+          title="Session Explorer"
+          desc="Every real session in this range — click through for full replay, timeline and AI summary."
+        />
+        {!sessionsLoading && sessions.length > 0 && (
+          <div className="px-5 pb-3">
+            <BulkActionsBar
+              selectedCount={bulk.count}
+              totalCount={sessions.length}
+              itemLabel="session"
+              onDeleteSelected={() => setConfirmMode('selected')}
+              onClearAll={() => setConfirmMode('all')}
+              onDeselectAll={bulk.clear}
+            />
+          </div>
+        )}
+        <ConfirmDeleteDialog
+          open={confirmMode !== null}
+          loading={deleting}
+          title={confirmMode === 'all' ? 'Delete all sessions?' : `Delete ${bulk.count} session${bulk.count === 1 ? '' : 's'}?`}
+          description={confirmMode === 'all'
+            ? `This permanently deletes all ${sessions.length} sessions in scope, along with their pages, events, errors, and AI summaries. This can't be undone.`
+            : `This permanently deletes the selected session(s), along with their pages, events, errors, and AI summaries. This can't be undone.`}
+          onConfirm={handleConfirmDelete}
+          onCancel={() => setConfirmMode(null)}
+        />
+        {sessionsLoading ? (
+          <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">Loading…</div>
+        ) : sessions.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-16 text-muted-foreground">
+            <Route className="h-8 w-8 opacity-20" />
+            <p className="text-sm">No sessions match these filters.</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-border/60">
+            {sessions.slice(0, 50).map((s) => {
+              const Icon = deviceIcon[s.device_type ?? ''] ?? Monitor
+              const user = s.user_id ? users[s.user_id] : undefined
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => router.push(`/sessions/${s.id}`)}
+                  className="flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-accent/20"
+                >
+                  <RowCheckbox checked={bulk.isSelected(s.id)} onChange={() => bulk.toggle(s.id)} />
+                  <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <ToneBadge tone={outcomeTone[s.outcome ?? ''] ?? 'intel'}>{s.outcome ?? s.status}</ToneBadge>
+                      <span className="truncate text-xs text-muted-foreground">
+                        {user?.email ?? user?.external_user_id ?? 'Anonymous'} · {[s.platform, s.os_name, s.browser_name].filter(Boolean).join(' · ')}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-sm text-foreground">{new Date(s.started_at).toLocaleString()}</p>
                   </div>
+                  <div className="flex shrink-0 items-center gap-3 text-xs text-muted-foreground">
+                    {(s.rage_click_count > 0 || s.dead_click_count > 0) && (
+                      <ToneBadge tone="warning" dot>Friction</ToneBadge>
+                    )}
+                    <span>{fmtDuration(s.duration)}</span>
+                    <span>{s.page_count ?? 0} pages</span>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </Card>
 
-                  {!selected.completed && selected.drop_off_reason && (
-                    <div className="mt-4 rounded-lg border border-warning/30 bg-warning/[0.06] p-3">
-                      <p className="text-xs font-semibold text-warning">Drop-off reason</p>
-                      <p className="mt-1 text-sm text-foreground">{selected.drop_off_reason}</p>
-                    </div>
-                  )}
+      {/* Error correlation */}
+      {analytics && analytics.errorCorrelation.length > 0 && (
+        <Card>
+          <CardHead icon={<Bug className="h-4 w-4" />} title="Error Correlation" desc="Real errors, grouped by the page/screen they occurred on." action={
+            <Link href="/errors" className="inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-card/60 px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-accent">
+              <ExternalLink className="h-3.5 w-3.5" /> Error Tracking
+            </Link>
+          } />
+          <div className="flex flex-wrap gap-1.5 px-5 pb-5">
+            {analytics.errorCorrelation.map((e) => (
+              <ToneBadge key={e.screen} tone="critical">{e.screen} · {e.count}</ToneBadge>
+            ))}
+          </div>
+        </Card>
+      )}
 
-                  {selected.ai_analysis && (
-                    <div className="mt-4 rounded-lg border border-ai/20 bg-ai/[0.04] p-3">
-                      <p className="text-xs font-semibold text-ai">AI Analysis</p>
-                      <p className="mt-1 text-sm leading-relaxed text-foreground">{selected.ai_analysis}</p>
-                    </div>
-                  )}
-                </div>
-              </Card>
+      {/* Connections to other modules */}
+      <Card className="flex flex-wrap items-center gap-2 px-5 py-4">
+        <Gauge className="h-4 w-4 text-muted-foreground" />
+        <span className="text-xs text-muted-foreground">Related intelligence:</span>
+        {[
+          { href: '/errors', label: 'Error Tracking', icon: Bug },
+          { href: '/performance', label: 'Performance Monitoring', icon: Gauge },
+          { href: '/deployments', label: 'Deployment Intelligence', icon: Rocket },
+          { href: '/recommendations', label: 'AI Recommendations', icon: GitPullRequest },
+        ].map((l) => (
+          <Link key={l.href} href={l.href} className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-background/40 px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent">
+            <l.icon className="h-3.5 w-3.5" /> {l.label}
+          </Link>
+        ))}
+      </Card>
+    </div>
+  )
+}
 
-              <Card className="p-4">
-                <div className="flex flex-wrap gap-4">
-                  {[
-                    { label: 'Steps', value: String(selected.steps?.length ?? 0) },
-                    { label: 'Outcome', value: selected.completed ? 'Completed' : 'Abandoned' },
-                    { label: 'Drop-off at', value: selected.drop_off_step ?? '—' },
-                    { label: 'Duration', value: fmtDuration(sessions[selected.session_id]?.duration ?? null) },
-                    { label: 'Session status', value: sessions[selected.session_id]?.status ?? '—' },
-                    {
-                      label: 'Started',
-                      value: sessions[selected.session_id]?.started_at
-                        ? new Date(sessions[selected.session_id].started_at!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                        : '—',
-                    },
-                  ].map((s) => (
-                    <div key={s.label} className="flex flex-col min-w-[80px]">
-                      <span className="text-[10px] text-muted-foreground">{s.label}</span>
-                      <span className="text-sm font-semibold text-foreground">{s.value}</span>
-                    </div>
-                  ))}
-                  <ToneBadge tone={selected.completed ? 'healthy' : 'critical'} className="self-end ml-auto">
-                    {selected.completed ? 'Completed' : 'Abandoned'}
-                  </ToneBadge>
-                </div>
-              </Card>
+function MetricCard({ icon, label, value, sub, tone = 'intel', mono }: { icon: React.ReactNode; label: string; value: string; sub?: string; tone?: Tone; mono?: boolean }) {
+  return (
+    <Card className="p-4">
+      <div className="flex items-center gap-1.5 text-muted-foreground">
+        {icon}
+        <p className="text-[10px] font-semibold uppercase tracking-wide">{label}</p>
+      </div>
+      <p className={cn('mt-1.5 truncate text-xl font-semibold', mono ? 'font-mono text-base text-foreground' : tone === 'critical' ? 'text-critical' : tone === 'healthy' ? 'text-healthy' : tone === 'warning' ? 'text-warning' : 'text-foreground')}>
+        {value}
+      </p>
+      {sub && <p className="mt-0.5 text-[11px] text-muted-foreground">{sub}</p>}
+    </Card>
+  )
+}
+
+function FilterGroup({ options, value, onChange }: { options: { id: string; label: string }[]; value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="flex gap-1">
+      {options.map((o) => (
+        <button
+          key={o.id}
+          onClick={() => onChange(o.id)}
+          className={cn('rounded-lg px-2.5 py-1 text-xs font-medium capitalize transition-colors', value === o.id ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground')}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function DeviceRollup({ title, rows }: { title: string; rows: { value: string; count: number; pct: number }[] }) {
+  return (
+    <div>
+      <p className="mb-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{title}</p>
+      {rows.length === 0 ? (
+        <p className="text-xs text-muted-foreground">—</p>
+      ) : (
+        <div className="space-y-1">
+          {rows.slice(0, 5).map((r) => (
+            <div key={r.value} className="flex items-center justify-between gap-2 text-xs">
+              <span className="truncate text-foreground">{r.value}</span>
+              <span className="shrink-0 text-muted-foreground">{r.pct}%</span>
             </div>
-          )}
+          ))}
         </div>
       )}
     </div>

@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { diffLines } from 'diff'
 import { cn } from '@/lib/utils'
+import { ToneBadge } from '@/components/kit'
 import {
   CheckCircle2, XCircle, X, GitBranch, ExternalLink,
   ShieldAlert, Settings, Rocket, FileCode2, Sparkles, GitMerge,
@@ -237,10 +238,15 @@ export function FixExecution({
         </div>
 
         {/* Header */}
-        <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-4 border-b border-border/60 shrink-0">
-          <div className="min-w-0">
-            <span className="text-[9px] font-bold uppercase tracking-widest text-ai">Execute fix</span>
-            <h2 className="mt-0.5 text-sm font-semibold text-foreground leading-snug line-clamp-2">{title}</h2>
+        <div className="flex items-start justify-between gap-3 px-5 pt-4 pb-4 border-b border-border/60 shrink-0">
+          <div className="flex items-start gap-3 min-w-0">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-card text-ai">
+              <Wrench className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <span className="text-[9px] font-bold uppercase tracking-widest text-ai">Execute fix</span>
+              <h2 className="mt-0.5 text-sm font-semibold text-foreground leading-snug line-clamp-2">{title}</h2>
+            </div>
           </div>
           {(isTerminal || phase === 'review_diff' || phase === 'review_merge') && (
             <button onClick={onClose} className="shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors">
@@ -249,7 +255,7 @@ export function FixExecution({
           )}
         </div>
 
-        <div className="px-6 py-5 space-y-5 overflow-y-auto">
+        <div className="px-5 py-5 space-y-5 overflow-y-auto">
 
           {/* ── Running: step pipeline ─────────────────────────────────── */}
           {isSpinning && (
@@ -264,8 +270,8 @@ export function FixExecution({
                   <div
                     key={s.id}
                     className={cn(
-                      'flex items-center gap-3 rounded-xl px-4 py-3 transition-all duration-300',
-                      active  && 'bg-ai/8 border border-ai/20 shadow-sm',
+                      'flex items-center gap-3 rounded-xl border border-transparent px-4 py-3 transition-all duration-300',
+                      active  && 'border-ai/20 bg-ai/[0.06] shadow-sm',
                       done    && 'opacity-60',
                       ahead   && 'opacity-25',
                     )}
@@ -292,7 +298,7 @@ export function FixExecution({
                       )}
                     </div>
                     {active && <div className="shrink-0 h-4 w-4 rounded-full border-2 border-ai border-t-transparent animate-spin" />}
-                    {done && <span className="shrink-0 text-[10px] text-healthy font-medium">Done</span>}
+                    {done && <ToneBadge tone="healthy" dot className="shrink-0">Done</ToneBadge>}
                   </div>
                 )
               })}
@@ -541,7 +547,7 @@ export function FixExecution({
 
         {/* Footer */}
         {isTerminal && (
-          <div className="border-t border-border/60 px-6 py-4 flex justify-end shrink-0">
+          <div className="border-t border-border/60 px-5 py-4 flex justify-end shrink-0">
             <button onClick={onClose} className="rounded-lg border border-border/70 px-4 py-2 text-sm font-medium text-foreground hover:bg-accent transition-colors">
               Close
             </button>
