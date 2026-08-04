@@ -49,7 +49,7 @@ export default function SessionDetailPage() {
         sb.from('session_pages').select('id, sequence, page_path, entered_at, exited_at, duration_ms, interaction_count, error_count, scroll_depth_pct').eq('session_id', id).order('sequence', { ascending: true }),
         sb.from('events').select('id, event_name, event_category, screen_name, properties, timestamp').eq('session_id', id).order('timestamp', { ascending: true }),
         sb.from('errors').select('id, error_type, message, severity, screen, created_at').eq('session_id', id).order('created_at', { ascending: true }),
-        sb.from('session_ai_summaries').select('narrative, confidence, generated_at').eq('session_id', id).maybeSingle(),
+        sb.from('session_ai_summaries').select('narrative, confidence, generated_at, friction_score, satisfaction_score, drop_off_probability, conversion_probability, engagement_score, complexity_score').eq('session_id', id).maybeSingle(),
         sb.from('form_field_stats').select('id, page_path, form_name, field_name, time_spent_ms, backspace_count, had_error, completed').eq('session_id', id).order('created_at', { ascending: true }),
       ])
 

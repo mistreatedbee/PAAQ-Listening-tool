@@ -1,14 +1,30 @@
 'use client'
 
 import { useState } from 'react'
-import { Card, CardHead, Confidence } from '@/components/kit'
+import { Card, CardHead, Confidence, Meter } from '@/components/kit'
 import { Sparkles, RefreshCw } from 'lucide-react'
+import type { Tone } from '@/lib/data'
 
 export type SessionAiSummary = {
   narrative: string
   confidence: number | null
   generated_at: string
+  friction_score?: number | null
+  satisfaction_score?: number | null
+  drop_off_probability?: number | null
+  conversion_probability?: number | null
+  engagement_score?: number | null
+  complexity_score?: number | null
 }
+
+const SCORES: { key: keyof SessionAiSummary; label: string; tone: Tone }[] = [
+  { key: 'friction_score', label: 'Friction', tone: 'critical' },
+  { key: 'satisfaction_score', label: 'Satisfaction', tone: 'healthy' },
+  { key: 'engagement_score', label: 'Engagement', tone: 'intel' },
+  { key: 'drop_off_probability', label: 'Drop-off risk', tone: 'warning' },
+  { key: 'conversion_probability', label: 'Conversion likelihood', tone: 'healthy' },
+  { key: 'complexity_score', label: 'Complexity', tone: 'warning' },
+]
 
 export function AiSummaryPanel({
   sessionId,
@@ -35,7 +51,17 @@ export function AiSummaryPanel({
       if (!res.ok || !data.ok) {
         setError(data.error ?? 'Failed to generate summary')
       } else {
-        onGenerated({ narrative: data.narrative, confidence: data.confidence, generated_at: new Date().toISOString() })
+        onGenerated({
+          narrative: data.narrative,
+          confidence: data.confidence,
+          generated_at: new Date().toISOString(),
+          friction_score: data.frictionScore,
+          satisfaction_score: data.satisfactionScore,
+          drop_off_probability: data.dropOffProbability,
+          conversion_probability: data.conversionProbability,
+          engagement_score: data.engagementScore,
+          complexity_score: data.complexityScore,
+        })
       }
     } catch {
       setError('Network error')
@@ -45,12 +71,30 @@ export function AiSummaryPanel({
 
   return (
     <Card>
-      <CardHead title="AI narrative" desc="A plain-language summary of this session" icon={<Sparkles className="h-4 w-4 text-ai" />} />
+      <CardHead title="AI investigation" desc="AI-estimated summary and scores for this session" icon={<Sparkles className="h-4 w-4 text-ai" />} />
       <div className="px-5 pb-5">
         {summary ? (
           <>
             <p className="text-sm leading-relaxed text-foreground">{summary.narrative}</p>
-            <div className="mt-3 flex items-center justify-between">
+
+            <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3">
+              {SCORES.map((s) => {
+                const raw = summary[s.key]
+                if (typeof raw !== 'number') return null
+                const pct = Math.round(raw * 100)
+                return (
+                  <div key={s.key}>
+                    <div className="mb-1 flex items-center justify-between">
+                      <span className="text-[11px] text-muted-foreground">{s.label}</span>
+                      <span className="text-[11px] font-semibold text-foreground">{pct}%</span>
+                    </div>
+                    <Meter value={pct} tone={s.tone} />
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="mt-4 flex items-center justify-between">
               {summary.confidence != null && <Confidence value={Math.round(summary.confidence * 100)} />}
               <button
                 onClick={generate}

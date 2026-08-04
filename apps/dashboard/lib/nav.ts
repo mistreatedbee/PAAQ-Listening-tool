@@ -17,6 +17,7 @@ import {
   Cable,
   SlidersHorizontal,
   Plug2,
+  PlaySquare,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -47,6 +48,7 @@ export const navGroups: NavGroup[] = [
     title: 'Operations',
     items: [
       { label: 'User Experience',   href: '/user-journey',     icon: Route },
+      { label: 'Session Replay',    href: '/session-replay',   icon: PlaySquare, badge: 'AI', badgeTone: 'ai' },
       { label: 'Error Tracking',    href: '/errors',           icon: Activity },
       { label: 'Performance',       href: '/performance',      icon: Gauge },
       { label: 'Security',          href: '/security',         icon: Shield },

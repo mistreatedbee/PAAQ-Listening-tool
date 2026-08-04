@@ -26,7 +26,17 @@ Deno.serve(async (req) => {
   const result = await runSummaryForSession(supabase, sessionId)
   if (!result.ok) return respond({ ok: false, error: result.reason }, 400)
 
-  return respond({ ok: true, narrative: result.narrative, confidence: result.confidence })
+  return respond({
+    ok: true,
+    narrative: result.narrative,
+    confidence: result.confidence,
+    frictionScore: result.frictionScore,
+    satisfactionScore: result.satisfactionScore,
+    dropOffProbability: result.dropOffProbability,
+    conversionProbability: result.conversionProbability,
+    engagementScore: result.engagementScore,
+    complexityScore: result.complexityScore,
+  })
 })
 
 function corsHeaders() {
