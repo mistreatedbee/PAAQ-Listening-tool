@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { PageHeader, Card, ToneBadge } from '@/components/kit'
+import { useBulkSelection, RowCheckbox, BulkActionsBar, ConfirmDeleteDialog } from '@/components/kit-bulk-actions'
 import { InsightCard } from '@/components/insight-card'
 import { Sparkles, RefreshCw } from 'lucide-react'
 import type { Insight, Tone } from '@/lib/data'
@@ -67,6 +68,9 @@ export default function AIInsightsPage() {
   const [regenerating, setRegenerating] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [filter, setFilter] = useState('All')
+  const bulk = useBulkSelection()
+  const [confirmMode, setConfirmMode] = useState<'selected' | 'all' | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const showToast = (msg: string) => {
     setToast(msg)
@@ -128,6 +132,25 @@ export default function AIInsightsPage() {
     ? insights
     : insights.filter((i) => i.priority === filter)
 
+  const handleConfirmDelete = async () => {
+    setDeleting(true)
+    const sb = createClient()
+    if (confirmMode === 'selected') {
+      const ids = [...bulk.selected]
+      await sb.from('ai_insights').delete().in('id', ids)
+      setRaw((prev) => prev.filter((r) => !bulk.selected.has(r.id)))
+      setInsights((prev) => prev.filter((i) => !bulk.selected.has(i.id)))
+      bulk.clear()
+    } else if (confirmMode === 'all') {
+      await sb.from('ai_insights').delete().eq('project_id', app.id)
+      setRaw([])
+      setInsights([])
+      bulk.clear()
+    }
+    setDeleting(false)
+    setConfirmMode(null)
+  }
+
   return (
     <div className="space-y-6">
       {toast && (
@@ -160,6 +183,30 @@ export default function AIInsightsPage() {
           </Card>
         ))}
       </div>
+
+      {!loading && raw.length > 0 && (
+        <BulkActionsBar
+          selectedCount={bulk.count}
+          totalCount={raw.length}
+          itemLabel="insight"
+          onDeleteSelected={() => setConfirmMode('selected')}
+          onClearAll={() => setConfirmMode('all')}
+          onDeselectAll={bulk.clear}
+        />
+      )}
+
+      <ConfirmDeleteDialog
+        open={confirmMode !== null}
+        loading={deleting}
+        title={confirmMode === 'all' ? 'Delete all insights?' : `Delete ${bulk.count} insight${bulk.count === 1 ? '' : 's'}?`}
+        description={
+          confirmMode === 'all'
+            ? `This permanently deletes all ${raw.length} AI insights for this project. This can't be undone.`
+            : `This permanently deletes the selected insight(s). This can't be undone.`
+        }
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setConfirmMode(null)}
+      />
 
       {/* Priority filter */}
       {raw.length > 0 && (
@@ -202,7 +249,12 @@ export default function AIInsightsPage() {
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">
           {filtered.map((i) => (
-            <InsightCard key={i.id} insight={i} />
+            <div key={i.id} className="relative">
+              <div className="absolute left-3 top-3 z-10">
+                <RowCheckbox checked={bulk.isSelected(i.id)} onChange={() => bulk.toggle(i.id)} />
+              </div>
+              <InsightCard insight={i} />
+            </div>
           ))}
         </div>
       )}

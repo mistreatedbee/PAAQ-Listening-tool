@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { Card, ToneBadge } from '@/components/kit'
+import { useBulkSelection, RowCheckbox, BulkActionsBar, ConfirmDeleteDialog } from '@/components/kit-bulk-actions'
 import {
   Bell, Sparkles, ShieldAlert, Rocket, Search, TriangleAlert,
   Lightbulb, Radio, Filter, CheckCheck,
@@ -89,6 +90,9 @@ export default function NotificationsPage() {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<CategoryFilter>('all')
   const [live, setLive] = useState(false)
+  const bulk = useBulkSelection()
+  const [confirmMode, setConfirmMode] = useState<'selected' | 'all' | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     if (app.id === '__loading__') return
@@ -127,6 +131,22 @@ export default function NotificationsPage() {
       .update({ read_at: new Date().toISOString() })
       .eq('project_id', app.id)
       .is('read_at', null)
+  }
+
+  const handleConfirmDelete = async () => {
+    setDeleting(true)
+    const sb = createClient()
+    if (confirmMode === 'selected') {
+      await sb.from('notifications').delete().in('id', [...bulk.selected])
+      setFeed((prev) => prev.filter((f) => !bulk.selected.has(f.id)))
+      bulk.clear()
+    } else if (confirmMode === 'all') {
+      await sb.from('notifications').delete().eq('project_id', app.id)
+      setFeed([])
+      bulk.clear()
+    }
+    setDeleting(false)
+    setConfirmMode(null)
   }
 
   const visible = filter === 'all' ? feed : feed.filter((f) => f.source === filter)
@@ -199,6 +219,30 @@ export default function NotificationsPage() {
         </div>
       )}
 
+      {!loading && feed.length > 0 && (
+        <BulkActionsBar
+          selectedCount={bulk.count}
+          totalCount={feed.length}
+          itemLabel="notification"
+          onDeleteSelected={() => setConfirmMode('selected')}
+          onClearAll={() => setConfirmMode('all')}
+          onDeselectAll={bulk.clear}
+        />
+      )}
+
+      <ConfirmDeleteDialog
+        open={confirmMode !== null}
+        loading={deleting}
+        title={confirmMode === 'all' ? 'Delete all notifications?' : `Delete ${bulk.count} notification${bulk.count === 1 ? '' : 's'}?`}
+        description={
+          confirmMode === 'all'
+            ? `This permanently deletes all ${feed.length} notifications for this project. This can't be undone.`
+            : `This permanently deletes the selected notification(s). This can't be undone.`
+        }
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setConfirmMode(null)}
+      />
+
       {/* Category filters */}
       <div className="flex items-center gap-1 flex-wrap">
         <Filter className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
@@ -256,6 +300,9 @@ export default function NotificationsPage() {
                     !item.read && 'bg-ai/[0.03]',
                   )}
                 >
+                  <div className="mt-1 shrink-0">
+                    <RowCheckbox checked={bulk.isSelected(item.id)} onChange={() => bulk.toggle(item.id)} />
+                  </div>
                   <div className={cn(
                     'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border',
                     item.tone === 'critical' ? 'border-critical/30 bg-critical/10 text-critical'

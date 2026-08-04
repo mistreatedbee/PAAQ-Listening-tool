@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { PageHeader, Card, ToneBadge, StatusDot } from '@/components/kit'
+import { useBulkSelection, RowCheckbox, BulkActionsBar, ConfirmDeleteDialog } from '@/components/kit-bulk-actions'
 import { cn } from '@/lib/utils'
 import { toneText } from '@/lib/tones'
 import { AlertTriangle, Clock, ArrowRight, Plus, X, Loader2 } from 'lucide-react'
@@ -47,6 +48,9 @@ export default function IncidentsPage() {
   const [saving, setSaving] = useState(false)
   const [fixingId, setFixingId] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const bulk = useBulkSelection()
+  const [confirmMode, setConfirmMode] = useState<'selected' | 'all' | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const showToast = (msg: string) => {
     setToast(msg)
@@ -114,6 +118,25 @@ export default function IncidentsPage() {
       showToast(`Failed — ${err instanceof Error ? err.message : 'check Supabase logs'}`)
     }
     setFixingId(null)
+  }
+
+  const handleConfirmDelete = async () => {
+    setDeleting(true)
+    const sb = createClient()
+    if (confirmMode === 'selected') {
+      const ids = [...bulk.selected]
+      await sb.from('incidents').delete().in('id', ids)
+      setIncidents((prev) => prev.filter((i) => !bulk.selected.has(i.id)))
+      bulk.clear()
+      fetchIncidents(app.id)
+    } else if (confirmMode === 'all') {
+      await sb.from('incidents').delete().eq('project_id', app.id)
+      setIncidents([])
+      setCounts({ open: 0, critical: 0 })
+      bulk.clear()
+    }
+    setDeleting(false)
+    setConfirmMode(null)
   }
 
   return (
@@ -215,6 +238,30 @@ export default function IncidentsPage() {
         ))}
       </div>
 
+      {!loading && incidents.length > 0 && (
+        <BulkActionsBar
+          selectedCount={bulk.count}
+          totalCount={incidents.length}
+          itemLabel="incident"
+          onDeleteSelected={() => setConfirmMode('selected')}
+          onClearAll={() => setConfirmMode('all')}
+          onDeselectAll={bulk.clear}
+        />
+      )}
+
+      <ConfirmDeleteDialog
+        open={confirmMode !== null}
+        loading={deleting}
+        title={confirmMode === 'all' ? 'Delete all incidents?' : `Delete ${bulk.count} incident${bulk.count === 1 ? '' : 's'}?`}
+        description={
+          confirmMode === 'all'
+            ? `This permanently deletes all ${incidents.length} incidents for this project. This can't be undone.`
+            : `This permanently deletes the selected incident(s). This can't be undone.`
+        }
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setConfirmMode(null)}
+      />
+
       {loading ? (
         <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">Loading…</div>
       ) : incidents.length === 0 ? (
@@ -232,6 +279,9 @@ export default function IncidentsPage() {
             return (
               <Card key={inc.id} className="p-4 transition-colors hover:border-border">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+                  <div className="shrink-0 pt-0.5">
+                    <RowCheckbox checked={bulk.isSelected(inc.id)} onChange={() => bulk.toggle(inc.id)} />
+                  </div>
                   <div className="flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-mono text-xs text-muted-foreground">{inc.id.slice(0, 8)}…</span>

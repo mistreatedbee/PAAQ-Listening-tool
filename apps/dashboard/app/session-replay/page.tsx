@@ -6,6 +6,7 @@ import { createClient } from '@/utils/supabase/client'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { PlaySquare, Smartphone, Monitor, Tablet } from 'lucide-react'
 import { PageHeader, Card, ToneBadge } from '@/components/kit'
+import { useBulkSelection, RowCheckbox, BulkActionsBar, ConfirmDeleteDialog } from '@/components/kit-bulk-actions'
 import { cn } from '@/lib/utils'
 import type { Tone } from '@/lib/data'
 
@@ -54,6 +55,9 @@ export default function SessionReplayPage() {
   const [loading, setLoading] = useState(true)
   const [outcomeFilter, setOutcomeFilter] = useState<OutcomeFilter>('all')
   const [platformFilter, setPlatformFilter] = useState<string>('all')
+  const bulk = useBulkSelection()
+  const [confirmMode, setConfirmMode] = useState<'selected' | 'all' | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     if (app.id === '__loading__') return
@@ -77,12 +81,52 @@ export default function SessionReplayPage() {
     return true
   })
 
+  const handleConfirmDelete = async () => {
+    setDeleting(true)
+    const sb = createClient()
+    if (confirmMode === 'selected') {
+      await sb.from('sessions').delete().in('id', [...bulk.selected])
+      setSessions((prev) => prev.filter((s) => !bulk.selected.has(s.id)))
+      bulk.clear()
+    } else if (confirmMode === 'all') {
+      await sb.from('sessions').delete().eq('project_id', app.id)
+      setSessions([])
+      bulk.clear()
+    }
+    setDeleting(false)
+    setConfirmMode(null)
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         icon={<PlaySquare className="h-5 w-5" />}
         title="Session Replay"
         desc="Browse real captured sessions and replay their timeline — device, pages, events and errors, in order."
+      />
+
+      {!loading && sessions.length > 0 && (
+        <BulkActionsBar
+          selectedCount={bulk.count}
+          totalCount={sessions.length}
+          itemLabel="session"
+          onDeleteSelected={() => setConfirmMode('selected')}
+          onClearAll={() => setConfirmMode('all')}
+          onDeselectAll={bulk.clear}
+        />
+      )}
+
+      <ConfirmDeleteDialog
+        open={confirmMode !== null}
+        loading={deleting}
+        title={confirmMode === 'all' ? 'Delete all sessions?' : `Delete ${bulk.count} session${bulk.count === 1 ? '' : 's'}?`}
+        description={
+          confirmMode === 'all'
+            ? `This permanently deletes all ${sessions.length} sessions for this project, along with their pages, events, errors, and AI summaries. This can't be undone.`
+            : `This permanently deletes the selected session(s), along with their pages, events, errors, and AI summaries. This can't be undone.`
+        }
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setConfirmMode(null)}
       />
 
       <Card>
@@ -145,6 +189,7 @@ export default function SessionReplayPage() {
                   onClick={() => router.push(`/sessions/${s.id}`)}
                   className="flex w-full items-center gap-3 px-5 py-3.5 text-left transition-colors hover:bg-accent/20"
                 >
+                  <RowCheckbox checked={bulk.isSelected(s.id)} onChange={() => bulk.toggle(s.id)} />
                   <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">

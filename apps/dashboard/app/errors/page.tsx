@@ -6,6 +6,7 @@ import { createClient } from '@/utils/supabase/client'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { Bug, CheckCircle2, EyeOff, Radio, LayoutList, Layers } from 'lucide-react'
 import { PageHeader, Card, ToneBadge } from '@/components/kit'
+import { useBulkSelection, RowCheckbox, BulkActionsBar, ConfirmDeleteDialog } from '@/components/kit-bulk-actions'
 import { cn } from '@/lib/utils'
 import type { Tone } from '@/lib/data'
 
@@ -85,6 +86,9 @@ export default function ErrorsPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [updating, setUpdating] = useState<string | null>(null)
   const [live, setLive] = useState(false)
+  const bulk = useBulkSelection()
+  const [confirmMode, setConfirmMode] = useState<'selected' | 'all' | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     if (app.id === '__loading__') return
@@ -157,6 +161,30 @@ export default function ErrorsPage() {
   const filteredRows = filter === 'all' ? rows : rows.filter((r) => r.status === filter)
   const groups = groupErrors(filteredRows)
 
+  const handleConfirmDelete = async () => {
+    setDeleting(true)
+    const sb = createClient()
+    if (confirmMode === 'selected') {
+      const ids = [...bulk.selected]
+      await sb.from('errors').delete().in('id', ids)
+      setRows((prev) => prev.filter((r) => !bulk.selected.has(r.id)))
+      setCounts((prev) => ({
+        total: prev.total - ids.length,
+        open: prev.open - rows.filter((r) => bulk.selected.has(r.id) && r.status === 'open').length,
+        resolved: prev.resolved - rows.filter((r) => bulk.selected.has(r.id) && r.status === 'resolved').length,
+        fatal: prev.fatal - rows.filter((r) => bulk.selected.has(r.id) && r.severity === 'fatal').length,
+      }))
+      bulk.clear()
+    } else if (confirmMode === 'all') {
+      await sb.from('errors').delete().eq('project_id', app.id)
+      setRows([])
+      setCounts({ total: 0, open: 0, resolved: 0, fatal: 0 })
+      bulk.clear()
+    }
+    setDeleting(false)
+    setConfirmMode(null)
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -183,6 +211,30 @@ export default function ErrorsPage() {
           </Card>
         ))}
       </div>
+
+      {!loading && rows.length > 0 && (
+        <BulkActionsBar
+          selectedCount={bulk.count}
+          totalCount={rows.length}
+          itemLabel="error"
+          onDeleteSelected={() => setConfirmMode('selected')}
+          onClearAll={() => setConfirmMode('all')}
+          onDeselectAll={bulk.clear}
+        />
+      )}
+
+      <ConfirmDeleteDialog
+        open={confirmMode !== null}
+        loading={deleting}
+        title={confirmMode === 'all' ? 'Delete all errors?' : `Delete ${bulk.count} error${bulk.count === 1 ? '' : 's'}?`}
+        description={
+          confirmMode === 'all'
+            ? `This permanently deletes all ${rows.length} errors for this project. This can't be undone.`
+            : `This permanently deletes the selected error(s). This can't be undone.`
+        }
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setConfirmMode(null)}
+      />
 
       <Card>
         <div className="flex items-center justify-between border-b border-border/60 px-5 py-3 flex-wrap gap-2">
@@ -279,6 +331,7 @@ export default function ErrorsPage() {
           <div className="divide-y divide-border/60">
             {filteredRows.map((e) => (
               <div key={e.id} className="flex items-center gap-3 px-5 py-3.5 hover:bg-accent/20 transition-colors group">
+                <RowCheckbox checked={bulk.isSelected(e.id)} onChange={() => bulk.toggle(e.id)} />
                 <Link href={`/errors/${e.id}`} className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <ToneBadge tone={statusTone[e.status] ?? 'intel'}>{e.status}</ToneBadge>
