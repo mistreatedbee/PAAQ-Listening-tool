@@ -93,11 +93,49 @@ async function openPR(token: string, repo: RepoRef, branch: string, baseBranch: 
   return { ok: true, prUrl: res.body.html_url, prNumber: res.body.number }
 }
 
+/**
+ * Real CI-check status for a commit — combines the legacy Status API
+ * (Travis-style external CI) with the modern Checks API (GitHub Actions),
+ * since a repo may use either or both. A hard failure on either source
+ * wins; "nothing configured on either" is null (no CI), not "unknown."
+ */
+async function fetchChecksPassed(token: string, repo: RepoRef, sha: string): Promise<{ passed: boolean | null; pending: boolean }> {
+  const [statusRes, checksRes] = await Promise.all([
+    ghFetch(`/repos/${repo.fullName}/commits/${encodeURIComponent(sha)}/status`, token),
+    ghFetch(`/repos/${repo.fullName}/commits/${encodeURIComponent(sha)}/check-runs`, token),
+  ])
+  const combinedState: string | null = statusRes.ok ? statusRes.body?.state ?? null : null
+  const checkRuns: { status: string; conclusion: string | null }[] = checksRes.ok ? (checksRes.body?.check_runs ?? []) : []
+
+  const anyHardFail =
+    combinedState === 'failure' || combinedState === 'error' ||
+    checkRuns.some((c) => ['failure', 'timed_out', 'cancelled', 'action_required'].includes(c.conclusion ?? ''))
+  if (anyHardFail) return { passed: false, pending: false }
+
+  const hasAnySignal = (combinedState != null && combinedState !== 'pending') || checkRuns.length > 0
+  const anyPending = combinedState === 'pending' || checkRuns.some((c) => c.status !== 'completed')
+  if (!hasAnySignal && !anyPending) return { passed: null, pending: false } // no CI configured at all
+  if (anyPending) return { passed: null, pending: true }
+
+  const allGood = (combinedState == null || combinedState === 'success') &&
+    checkRuns.every((c) => ['success', 'neutral', 'skipped'].includes(c.conclusion ?? ''))
+  return { passed: allGood, pending: false }
+}
+
 async function getPRStatus(token: string, repo: RepoRef, prNumber: number): Promise<PrStatusResult> {
   const res = await ghFetch(`/repos/${repo.fullName}/pulls/${prNumber}`, token)
   if (!res.ok) return { ok: false, error: res.body?.message ?? `GitHub get PR failed (${res.status})` }
   const state: 'open' | 'merged' | 'closed' = res.body.merged ? 'merged' : res.body.state === 'closed' ? 'closed' : 'open'
-  return { ok: true, state, mergeable: res.body.mergeable ?? null, checksPassed: null }
+  const sha: string | undefined = res.body.head?.sha
+  const checks = sha ? await fetchChecksPassed(token, repo, sha) : { passed: null, pending: false }
+  return {
+    ok: true,
+    state,
+    mergeable: res.body.mergeable ?? null,
+    checksPassed: checks.passed,
+    checksPending: checks.pending,
+    checksSupported: true,
+  }
 }
 
 async function mergePR(token: string, repo: RepoRef, prNumber: number): Promise<TestResult> {

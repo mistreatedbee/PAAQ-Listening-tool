@@ -6,7 +6,17 @@ export type ListReposResult = { ok: true; repos: RepoRef[] } | { ok: false; erro
 export type GetFileResult = { ok: true; content: string; sha?: string } | { ok: false; error: string }
 export type OpenPrResult = { ok: true; prUrl: string; prNumber: number } | { ok: false; error: string }
 export type PrStatusResult =
-  | { ok: true; state: 'open' | 'merged' | 'closed'; mergeable: boolean | null; checksPassed: boolean | null }
+  | {
+      ok: true
+      state: 'open' | 'merged' | 'closed'
+      mergeable: boolean | null
+      /** true = all checks green; false = a real failure; null = no CI configured, or still running (see checksPending). */
+      checksPassed: boolean | null
+      /** true while checks are still running — null checksPassed + pending=true means "wait," not "no CI." */
+      checksPending?: boolean
+      /** false for providers with no wired check-status implementation (azure/bitbucket) — distinct from "queried and inconclusive." */
+      checksSupported: boolean
+    }
   | { ok: false; error: string }
 
 export interface GitAdapter {

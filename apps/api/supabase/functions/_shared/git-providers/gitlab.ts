@@ -80,7 +80,28 @@ async function getPRStatus(token: string, repo: RepoRef, prNumber: number): Prom
   const res = await glFetch(`/projects/${projectId(repo)}/merge_requests/${prNumber}`, token)
   if (!res.ok) return { ok: false, error: res.body?.message ?? `GitLab get MR failed (${res.status})` }
   const state: 'open' | 'merged' | 'closed' = res.body.state === 'merged' ? 'merged' : res.body.state === 'closed' ? 'closed' : 'open'
-  return { ok: true, state, mergeable: res.body.merge_status === 'can_be_merged', checksPassed: null }
+
+  // Real pipeline status off the MR's head_pipeline — no extra call needed.
+  // NOTE: never exercised against a live GitLab instance (see file header) —
+  // if head_pipeline comes back missing for this token scope/tier, fall
+  // back to GET /projects/:id/repository/commits/:sha/statuses using
+  // res.body.sha (the MR diff head).
+  const pipelineStatus: string | undefined = res.body.head_pipeline?.status
+  let checksPassed: boolean | null = null
+  let checksPending = false
+  if (pipelineStatus === 'success') checksPassed = true
+  else if (pipelineStatus === 'failed' || pipelineStatus === 'canceled') checksPassed = false
+  else if (pipelineStatus === 'running' || pipelineStatus === 'pending' || pipelineStatus === 'created') checksPending = true
+  // else: no head_pipeline at all -> checksPassed stays null, checksPending stays false (no CI configured)
+
+  return {
+    ok: true,
+    state,
+    mergeable: res.body.merge_status === 'can_be_merged',
+    checksPassed,
+    checksPending,
+    checksSupported: true,
+  }
 }
 
 async function mergePR(token: string, repo: RepoRef, prNumber: number): Promise<TestResult> {

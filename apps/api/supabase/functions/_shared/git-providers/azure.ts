@@ -125,7 +125,10 @@ async function getPRStatus(token: string, repo: RepoRef, prNumber: number): Prom
   if (!res.ok) return { ok: false, error: res.body?.message ?? `Azure get PR failed (${res.status})` }
   const status = res.body.status
   const state: 'open' | 'merged' | 'closed' = status === 'completed' ? 'merged' : status === 'abandoned' ? 'closed' : 'open'
-  return { ok: true, state, mergeable: res.body.mergeStatus === 'succeeded', checksPassed: null }
+  // No wired check-status implementation for this provider — explicit
+  // checksSupported:false so the UI distinguishes "unsupported" from
+  // "queried and inconclusive" (see GitHub/GitLab).
+  return { ok: true, state, mergeable: res.body.mergeStatus === 'succeeded', checksPassed: null, checksSupported: false }
 }
 
 async function mergePR(token: string, repo: RepoRef, prNumber: number): Promise<TestResult> {

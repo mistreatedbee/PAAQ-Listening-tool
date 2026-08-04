@@ -105,7 +105,7 @@ export default function SettingsPage() {
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole,  setInviteRole]  = useState('Engineer')
   const [advOpen, setAdvOpen] = useState<Record<string, boolean>>({})
-  const { mode: approvalMode, setMode: setApprovalMode } = useApprovalMode()
+  const { mode: approvalMode, setMode: setApprovalMode } = useApprovalMode(app.id)
 
   const toggleAdv = (key: string) => setAdvOpen((p) => ({ ...p, [key]: !p[key] }))
 

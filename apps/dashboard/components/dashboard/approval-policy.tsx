@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
-import { Eye, Hand, Users, Zap, ChevronDown, Check } from 'lucide-react'
+import { Eye, Hand, Users, Zap, ChevronDown, Check, Lock } from 'lucide-react'
 
 export type ApprovalMode = 'advisory' | 'assisted' | 'team' | 'autonomous'
 
@@ -10,65 +10,87 @@ const MODES = [
   {
     id: 'advisory' as ApprovalMode,
     label: 'Advisory',
-    desc: 'AI detects and recommends only — no execution',
+    desc: 'AI detects and recommends only — PRs are never opened',
     icon: Eye,
     color: 'text-intel',
     borderColor: 'border-intel/40',
     bgColor: 'bg-intel/10',
-    requires: 'No execution at all — insights only',
+    requires: 'No branches or PRs are ever created',
   },
   {
     id: 'assisted' as ApprovalMode,
     label: 'Assisted',
-    desc: 'Every action requires your approval before execution',
+    desc: 'AI can open PRs — every merge requires your explicit approval',
     icon: Hand,
     color: 'text-ai',
     borderColor: 'border-ai/40',
     bgColor: 'bg-ai/10',
-    requires: 'Manual approval required for every action',
+    requires: 'Manual approval required to merge, every time',
   },
   {
     id: 'team' as ApprovalMode,
-    label: 'Team Approval',
-    desc: 'High-impact changes require two approvers',
+    label: 'Team',
+    desc: 'The default workflow — same manual approval as Assisted',
     icon: Users,
     color: 'text-warning',
     borderColor: 'border-warning/40',
     bgColor: 'bg-warning/10',
-    requires: '2 approvers for medium and high impact',
+    requires: 'Manual approval required to merge, every time',
   },
   {
     id: 'autonomous' as ApprovalMode,
     label: 'Autonomous',
-    desc: 'AI auto-resolves low-risk issues — you approve the rest',
+    desc: 'Low-risk fixes with a passing CI check merge automatically',
     icon: Zap,
     color: 'text-healthy',
     borderColor: 'border-healthy/40',
     bgColor: 'bg-healthy/10',
-    requires: 'Approval only for medium and high risk',
+    requires: 'Medium and high-risk fixes always need your approval',
   },
 ] as const
 
-const STORAGE_KEY = 'paaq-approval-mode'
-
-export function useApprovalMode() {
-  const [mode, setMode] = useState<ApprovalMode>('assisted')
+export function useApprovalMode(projectId: string) {
+  const [mode, setModeState] = useState<ApprovalMode>('team')
+  const [canEdit, setCanEdit] = useState(false)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY) as ApprovalMode | null
-    if (saved && MODES.find((m) => m.id === saved)) setMode(saved)
-  }, [])
+    if (!projectId || projectId === '__loading__') return
+    setLoading(true)
+    Promise.all([
+      fetch('/api/settings/approval-mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId }),
+      }).then((r) => r.json()),
+      fetch('/api/tenant/role', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId }),
+      }).then((r) => r.json()),
+    ]).then(([modeData, roleData]) => {
+      if (modeData?.mode) setModeState(modeData.mode as ApprovalMode)
+      setCanEdit(roleData?.role === 'owner' || roleData?.role === 'admin')
+      setLoading(false)
+    })
+  }, [projectId])
 
-  const updateMode = (m: ApprovalMode) => {
-    setMode(m)
-    localStorage.setItem(STORAGE_KEY, m)
+  const updateMode = async (m: ApprovalMode) => {
+    const prev = mode
+    setModeState(m) // optimistic
+    const res = await fetch('/api/settings/approval-mode', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId, mode: m }),
+    })
+    if (!res.ok) setModeState(prev) // revert on server rejection
   }
 
-  return { mode, setMode: updateMode }
+  return { mode, setMode: updateMode, canEdit, loading }
 }
 
-export function ApprovalPolicyPill() {
-  const { mode, setMode } = useApprovalMode()
+export function ApprovalPolicyPill({ projectId }: { projectId: string }) {
+  const { mode, setMode, canEdit, loading } = useApprovalMode(projectId)
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -82,23 +104,31 @@ export function ApprovalPolicyPill() {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
+  if (loading) return null
+
   return (
     <div className="relative" ref={ref}>
       <button
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => canEdit && setOpen((o) => !o)}
+        title={canEdit ? undefined : 'Only owners/admins can change the approval policy'}
         className={cn(
           'flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition-colors',
           current.borderColor,
           current.bgColor,
           current.color,
+          !canEdit && 'cursor-default opacity-80',
         )}
       >
         <current.icon className="h-3 w-3" />
         {current.label} Mode
-        <ChevronDown className={cn('h-3 w-3 transition-transform', open && 'rotate-180')} />
+        {canEdit ? (
+          <ChevronDown className={cn('h-3 w-3 transition-transform', open && 'rotate-180')} />
+        ) : (
+          <Lock className="h-3 w-3" />
+        )}
       </button>
 
-      {open && (
+      {open && canEdit && (
         <div className="absolute right-0 top-full mt-1.5 z-50 w-72 rounded-xl border border-border/80 bg-card shadow-xl">
           <p className="px-4 pt-3 pb-2 text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
             Approval Policy
@@ -109,7 +139,7 @@ export function ApprovalPolicyPill() {
             return (
               <button
                 key={m.id}
-                onClick={() => { setMode(m.id); setOpen(false) }}
+                onClick={() => { void setMode(m.id); setOpen(false) }}
                 className={cn(
                   'flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-accent/40',
                   active && 'bg-accent/50',
@@ -139,7 +169,7 @@ export function ApprovalPolicyPill() {
           })}
           <div className="border-t border-border/40 px-4 py-2.5">
             <p className="text-[9px] text-muted-foreground/50">
-              Medium and high-risk actions always require human approval, regardless of mode.
+              Medium and high-risk fixes always require human approval, regardless of mode.
             </p>
           </div>
         </div>

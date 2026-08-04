@@ -135,7 +135,7 @@ export default function RecommendationsPage() {
   const [selectedOption, setSelectedOption] = useState<Record<string, 'A' | 'B' | 'C'>>({})
   const [canMerge, setCanMerge] = useState(false)
   const [investigating, setInvestigating] = useState(false)
-  const { mode } = useApprovalMode()
+  const { mode } = useApprovalMode(app.id)
 
   useEffect(() => {
     if (app.id === '__loading__') return
@@ -266,7 +266,7 @@ export default function RecommendationsPage() {
             <RefreshCw className={cn('h-4 w-4', investigating && 'animate-spin')} />
             {investigating ? 'Investigating…' : 'Run Investigation'}
           </button>
-          <ApprovalPolicyPill />
+          <ApprovalPolicyPill projectId={app.id} />
         </div>
       </div>
 

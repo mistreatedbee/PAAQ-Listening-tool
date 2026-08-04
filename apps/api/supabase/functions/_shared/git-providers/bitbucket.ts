@@ -99,7 +99,10 @@ async function getPRStatus(token: string, repo: RepoRef, prNumber: number): Prom
   const res = await bbFetch(`/repositories/${repo.fullName}/pullrequests/${prNumber}`, token)
   if (!res.ok) return { ok: false, error: res.body?.error?.message ?? `Bitbucket get PR failed (${res.status})` }
   const state: 'open' | 'merged' | 'closed' = res.body.state === 'MERGED' ? 'merged' : res.body.state === 'DECLINED' ? 'closed' : 'open'
-  return { ok: true, state, mergeable: null, checksPassed: null }
+  // No wired check-status implementation for this provider — explicit
+  // checksSupported:false so the UI distinguishes "unsupported" from
+  // "queried and inconclusive" (see GitHub/GitLab).
+  return { ok: true, state, mergeable: null, checksPassed: null, checksSupported: false }
 }
 
 async function mergePR(token: string, repo: RepoRef, prNumber: number): Promise<TestResult> {

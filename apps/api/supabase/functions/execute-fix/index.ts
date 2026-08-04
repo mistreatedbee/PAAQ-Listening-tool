@@ -9,40 +9,19 @@
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import Anthropic from 'npm:@anthropic-ai/sdk'
-import { decryptSecret } from '../_shared/crypto.ts'
-import { loadGitAdapter, type GitProvider } from '../_shared/git-providers/load-adapter.ts'
-import { categorizeGitError } from '../_shared/git-providers/types.ts'
+import { loadGitAdapter } from '../_shared/git-providers/load-adapter.ts'
 import type { RepoRef } from '../_shared/git-providers/types.ts'
+import { getRepoAndToken, getApprovalMode, markFailed, performMerge, type RecRow } from '../_shared/fix-engine.ts'
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
 )
 
-const KEY_ENV = 'REPO_CONNECTOR_ENCRYPTION_KEY'
-
 function checkInternalSecret(req: Request): boolean {
   const provided = req.headers.get('x-internal-secret') ?? ''
   const expected = Deno.env.get('REPO_CONNECTOR_INTERNAL_SECRET') ?? ''
   return expected.length > 0 && provided === expected
-}
-
-type AffectedFile = { path: string; function?: string; reason?: string }
-
-type RecRow = {
-  id: string
-  project_id: string
-  title: string
-  description: string | null
-  type: string
-  root_cause: string | null
-  affected_files: AffectedFile[] | null
-  patch_plan: string[] | null
-  fix_changeset: { path: string; newContent: string }[] | null
-  fix_branch: string | null
-  fix_pr_url: string | null
-  fix_pr_number: number | null
-  fix_pr_state: string
 }
 
 Deno.serve(async (req) => {
@@ -61,9 +40,19 @@ Deno.serve(async (req) => {
     const { data: rec } = await supabase.from('recommendations').select('*').eq('id', recommendationId).single()
     if (!rec) return respond({ ok: false, error: 'Recommendation not found' }, 404)
 
+    // Advisory mode is the real trust boundary: AI may only ever suggest —
+    // enforced here, not just by hiding a button in the dashboard. A
+    // request with a perfectly valid internal secret still gets refused.
+    if (action === 'open_pr' || action === 'merge') {
+      const mode = await getApprovalMode(rec.project_id)
+      if (mode === 'advisory') {
+        return respond({ ok: false, error: 'This project is in Advisory mode — AI fixes are suggestion-only. Switch to Assisted, Team, or Autonomous mode to open PRs.' }, 403)
+      }
+    }
+
     if (action === 'generate') return await handleGenerate(rec as RecRow, body.filePath as string | undefined)
     if (action === 'open_pr') return await handleOpenPr(rec as RecRow, body.changeset)
-    if (action === 'merge') return await handleMerge(rec as RecRow, actingUserId)
+    if (action === 'merge') return await handleMergeAction(rec as RecRow, actingUserId ?? null, !!body.allowUnknownChecks)
     if (action === 'status') return await handleStatus(rec as RecRow)
     return respond({ error: 'Unknown action' }, 400)
   } catch (err) {
@@ -71,32 +60,6 @@ Deno.serve(async (req) => {
     return respond({ ok: false, error: message }, 500)
   }
 })
-
-async function getRepoAndToken(projectId: string): Promise<
-  | { ok: true; provider: GitProvider; repo: RepoRef; token: string }
-  | { ok: false; error: string }
-> {
-  const { data: proj } = await supabase
-    .from('project_repositories')
-    .select('provider, repo_name, repo_url, default_branch')
-    .eq('project_id', projectId)
-    .eq('status', 'active')
-    .maybeSingle()
-  if (!proj?.repo_name) return { ok: false, error: 'No repository connected for this project' }
-
-  const { data: cred } = await supabase
-    .from('repository_credentials')
-    .select('access_ciphertext, access_iv')
-    .eq('project_id', projectId)
-    .eq('provider', proj.provider)
-    .eq('status', 'connected')
-    .maybeSingle()
-  if (!cred) return { ok: false, error: 'No credential stored for the connected repository' }
-
-  const token = await decryptSecret(cred.access_ciphertext, cred.access_iv, KEY_ENV)
-  const repo: RepoRef = { fullName: proj.repo_name, url: proj.repo_url, defaultBranch: proj.default_branch ?? 'main', private: true }
-  return { ok: true, provider: proj.provider as GitProvider, repo, token }
-}
 
 /** Extracts a likely bare filename from free-text recommendation copy (e.g. "checkout.dart:142"). */
 function guessFilename(text: string): string | null {
@@ -402,7 +365,17 @@ Rules:
   }
 
   await supabase.from('recommendations').update({ fix_changeset: changes }).eq('id', rec.id)
-  return respond({ ok: true, summary: parsed.summary, confidence: parsed.confidence, changes })
+  // Original content (already in memory, pre-patch) so the dashboard can
+  // render a real before/after diff without a second round-trip. Always
+  // one entry today (single-file scope), kept as an array for forward
+  // compat with multi-file generation.
+  return respond({
+    ok: true,
+    summary: parsed.summary,
+    confidence: parsed.confidence,
+    changes,
+    original: [{ path: filePath, content: fileResult.content }],
+  })
 }
 
 async function handleOpenPr(rec: RecRow, overrideChangeset?: { path: string; newContent: string }[]) {
@@ -453,83 +426,60 @@ async function handleOpenPr(rec: RecRow, overrideChangeset?: { path: string; new
   return respond({ ok: true, prUrl: prResult.prUrl, prNumber: prResult.prNumber, branch })
 }
 
-async function markFailed(recId: string, error: string) {
-  await supabase.from('recommendations').update({ fix_pr_state: 'failed', fix_error: error }).eq('id', recId)
-}
-
-async function handleMerge(rec: RecRow, actingUserId?: string) {
-  if (!rec.fix_pr_number) return respond({ ok: false, error: 'No open PR to merge' }, 400)
-
-  const repoResult = await getRepoAndToken(rec.project_id)
-  if (!repoResult.ok) return respond({ ok: false, error: repoResult.error })
-  const { provider, repo, token } = repoResult
-  const adapter = await loadGitAdapter(provider)
-
-  // Never trust cached fix_pr_state — re-fetch real status first.
-  const status = await adapter.getPRStatus(token, repo, rec.fix_pr_number)
-  if (!status.ok) return respond({ ok: false, error: status.error })
-  if (status.state === 'merged') {
-    await supabase.from('recommendations').update({ fix_pr_state: 'merged' }).eq('id', rec.id)
-    return respond({ ok: true, alreadyMerged: true })
-  }
-  if (status.state === 'closed') {
-    await supabase.from('recommendations').update({ fix_pr_state: 'closed' }).eq('id', rec.id)
-    return respond({ ok: false, error: 'PR was closed without merging' })
-  }
-
-  const mergeResult = await adapter.mergePR(token, repo, rec.fix_pr_number)
-  if (!mergeResult.ok) {
-    const category = categorizeGitError(400, mergeResult.error)
-    await markFailed(rec.id, mergeResult.error)
-    return respond({
-      ok: false,
-      blockedByProtection: category === 'blocked_by_protection',
-      error: mergeResult.error,
-    })
-  }
-
-  const now = new Date().toISOString()
-  await supabase.from('recommendations').update({
-    status: 'approved',
-    approved_by: actingUserId ?? null,
-    approved_at: now,
-    fix_pr_state: 'merged',
-    fix_merged_at: now,
-    fix_error: null,
-  }).eq('id', rec.id)
-
-  // Write to deployment_registry so Deployment Intelligence shows this fix.
-  const branch = rec.fix_branch ?? `paaq-fix-${rec.id.slice(0, 8)}`
-  const changedFiles = (rec.fix_changeset ?? []).map((c) => ({ path: c.path }))
-  try {
-    await supabase.from('deployment_registry').insert({
-      project_id: rec.project_id,
-      version: branch,
-      environment: 'production',
-      deployed_at: now,
-      deployed_by: actingUserId ? `user:${actingUserId}` : 'PAAQ AI',
-      status: 'success',
-      git_commit: branch,
-      release_notes: `AI Fix: ${rec.title}`,
-      changed_features: changedFiles.map((f) => f.path),
-      ai_fix: true,
-      recommendation_id: rec.id,
-      pr_url: rec.fix_pr_url,
-      pr_number: rec.fix_pr_number,
-      ai_summary: rec.description,
-      changed_files: changedFiles,
-    })
-  } catch { /* non-fatal — don't fail the merge response */ }
-
-  return respond({ ok: true, merged: true })
+async function handleMergeAction(rec: RecRow, actingUserId: string | null, allowUnknownChecks: boolean) {
+  const result = await performMerge(rec, { allowUnknownChecks, actingUserId })
+  return respond(result)
 }
 
 async function handleStatus(rec: RecRow) {
+  // Live re-fetch (mirrors performMerge) rather than trusting cached DB
+  // fields, so the dashboard can poll this while waiting for CI checks.
+  if (!rec.fix_pr_number || rec.fix_pr_state !== 'open') {
+    return respond({
+      fixPrState: rec.fix_pr_state,
+      fixPrUrl: rec.fix_pr_url,
+      fixBranch: rec.fix_branch,
+      fixError: (rec as unknown as { fix_error?: string }).fix_error ?? null,
+      checksPassed: null,
+      checksPending: false,
+      checksSupported: false,
+    })
+  }
+
+  const repoResult = await getRepoAndToken(rec.project_id)
+  if (!repoResult.ok) {
+    return respond({
+      fixPrState: rec.fix_pr_state, fixPrUrl: rec.fix_pr_url, fixBranch: rec.fix_branch,
+      fixError: (rec as unknown as { fix_error?: string }).fix_error ?? null,
+      checksPassed: null, checksPending: false, checksSupported: false,
+    })
+  }
+  const { provider, repo, token } = repoResult
+  const adapter = await loadGitAdapter(provider)
+  const status = await adapter.getPRStatus(token, repo, rec.fix_pr_number)
+
+  if (!status.ok) {
+    return respond({
+      fixPrState: rec.fix_pr_state, fixPrUrl: rec.fix_pr_url, fixBranch: rec.fix_branch,
+      fixError: (rec as unknown as { fix_error?: string }).fix_error ?? null,
+      checksPassed: null, checksPending: false, checksSupported: false, statusError: status.error,
+    })
+  }
+
+  // Keep the DB row in sync if the PR was merged/closed outside PAAQ.
+  if (status.state !== 'open' && status.state !== rec.fix_pr_state) {
+    await supabase.from('recommendations').update({ fix_pr_state: status.state }).eq('id', rec.id)
+  }
+
   return respond({
-    fixPrState: rec.fix_pr_state,
+    fixPrState: status.state,
     fixPrUrl: rec.fix_pr_url,
     fixBranch: rec.fix_branch,
     fixError: (rec as unknown as { fix_error?: string }).fix_error ?? null,
+    checksPassed: status.checksPassed,
+    checksPending: status.checksPending ?? false,
+    checksSupported: status.checksSupported,
+    mergeable: status.mergeable,
   })
 }
 

@@ -11,7 +11,7 @@ const ALLOWED_ROLES = new Set(['owner', 'admin'])
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}))
-  const { projectId, recommendationId } = body
+  const { projectId, recommendationId, allowUnknownChecks } = body
   if (!projectId || !recommendationId) {
     return NextResponse.json({ ok: false, error: 'projectId and recommendationId are required' }, { status: 400 })
   }
@@ -29,6 +29,7 @@ export async function POST(request: NextRequest) {
     action: 'merge',
     recommendationId,
     actingUserId: user?.id ?? null,
+    allowUnknownChecks: !!allowUnknownChecks,
   })
   return NextResponse.json(result)
 }
