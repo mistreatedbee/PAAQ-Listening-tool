@@ -50,12 +50,16 @@ Deno.serve(async (req) => {
     { data: perf },
     { data: sessions },
     { count: userCount },
+    { data: sessionPages },
+    { data: formFields },
   ] = await Promise.all([
     filter(supabase.from('events').select('event_name, event_category, screen_name, session_id, timestamp').order('timestamp', { ascending: false }).limit(500)),
     filter(supabase.from('errors').select('error_type, message, severity, status, screen, created_at').order('created_at', { ascending: false }).limit(200)),
     filter(supabase.from('performance_metrics').select('metric_type, value, created_at').order('created_at', { ascending: false }).limit(200)),
-    filter(supabase.from('sessions').select('id, status, duration, started_at').order('started_at', { ascending: false }).limit(200)),
+    filter(supabase.from('sessions').select('id, status, outcome, duration, started_at, platform, device_type, os_name, browser_name, rage_click_count, dead_click_count, form_abandon_count, page_count, interaction_count, active_seconds, idle_seconds').order('started_at', { ascending: false }).limit(200)),
     filter(supabase.from('users').select('*', { count: 'exact', head: true })),
+    filter(supabase.from('session_pages').select('page_path, duration_ms, scroll_depth_pct, interaction_count, error_count').order('created_at', { ascending: false }).limit(500)),
+    filter(supabase.from('form_field_stats').select('form_name, field_name, had_error, completed, backspace_count, time_spent_ms').order('created_at', { ascending: false }).limit(300)),
   ])
 
   // ── 2. Compute feature health ─────────────────────────────────────────
@@ -168,9 +172,78 @@ Deno.serve(async (req) => {
   }
 
   // ── 5. Ask Claude for AI insights ─────────────────────────────────────
+  // Real session-level signals (outcomes, device/platform mix, friction,
+  // page-by-page behavior, form abandonment) — without these the summary
+  // was effectively just "event name counts + error counts," which for a
+  // low-traffic project barely changes run to run and produces the same
+  // generic 4-6 insights every time.
+  const outcomeBreakdown = aggregateBy((sessions ?? []).filter((s) => s.outcome), 'outcome')
+  const platformBreakdown = aggregateBy((sessions ?? []).filter((s) => s.platform), 'platform')
+  const deviceBreakdown = aggregateBy((sessions ?? []).filter((s) => s.device_type), 'device_type')
+
+  const totalRageClicks = (sessions ?? []).reduce((a, s) => a + (s.rage_click_count ?? 0), 0)
+  const totalDeadClicks = (sessions ?? []).reduce((a, s) => a + (s.dead_click_count ?? 0), 0)
+  const totalFormAbandons = (sessions ?? []).reduce((a, s) => a + (s.form_abandon_count ?? 0), 0)
+  const avgActiveSeconds = averageOf((sessions ?? []).map((s) => s.active_seconds).filter((v): v is number => v != null))
+  const avgIdleSeconds = averageOf((sessions ?? []).map((s) => s.idle_seconds).filter((v): v is number => v != null))
+
+  const pageMap: Record<string, { visits: number; errors: number; interactions: number; scrollSum: number; scrollCount: number; durationSum: number; durationCount: number }> = {}
+  for (const p of sessionPages ?? []) {
+    const key = p.page_path ?? 'unknown'
+    if (!pageMap[key]) pageMap[key] = { visits: 0, errors: 0, interactions: 0, scrollSum: 0, scrollCount: 0, durationSum: 0, durationCount: 0 }
+    const row = pageMap[key]
+    row.visits++
+    row.errors += p.error_count ?? 0
+    row.interactions += p.interaction_count ?? 0
+    if (p.scroll_depth_pct != null) { row.scrollSum += p.scroll_depth_pct; row.scrollCount++ }
+    if (p.duration_ms != null) { row.durationSum += p.duration_ms; row.durationCount++ }
+  }
+  const pagesSummary = Object.entries(pageMap)
+    .map(([page, r]) => ({
+      page,
+      visits: r.visits,
+      errors: r.errors,
+      avgInteractions: Math.round((r.interactions / r.visits) * 10) / 10,
+      avgScrollPct: r.scrollCount > 0 ? Math.round(r.scrollSum / r.scrollCount) : null,
+      avgDurationMs: r.durationCount > 0 ? Math.round(r.durationSum / r.durationCount) : null,
+    }))
+    .sort((a, b) => b.visits - a.visits)
+    .slice(0, 15)
+
+  const fieldMap: Record<string, { touches: number; errors: number; abandoned: number; backspaceSum: number }> = {}
+  for (const f of formFields ?? []) {
+    const key = `${f.form_name ?? 'form'}.${f.field_name}`
+    if (!fieldMap[key]) fieldMap[key] = { touches: 0, errors: 0, abandoned: 0, backspaceSum: 0 }
+    const row = fieldMap[key]
+    row.touches++
+    if (f.had_error) row.errors++
+    if (!f.completed) row.abandoned++
+    row.backspaceSum += f.backspace_count ?? 0
+  }
+  const problemFields = Object.entries(fieldMap)
+    .map(([field, r]) => ({ field, touches: r.touches, errorRate: Math.round((r.errors / r.touches) * 100), abandonRate: Math.round((r.abandoned / r.touches) * 100), avgBackspaces: Math.round((r.backspaceSum / r.touches) * 10) / 10 }))
+    .filter((f) => f.errorRate > 0 || f.abandonRate > 0)
+    .sort((a, b) => (b.errorRate + b.abandonRate) - (a.errorRate + a.abandonRate))
+    .slice(0, 10)
+
   const summary = {
     users:    userCount ?? 0,
-    sessions: { total: totalSessions, abandoned: abandonedSessions },
+    sessions: {
+      total: totalSessions,
+      abandoned: abandonedSessions,
+      outcomes: outcomeBreakdown,
+      platforms: platformBreakdown,
+      devices: deviceBreakdown,
+      avgActiveSeconds,
+      avgIdleSeconds,
+    },
+    behaviorFriction: {
+      totalRageClicks,
+      totalDeadClicks,
+      totalFormAbandons,
+    },
+    pages: pagesSummary,
+    problemFormFields: problemFields,
     features: featureHealthRows.slice(0, 10).map((f) => ({
       name: f.feature_name, health: Math.round(f.health_score * 100), events: f.event_count, errors: f.error_count, trend: f.trend,
     })),
@@ -218,8 +291,19 @@ Return this exact structure:
 }
 
 Rules:
-- Generate 4-6 insights
-- Reference actual numbers from the data
+- Generate 4-6 insights, and make them span DIFFERENT dimensions of the data
+  — don't generate multiple insights about the same error or the same
+  screen. Deliberately look across sessions.outcomes/platforms/devices,
+  behaviorFriction (rage/dead clicks, form abandons), pages (which specific
+  page paths have the most visits/errors/lowest scroll depth/longest
+  dwell), problemFormFields (which specific field has the highest error or
+  abandon rate), features, errors, and anomalies — pull from as many of
+  these sections as have real data, not just "errors."
+- Reference actual numbers AND actual names (real page paths, real field
+  names, real platforms/devices) from the data — never generic filler like
+  "the checkout flow" if the data doesn't name a checkout flow.
+- If a section of the data is empty or has too little signal, skip it —
+  do not invent an insight to fill a quota.
 - priority "critical" = needs immediate attention
 - impact_score 0.0-1.0 based on how many users affected
 - affected_users = estimate based on session/user counts in data`,
@@ -301,6 +385,11 @@ Rules:
     insights: insightRows.length,
   })
 })
+
+function averageOf(nums: number[]): number | null {
+  if (nums.length === 0) return null
+  return Math.round(nums.reduce((a, b) => a + b, 0) / nums.length)
+}
 
 function aggregateBy(arr: Record<string, unknown>[], key: string) {
   const counts: Record<string, number> = {}

@@ -25,7 +25,7 @@ export async function runInsightsForProject(
     { data: perf },
     { data: incidents },
     { count: userCount },
-    { count: sessionCount },
+    { data: sessions },
   ] = await Promise.all([
     supabase.from('events').select('event_name, event_category, screen_name, timestamp')
       .eq('project_id', projectId).gt('timestamp', since)
@@ -39,7 +39,8 @@ export async function runInsightsForProject(
     supabase.from('incidents').select('title, severity, status, ai_summary, created_at')
       .eq('project_id', projectId).neq('status', 'resolved').limit(10),
     supabase.from('users').select('*', { count: 'exact', head: true }).eq('project_id', projectId),
-    supabase.from('sessions').select('*', { count: 'exact', head: true }).eq('project_id', projectId),
+    supabase.from('sessions').select('outcome, platform, device_type, rage_click_count, dead_click_count, form_abandon_count')
+      .eq('project_id', projectId).gt('started_at', since).limit(200),
   ])
 
   if (!events?.length && !errors?.length && !perf?.length) {
@@ -48,7 +49,17 @@ export async function runInsightsForProject(
 
   const summary = {
     users: { total: userCount ?? 0 },
-    sessions: { total: sessionCount ?? 0 },
+    sessions: {
+      total: sessions?.length ?? 0,
+      outcomes: aggregateBy((sessions ?? []).filter((s) => s.outcome), 'outcome'),
+      platforms: aggregateBy((sessions ?? []).filter((s) => s.platform), 'platform'),
+      devices: aggregateBy((sessions ?? []).filter((s) => s.device_type), 'device_type'),
+    },
+    behaviorFriction: {
+      totalRageClicks: (sessions ?? []).reduce((a, s) => a + (s.rage_click_count ?? 0), 0),
+      totalDeadClicks: (sessions ?? []).reduce((a, s) => a + (s.dead_click_count ?? 0), 0),
+      totalFormAbandons: (sessions ?? []).reduce((a, s) => a + (s.form_abandon_count ?? 0), 0),
+    },
     events: {
       total: events?.length ?? 0,
       topNames: aggregateBy(events ?? [], 'event_name').slice(0, 8),
@@ -99,6 +110,12 @@ Return a JSON array:
 ]
 
 Rules:
+- Span different dimensions of the data — don't generate multiple insights
+  about the same error or screen. Look across sessions.outcomes/platforms/
+  devices, behaviorFriction (rage/dead clicks, form abandons), events, and
+  errors, not just errors alone.
+- If a section of the data is empty or has too little signal, skip it —
+  do not invent an insight to fill the 4-6 quota.
 - Reference actual numbers from the data (e.g. "3 of 5 errors are on PaymentScreen")
 - error = critical issues needing immediate attention
 - warning = trends to watch before they become problems
