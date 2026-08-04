@@ -1,6 +1,6 @@
 import { Card, CardHead, ToneBadge } from '@/components/kit'
 import type { Tone } from '@/lib/data'
-import { User, Smartphone, Globe, LayoutGrid } from 'lucide-react'
+import { User, Smartphone, Globe, LayoutGrid, Zap } from 'lucide-react'
 
 export type SessionRow = {
   id: string
@@ -28,6 +28,9 @@ export type SessionRow = {
   time_to_first_interaction_ms: number | null
   page_count: number | null
   interaction_count: number | null
+  rage_click_count: number | null
+  dead_click_count: number | null
+  form_abandon_count: number | null
 }
 
 export type SessionUser = {
@@ -83,7 +86,7 @@ export function SessionOverviewCard({
   environment: string | null
 }) {
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
       <Card>
         <CardHead title="User" icon={<User className="h-4 w-4" />} />
         <div className="grid grid-cols-2 gap-3 px-5 pb-5">
@@ -132,6 +135,15 @@ export function SessionOverviewCard({
           <div className="col-span-2">
             <Field label="Entry URL" value={session.entry_url ?? '—'} />
           </div>
+        </div>
+      </Card>
+
+      <Card>
+        <CardHead title="Behavior" icon={<Zap className="h-4 w-4" />} />
+        <div className="grid grid-cols-2 gap-3 px-5 pb-5">
+          <Field label="Rage clicks" value={String(session.rage_click_count ?? 0)} />
+          <Field label="Dead clicks" value={String(session.dead_click_count ?? 0)} />
+          <Field label="Forms abandoned" value={String(session.form_abandon_count ?? 0)} />
         </div>
       </Card>
     </div>

@@ -5,6 +5,7 @@ import 'api_client.dart';
 import 'event_queue.dart';
 import 'error_tracker.dart';
 import 'device_info.dart';
+import 'touch_tracker.dart';
 import 'models/event.dart';
 import 'models/session.dart';
 
@@ -35,6 +36,11 @@ class PAAQ with WidgetsBindingObserver {
   Timer? _heartbeatTimer;
   Timer? _backgroundGraceTimer;
   bool _explicitDispose = false;
+  DateTime _lastSignalAt = DateTime.fromMillisecondsSinceEpoch(0);
+  int _maxScrollPct = 0;
+  final Set<int> _reportedScrollMilestones = {};
+  final Map<String, DateTime> _fieldStartedAt = {};
+  final Map<String, int> _fieldBackspaceCounts = {};
 
   PAAQ._(this._config)
       : _api = ApiClient(_config),
@@ -63,6 +69,75 @@ class PAAQ with WidgetsBindingObserver {
 
     await _instance!._startSession();
     _instance!._scheduleHeartbeat();
+    _instance!._installTouchTracking();
+  }
+
+  void _installTouchTracking() {
+    PaaqTouchTracker(
+      onRageTap: (x, y, count) => _track(PAQEvent(
+        name: '\$rage_click',
+        properties: {'x': x, 'y': y, 'tapCount': count},
+        userId: _userId,
+        sessionId: _session?.id,
+      )),
+      onDeadTap: (x, y) => _track(PAQEvent(
+        name: '\$dead_click',
+        properties: {'x': x, 'y': y},
+        userId: _userId,
+        sessionId: _session?.id,
+      )),
+      lastSignalAt: () => _lastSignalAt,
+    ).install();
+  }
+
+  /// Call from a scroll listener (or wrap a scrollable in PaaqScrollTracker) with 0-100.
+  static void trackScrollDepth(int pct) => _i._trackScrollDepth(pct);
+
+  void _trackScrollDepth(int pct) {
+    if (pct <= _maxScrollPct) return;
+    _maxScrollPct = pct;
+    for (final milestone in [25, 50, 75, 100]) {
+      if (pct >= milestone && _reportedScrollMilestones.add(milestone)) {
+        track('\$scroll_depth', {'pct': milestone});
+      }
+    }
+  }
+
+  /// Call when navigating to a new screen so scroll depth is measured per screen.
+  static void resetScrollTracking() {
+    _i._maxScrollPct = 0;
+    _i._reportedScrollMilestones.clear();
+  }
+
+  static void trackFieldFocus(String fieldName) {
+    _i._fieldStartedAt[fieldName] = DateTime.now();
+    _i._fieldBackspaceCounts[fieldName] = 0;
+  }
+
+  static void trackFieldBackspace(String fieldName) {
+    _i._fieldBackspaceCounts[fieldName] = (_i._fieldBackspaceCounts[fieldName] ?? 0) + 1;
+  }
+
+  static void trackFieldBlur(
+    String fieldName, {
+    String? formName,
+    bool hadError = false,
+    bool completed = false,
+  }) {
+    final startedAt = _i._fieldStartedAt.remove(fieldName);
+    final backspaces = _i._fieldBackspaceCounts.remove(fieldName) ?? 0;
+    track('\$form_field', {
+      'fieldName': fieldName,
+      'formName': formName ?? '',
+      'timeSpentMs': startedAt != null ? DateTime.now().difference(startedAt).inMilliseconds : 0,
+      'backspaceCount': backspaces,
+      'hadError': hadError,
+      'completed': completed,
+    });
+  }
+
+  static void trackFormAbandon(String formName) {
+    track('\$form_abandon', {'formName': formName});
   }
 
   @override
@@ -151,7 +226,10 @@ class PAAQ with WidgetsBindingObserver {
 
   // ── Internal ──────────────────────────────────────────────
 
-  void _track(PAQEvent event) => _queue.enqueue(event);
+  void _track(PAQEvent event) {
+    _lastSignalAt = DateTime.now();
+    _queue.enqueue(event);
+  }
 
   Future<void> _startSession() async {
     _deviceId = await DeviceInfoCollector.deviceId();

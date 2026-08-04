@@ -128,6 +128,9 @@ async function init(
       installGlobalHandlers()
       installAutoPageTracking()
       installSessionEndHandlers()
+      installClickTracking()
+      installScrollTracking()
+      installFormTracking()
     }
     return data
   } catch (err) {
@@ -135,7 +138,10 @@ async function init(
   }
 }
 
+let _lastSignalAt = 0
+
 function track(eventName: string, properties: Record<string, unknown> = {}) {
+  _lastSignalAt = Date.now()
   _queue.push({
     event_name: eventName,
     session_id: _sessionId,
@@ -281,6 +287,177 @@ async function endSession(outcome: string): Promise<void> {
       // fire-and-forget
     }
   }
+}
+
+const RAGE_CLICK_WINDOW_MS = 800
+const RAGE_CLICK_MIN_COUNT = 3
+const RAGE_CLICK_RADIUS_PX = 40
+const DEAD_CLICK_DELAY_MS = 2500
+
+let _recentClicks: { time: number; x: number; y: number; target: EventTarget | null }[] = []
+let _rageCooldownUntil = 0
+
+function cssPath(el: Element | null): string {
+  if (!el) return 'unknown'
+  const tag = el.tagName.toLowerCase()
+  const id = el.id ? `#${el.id}` : ''
+  const cls = el.classList.length ? `.${Array.from(el.classList).slice(0, 2).join('.')}` : ''
+  return `${tag}${id}${cls}`
+}
+
+function isInteractiveElement(el: Element | null): boolean {
+  if (!el) return false
+  if (el.closest('a, button, input, select, textarea, label, [role="button"], [onclick], summary')) return true
+  try {
+    return getComputedStyle(el).cursor === 'pointer'
+  } catch {
+    return false
+  }
+}
+
+// Click/tap handling — mobile browsers fire a synthetic 'click' after a tap,
+// so this single listener covers both desktop mouse clicks and phone taps.
+function installClickTracking(): void {
+  if (typeof document === 'undefined') return
+  document.addEventListener('click', (event) => {
+    const target = event.target as Element | null
+    const now = Date.now()
+    const x = event.clientX
+    const y = event.clientY
+
+    // ── Rage click: 3+ clicks in quick succession, close together ──
+    _recentClicks = _recentClicks.filter((c) => now - c.time < RAGE_CLICK_WINDOW_MS)
+    _recentClicks.push({ time: now, x, y, target })
+    const cluster = _recentClicks.filter(
+      (c) => Math.hypot(c.x - x, c.y - y) <= RAGE_CLICK_RADIUS_PX,
+    )
+    if (cluster.length >= RAGE_CLICK_MIN_COUNT && now > _rageCooldownUntil) {
+      _rageCooldownUntil = now + RAGE_CLICK_WINDOW_MS
+      _recentClicks = []
+      track('$rage_click', { targetSelector: cssPath(target), x, y, tapCount: cluster.length })
+    }
+
+    // ── Dead click: no other tracked signal followed within the delay ──
+    if (!isInteractiveElement(target)) {
+      const clickedAt = now
+      const startUrl = window.location.href
+      setTimeout(() => {
+        if (_lastSignalAt >= clickedAt || window.location.href !== startUrl) return
+        track('$dead_click', { targetSelector: cssPath(target), x, y })
+      }, DEAD_CLICK_DELAY_MS)
+    }
+  }, { passive: true })
+}
+
+const SCROLL_MILESTONES = [25, 50, 75, 100]
+let _maxScrollPct = 0
+let _reportedScrollMilestones = new Set<number>()
+let _scrollThrottle: ReturnType<typeof setTimeout> | null = null
+
+function currentScrollPct(): number {
+  const doc = document.documentElement
+  const scrollable = doc.scrollHeight - doc.clientHeight
+  if (scrollable <= 0) return 100
+  return Math.round((Math.min(window.scrollY, scrollable) / scrollable) * 100)
+}
+
+function installScrollTracking(): void {
+  if (typeof window === 'undefined') return
+  const onScroll = () => {
+    const pct = currentScrollPct()
+    if (pct <= _maxScrollPct) return
+    _maxScrollPct = pct
+    for (const milestone of SCROLL_MILESTONES) {
+      if (pct >= milestone && !_reportedScrollMilestones.has(milestone)) {
+        _reportedScrollMilestones.add(milestone)
+        track('$scroll_depth', { pct: milestone })
+      }
+    }
+  }
+  window.addEventListener('scroll', () => {
+    if (_scrollThrottle) return
+    _scrollThrottle = setTimeout(() => {
+      _scrollThrottle = null
+      onScroll()
+    }, 250)
+  }, { passive: true })
+
+  // Reset per-page-view so scroll depth is measured per page, not cumulatively.
+  window.addEventListener('popstate', () => {
+    _maxScrollPct = 0
+    _reportedScrollMilestones = new Set()
+  })
+}
+
+type FieldState = { startedAt: number; backspaces: number }
+const _fieldState = new WeakMap<Element, FieldState>()
+const _touchedForms = new WeakMap<HTMLFormElement, boolean>() // true once submitted
+
+function isFormField(el: EventTarget | null): el is HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement {
+  return !!el && el instanceof Element && ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName)
+}
+
+function fieldHasError(el: Element): boolean {
+  if (el.getAttribute('aria-invalid') === 'true') return true
+  if (el.classList.contains('error') || el.classList.contains('is-invalid') || el.classList.contains('invalid')) return true
+  if ('validity' in el && (el as HTMLInputElement).validity && !(el as HTMLInputElement).validity.valid) {
+    return (el as HTMLInputElement).value.length > 0 // only "has error" once the user's actually typed something
+  }
+  return false
+}
+
+function installFormTracking(): void {
+  if (typeof document === 'undefined') return
+
+  document.addEventListener('focusin', (event) => {
+    const el = event.target
+    if (!isFormField(el)) return
+    _fieldState.set(el, { startedAt: Date.now(), backspaces: 0 })
+    const form = el.closest('form')
+    if (form && !_touchedForms.has(form)) _touchedForms.set(form, false)
+  })
+
+  document.addEventListener('keydown', (event) => {
+    const el = event.target
+    if (event.key !== 'Backspace' || !isFormField(el)) return
+    const state = _fieldState.get(el)
+    if (state) state.backspaces += 1
+  })
+
+  document.addEventListener('focusout', (event) => {
+    const el = event.target
+    if (!isFormField(el)) return
+    const state = _fieldState.get(el)
+    if (!state) return
+    _fieldState.delete(el)
+    track('$form_field', {
+      page: window.location.pathname,
+      formName: el.closest('form')?.getAttribute('name') ?? el.closest('form')?.id ?? null,
+      fieldName: el.name || el.id || cssPath(el),
+      timeSpentMs: Date.now() - state.startedAt,
+      backspaceCount: state.backspaces,
+      hadError: fieldHasError(el),
+      completed: el.value.trim().length > 0,
+    })
+  })
+
+  document.addEventListener('submit', (event) => {
+    const form = event.target
+    if (form instanceof HTMLFormElement) _touchedForms.set(form, true)
+  })
+
+  const reportAbandonedForms = () => {
+    document.querySelectorAll('form').forEach((form) => {
+      if (_touchedForms.has(form) && _touchedForms.get(form) === false) {
+        track('$form_abandon', { formName: form.getAttribute('name') ?? form.id ?? null, page: window.location.pathname })
+        _touchedForms.set(form, true) // don't report twice
+      }
+    })
+  }
+  window.addEventListener('pagehide', reportAbandonedForms)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') reportAbandonedForms()
+  })
 }
 
 function scheduleFlush() {

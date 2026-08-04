@@ -105,6 +105,7 @@ object PAAQ {
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
             override fun onActivityResumed(activity: Activity) {
                 screen(activity.javaClass.simpleName)
+                installTouchTracking(activity)
             }
             override fun onActivityStarted(activity: Activity) {
                 startedActivities++
@@ -130,8 +131,76 @@ object PAAQ {
         app.registerActivityLifecycleCallbacks(callbacks)
     }
 
+    private fun installTouchTracking(activity: Activity) {
+        val window = activity.window ?: return
+        val existing = window.callback
+        if (existing is PaaqWindowCallbackWrapper) return // already wrapped
+        val tracker = PaaqTouchTracker(
+            onRageTap = { x, y, count -> track("\$rage_click", mapOf("x" to x, "y" to y, "tapCount" to count)) },
+            onDeadTap = { x, y -> track("\$dead_click", mapOf("x" to x, "y" to y)) },
+            lastSignalAtMs = { lastSignalAtMs },
+        )
+        window.callback = PaaqWindowCallbackWrapper(existing, tracker)
+    }
+
+    // ── Scroll depth — opt-in, no universal scroll hook exists on Android ──
+
+    private var maxScrollPct = 0
+    private val reportedScrollMilestones = mutableSetOf<Int>()
+
+    /** Call from a scroll listener (RecyclerView.OnScrollListener, NestedScrollView.OnScrollChangeListener, etc.) with 0-100. */
+    fun trackScrollDepth(pct: Int) {
+        if (pct <= maxScrollPct) return
+        maxScrollPct = pct
+        for (milestone in intArrayOf(25, 50, 75, 100)) {
+            if (pct >= milestone && reportedScrollMilestones.add(milestone)) {
+                track("\$scroll_depth", mapOf("pct" to milestone))
+            }
+        }
+    }
+
+    /** Call when navigating to a new screen so scroll depth is measured per screen. */
+    fun resetScrollTracking() {
+        maxScrollPct = 0
+        reportedScrollMilestones.clear()
+    }
+
+    // ── Form field friction — opt-in, wire into your existing focus/text listeners ──
+
+    private val fieldStartedAtMs = mutableMapOf<String, Long>()
+    private val fieldBackspaceCounts = mutableMapOf<String, Int>()
+
+    fun trackFieldFocus(fieldName: String) {
+        fieldStartedAtMs[fieldName] = System.currentTimeMillis()
+        fieldBackspaceCounts[fieldName] = 0
+    }
+
+    fun trackFieldBackspace(fieldName: String) {
+        fieldBackspaceCounts[fieldName] = (fieldBackspaceCounts[fieldName] ?: 0) + 1
+    }
+
+    fun trackFieldBlur(fieldName: String, formName: String? = null, hadError: Boolean = false, completed: Boolean = false) {
+        val startedAt = fieldStartedAtMs.remove(fieldName)
+        val backspaces = fieldBackspaceCounts.remove(fieldName) ?: 0
+        track("\$form_field", mapOf(
+            "fieldName" to fieldName,
+            "formName" to (formName ?: ""),
+            "timeSpentMs" to (startedAt?.let { System.currentTimeMillis() - it } ?: 0L),
+            "backspaceCount" to backspaces,
+            "hadError" to hadError,
+            "completed" to completed,
+        ))
+    }
+
+    fun trackFormAbandon(formName: String) {
+        track("\$form_abandon", mapOf("formName" to formName))
+    }
+
+    private var lastSignalAtMs = 0L
+
     /** Track a custom event */
     fun track(eventName: String, properties: Map<String, Any> = emptyMap()) {
+        lastSignalAtMs = System.currentTimeMillis()
         val event = PaaqEvent(eventName, sessionId, properties, now())
         synchronized(queueLock) { queue.add(event) }
         log("Queued $eventName")

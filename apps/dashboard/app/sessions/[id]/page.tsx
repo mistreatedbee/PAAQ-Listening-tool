@@ -11,6 +11,7 @@ import { PageBreakdown, type SessionPage } from '@/components/sessions/page-brea
 import { NavigationMap } from '@/components/sessions/navigation-map'
 import { AiSummaryPanel, type SessionAiSummary } from '@/components/sessions/ai-summary-panel'
 import { TimelineScrubber } from '@/components/sessions/timeline-scrubber'
+import { FormAnalyticsPanel, type FormFieldStat } from '@/components/sessions/form-analytics-panel'
 
 export default function SessionDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -25,6 +26,7 @@ export default function SessionDetailPage() {
   const [events, setEvents] = useState<SessionEvent[]>([])
   const [errors, setErrors] = useState<SessionError[]>([])
   const [summary, setSummary] = useState<SessionAiSummary | null>(null)
+  const [formFields, setFormFields] = useState<FormFieldStat[]>([])
   const [loading, setLoading] = useState(true)
   const [scrubTime, setScrubTime] = useState<string | null>(null)
 
@@ -35,19 +37,20 @@ export default function SessionDetailPage() {
     const load = async () => {
       const { data: sessionRow } = await sb
         .from('sessions')
-        .select('id, project_id, user_id, started_at, ended_at, duration, status, outcome, platform, browser_name, browser_version, os_name, os_version, device_type, device_model, screen_width, screen_height, viewport_width, viewport_height, timezone, locale, connection_type, app_version, entry_url, referrer, active_seconds, idle_seconds, time_to_first_interaction_ms, page_count, interaction_count')
+        .select('id, project_id, user_id, started_at, ended_at, duration, status, outcome, platform, browser_name, browser_version, os_name, os_version, device_type, device_model, screen_width, screen_height, viewport_width, viewport_height, timezone, locale, connection_type, app_version, entry_url, referrer, active_seconds, idle_seconds, time_to_first_interaction_ms, page_count, interaction_count, rage_click_count, dead_click_count, form_abandon_count')
         .eq('id', id)
         .maybeSingle()
 
       if (!sessionRow) { setLoading(false); return }
       setSession(sessionRow as SessionRow)
 
-      const [{ data: project }, { data: pageRows }, { data: eventRows }, { data: errorRows }, { data: summaryRow }] = await Promise.all([
+      const [{ data: project }, { data: pageRows }, { data: eventRows }, { data: errorRows }, { data: summaryRow }, { data: formFieldRows }] = await Promise.all([
         sb.from('tenant_projects').select('environment').eq('id', sessionRow.project_id).maybeSingle(),
-        sb.from('session_pages').select('id, sequence, page_path, entered_at, exited_at, duration_ms, interaction_count, error_count').eq('session_id', id).order('sequence', { ascending: true }),
+        sb.from('session_pages').select('id, sequence, page_path, entered_at, exited_at, duration_ms, interaction_count, error_count, scroll_depth_pct').eq('session_id', id).order('sequence', { ascending: true }),
         sb.from('events').select('id, event_name, event_category, screen_name, properties, timestamp').eq('session_id', id).order('timestamp', { ascending: true }),
         sb.from('errors').select('id, error_type, message, severity, screen, created_at').eq('session_id', id).order('created_at', { ascending: true }),
         sb.from('session_ai_summaries').select('narrative, confidence, generated_at').eq('session_id', id).maybeSingle(),
+        sb.from('form_field_stats').select('id, page_path, form_name, field_name, time_spent_ms, backspace_count, had_error, completed').eq('session_id', id).order('created_at', { ascending: true }),
       ])
 
       setEnvironment(project?.environment ?? null)
@@ -55,6 +58,7 @@ export default function SessionDetailPage() {
       setEvents((eventRows ?? []) as SessionEvent[])
       setErrors((errorRows ?? []) as SessionError[])
       setSummary(summaryRow as SessionAiSummary | null)
+      setFormFields((formFieldRows ?? []) as FormFieldStat[])
 
       if (sessionRow.user_id) {
         const [{ data: userRow }, { count }] = await Promise.all([
@@ -142,6 +146,8 @@ export default function SessionDetailPage() {
       </div>
 
       <PageBreakdown pages={pages} />
+
+      <FormAnalyticsPanel fields={formFields} />
 
       {errors.length === 0 && events.length === 0 && (
         <Card className="p-10 text-center">

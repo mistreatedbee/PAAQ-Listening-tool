@@ -10,6 +10,7 @@ export type SessionPage = {
   duration_ms: number | null
   interaction_count: number
   error_count: number
+  scroll_depth_pct: number | null
 }
 
 function fmtDuration(ms: number | null) {
@@ -39,6 +40,7 @@ export function PageBreakdown({ pages }: { pages: SessionPage[] }) {
               </div>
               <div className="flex shrink-0 items-center gap-4 text-xs text-muted-foreground">
                 <span>{p.interaction_count} clicks</span>
+                <span>{p.scroll_depth_pct != null ? `${p.scroll_depth_pct}% scrolled` : '— scroll'}</span>
                 <span className={p.error_count > 0 ? 'font-medium text-critical' : ''}>{p.error_count} errors</span>
               </div>
             </div>

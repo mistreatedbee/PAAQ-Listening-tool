@@ -69,9 +69,51 @@ public final class PAAQ {
         await shared.teardown(outcome: "logged_out")
     }
 
+    // MARK: - Behavior analytics (scroll/forms are opt-in — no universal
+    // hook exists for either on iOS; taps are captured automatically, see
+    // PaaqTouchTracker)
+
+    /// Call from a UIScrollViewDelegate/scrollViewDidScroll with 0-100.
+    public static func trackScrollDepth(_ pct: Int) {
+        Task { await shared.trackScrollDepth(pct) }
+    }
+
+    /// Call when navigating to a new screen so scroll depth is measured per screen.
+    public static func resetScrollTracking() {
+        Task { await shared.resetScrollTracking() }
+    }
+
+    public static func trackFieldFocus(_ fieldName: String) {
+        Task { await shared.trackFieldFocus(fieldName) }
+    }
+
+    public static func trackFieldBackspace(_ fieldName: String) {
+        Task { await shared.trackFieldBackspace(fieldName) }
+    }
+
+    public static func trackFieldBlur(_ fieldName: String, formName: String? = nil, hadError: Bool = false, completed: Bool = false) {
+        Task { await shared.trackFieldBlur(fieldName, formName: formName, hadError: hadError, completed: completed) }
+    }
+
+    public static func trackFormAbandon(_ formName: String) {
+        Task { await shared.enqueue(eventName: "$form_abandon", properties: ["formName": formName]) }
+    }
+
     // MARK: - Private singleton
 
     private static let shared = PaaqInstance()
+}
+
+/// A plain, lock-protected timestamp — deliberately not actor-isolated so
+/// PaaqTouchTracker's dead-tap timer (a bare DispatchQueue callback) can read
+/// it synchronously without hopping into PaaqInstance's actor.
+private final class PaaqSignalClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value = Date.distantPast
+    var value: Date {
+        get { lock.lock(); defer { lock.unlock() }; return _value }
+        set { lock.lock(); defer { lock.unlock() }; _value = newValue }
+    }
 }
 
 // MARK: - Internal actor
@@ -89,6 +131,11 @@ private actor PaaqInstance {
     private var heartbeatTask: Task<Void, Never>?
     private var backgroundGraceTask: Task<Void, Never>?
     private var debug = false
+    private let signalClock = PaaqSignalClock()
+    private var maxScrollPct = 0
+    private var reportedScrollMilestones: Set<Int> = []
+    private var fieldStartedAt: [String: Date] = [:]
+    private var fieldBackspaceCounts: [String: Int] = [:]
 
     func start(config: PaaqConfig) async -> Bool {
         debug = config.debug
@@ -108,6 +155,7 @@ private actor PaaqInstance {
             startFlushLoop()
             startHeartbeatLoop()
             registerLifecycleObservers()
+            installTouchTracking()
             return result.sessionId != nil
         } catch {
             log("Init failed: \(error)")
@@ -116,6 +164,7 @@ private actor PaaqInstance {
     }
 
     func enqueue(eventName: String, properties: [String: Any]) {
+        signalClock.value = Date()
         let props = properties.mapValues { AnyCodable($0) }
         queue.append(PaaqEvent(
             event_name: eventName,
@@ -236,6 +285,66 @@ private actor PaaqInstance {
 
     private func log(_ message: String) {
         if debug { print("[PAAQ] \(message)") }
+    }
+
+    // MARK: - Behavior analytics
+
+    private func installTouchTracking() {
+#if canImport(UIKit)
+        // PaaqTouchTracker's dead-tap check runs on a plain DispatchQueue
+        // timer, outside actor isolation — it reads through this thread-safe
+        // holder instead of hopping into the actor, avoiding any risk of
+        // blocking the main thread on an actor round-trip.
+        PaaqTouchTracker.shared.lastSignalAt = { [signalClock] in signalClock.value }
+        PaaqTouchTracker.shared.onRageTap = { [weak self] point, count in
+            Task { [weak self] in
+                await self?.enqueue(eventName: "$rage_click", properties: ["x": point.x, "y": point.y, "tapCount": count])
+            }
+        }
+        PaaqTouchTracker.shared.onDeadTap = { [weak self] point in
+            Task { [weak self] in
+                await self?.enqueue(eventName: "$dead_click", properties: ["x": point.x, "y": point.y])
+            }
+        }
+        PaaqTouchTracker.shared.install()
+#endif
+    }
+
+    func trackScrollDepth(_ pct: Int) {
+        guard pct > maxScrollPct else { return }
+        maxScrollPct = pct
+        for milestone in [25, 50, 75, 100] where pct >= milestone && !reportedScrollMilestones.contains(milestone) {
+            reportedScrollMilestones.insert(milestone)
+            enqueue(eventName: "$scroll_depth", properties: ["pct": milestone])
+        }
+    }
+
+    func resetScrollTracking() {
+        maxScrollPct = 0
+        reportedScrollMilestones.removeAll()
+    }
+
+    func trackFieldFocus(_ fieldName: String) {
+        fieldStartedAt[fieldName] = Date()
+        fieldBackspaceCounts[fieldName] = 0
+    }
+
+    func trackFieldBackspace(_ fieldName: String) {
+        fieldBackspaceCounts[fieldName, default: 0] += 1
+    }
+
+    func trackFieldBlur(_ fieldName: String, formName: String?, hadError: Bool, completed: Bool) {
+        let startedAt = fieldStartedAt.removeValue(forKey: fieldName)
+        let backspaces = fieldBackspaceCounts.removeValue(forKey: fieldName) ?? 0
+        let timeSpentMs = startedAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? 0
+        enqueue(eventName: "$form_field", properties: [
+            "fieldName": fieldName,
+            "formName": formName ?? "",
+            "timeSpentMs": timeSpentMs,
+            "backspaceCount": backspaces,
+            "hadError": hadError,
+            "completed": completed,
+        ])
     }
 
     // MARK: - Device ID

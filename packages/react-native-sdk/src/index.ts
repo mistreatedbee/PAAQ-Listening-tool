@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { AppState, AppStateStatus, Dimensions, Platform } from 'react-native'
+import { AppState, AppStateStatus, Dimensions, Platform, View, type GestureResponderEvent, type ViewProps } from 'react-native'
+import React from 'react'
 
 const BASE_URL = 'https://mookyonwpovxscsbqwwl.supabase.co/functions/v1'
 const SDK_VERSION = '1.0.0'
@@ -37,6 +38,7 @@ let _deviceId = ''
 let _sessionId: string | null = null
 let _sessionStartedAt = 0
 let _sessionEnded = false
+let _lastSignalAt = 0
 let _queue: EventPayload[] = []
 let _batchSize = 50
 let _flushIntervalMs = 30_000
@@ -136,6 +138,7 @@ export async function initialize(options: InitOptions): Promise<InitResult> {
 }
 
 export function track(eventName: string, properties: Record<string, unknown> = {}) {
+  _lastSignalAt = Date.now()
   _queue.push({
     event_name: eventName,
     session_id: _sessionId,
@@ -255,4 +258,121 @@ export function trackNavigationScreen(routeName: string | undefined): void {
   if (routeName) screen(routeName)
 }
 
-export const PAAQ = { initialize, track, identify, screen, flush, dispose, endSession, trackNavigationScreen }
+// ── Behavior analytics ──────────────────────────────────────────────────
+// Scroll and form tracking are opt-in (no app-wide hook exists in RN for
+// either). Tap tracking is also opt-in here, unlike web/Android/iOS/Flutter
+// — RN has no clean automatic global-touch hook in pure JS without a native
+// module, so wrap your root view in <PaaqTouchTracker> instead.
+
+let _maxScrollPct = 0
+let _reportedScrollMilestones = new Set<number>()
+
+export function trackScrollDepth(pct: number): void {
+  if (pct <= _maxScrollPct) return
+  _maxScrollPct = pct
+  for (const milestone of [25, 50, 75, 100]) {
+    if (pct >= milestone && !_reportedScrollMilestones.has(milestone)) {
+      _reportedScrollMilestones.add(milestone)
+      track('$scroll_depth', { pct: milestone })
+    }
+  }
+}
+
+export function resetScrollTracking(): void {
+  _maxScrollPct = 0
+  _reportedScrollMilestones = new Set()
+}
+
+const _fieldStartedAt = new Map<string, number>()
+const _fieldBackspaceCounts = new Map<string, number>()
+
+export function trackFieldFocus(fieldName: string): void {
+  _fieldStartedAt.set(fieldName, Date.now())
+  _fieldBackspaceCounts.set(fieldName, 0)
+}
+
+export function trackFieldBackspace(fieldName: string): void {
+  _fieldBackspaceCounts.set(fieldName, (_fieldBackspaceCounts.get(fieldName) ?? 0) + 1)
+}
+
+export function trackFieldBlur(
+  fieldName: string,
+  options: { formName?: string; hadError?: boolean; completed?: boolean } = {},
+): void {
+  const startedAt = _fieldStartedAt.get(fieldName)
+  const backspaces = _fieldBackspaceCounts.get(fieldName) ?? 0
+  _fieldStartedAt.delete(fieldName)
+  _fieldBackspaceCounts.delete(fieldName)
+  track('$form_field', {
+    fieldName,
+    formName: options.formName ?? '',
+    timeSpentMs: startedAt ? Date.now() - startedAt : 0,
+    backspaceCount: backspaces,
+    hadError: options.hadError ?? false,
+    completed: options.completed ?? false,
+  })
+}
+
+export function trackFormAbandon(formName: string): void {
+  track('$form_abandon', { formName })
+}
+
+const RAGE_TAP_WINDOW_MS = 800
+const RAGE_TAP_MIN_COUNT = 3
+const RAGE_TAP_RADIUS = 40
+const DEAD_TAP_DELAY_MS = 2500
+
+let _recentTaps: { time: number; x: number; y: number }[] = []
+let _rageCooldownUntil = 0
+
+function handleGlobalTouch(x: number, y: number): void {
+  const now = Date.now()
+  _recentTaps = _recentTaps.filter((t) => now - t.time < RAGE_TAP_WINDOW_MS)
+  _recentTaps.push({ time: now, x, y })
+  const cluster = _recentTaps.filter((t) => Math.hypot(t.x - x, t.y - y) <= RAGE_TAP_RADIUS)
+  if (cluster.length >= RAGE_TAP_MIN_COUNT && now > _rageCooldownUntil) {
+    _rageCooldownUntil = now + RAGE_TAP_WINDOW_MS
+    _recentTaps = []
+    track('$rage_click', { x, y, tapCount: cluster.length })
+  }
+
+  // No cheap way to hit-test "was this a real interactive component" from a
+  // raw touch event, so dead-tap detection is purely temporal (no signal
+  // followed the tap) — a looser heuristic than the web SDK's.
+  const tapAt = now
+  setTimeout(() => {
+    if (_lastSignalAt < tapAt) track('$dead_click', { x, y })
+  }, DEAD_TAP_DELAY_MS)
+}
+
+/**
+ * Wrap your app's root view to enable tap tracking (rage/dead-tap
+ * detection) — RN has no app-wide touch hook in pure JS, so this is the
+ * opt-in mechanism:
+ *
+ *   <PaaqTouchTracker><App /></PaaqTouchTracker>
+ *
+ * Uses the responder-capture phase so it observes every touch without
+ * intercepting it — child components still receive touches normally.
+ */
+export function PaaqTouchTracker(props: { children?: React.ReactNode } & ViewProps) {
+  const { children, ...rest } = props
+  return React.createElement(
+    View,
+    {
+      ...rest,
+      style: [{ flex: 1 }, rest.style],
+      onStartShouldSetResponderCapture: (event: GestureResponderEvent) => {
+        const { pageX, pageY } = event.nativeEvent
+        handleGlobalTouch(pageX, pageY)
+        return false // never actually capture — just observe
+      },
+    },
+    children,
+  )
+}
+
+export const PAAQ = {
+  initialize, track, identify, screen, flush, dispose, endSession, trackNavigationScreen,
+  trackScrollDepth, resetScrollTracking, trackFieldFocus, trackFieldBackspace, trackFieldBlur, trackFormAbandon,
+}

@@ -1,6 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { checkAndRecordDbHeartbeat } from '../_shared/db-heartbeat.ts'
 import { recordPageViews } from '../_shared/session-pages.ts'
+import { recordBehaviorEvents } from '../_shared/behavior-events.ts'
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -97,6 +98,12 @@ Deno.serve(async (req) => {
     await recordPageViews(supabase, project.id, insertedRows)
   } catch (e) {
     console.error('events: recordPageViews failed', e)
+  }
+
+  try {
+    await recordBehaviorEvents(supabase, project.id, insertedRows)
+  } catch (e) {
+    console.error('events: recordBehaviorEvents failed', e)
   }
 
   const now = new Date().toISOString()
