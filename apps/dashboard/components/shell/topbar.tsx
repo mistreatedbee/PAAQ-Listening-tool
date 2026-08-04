@@ -61,12 +61,18 @@ export function Topbar({
   useEffect(() => {
     if (app.id === '__loading__') return
     const sb = createClient()
-    Promise.all([
+
+    const fetchNotifications = () => {
       sb.from('notifications')
         .select('id, message, type, created_at')
         .eq('project_id', app.id)
         .order('created_at', { ascending: false })
-        .limit(10),
+        .limit(10)
+        .then(({ data }) => setNotifications((data ?? []) as DbNotification[]))
+    }
+
+    fetchNotifications()
+    Promise.all([
       sb.from('incidents')
         .select('*', { count: 'exact', head: true })
         .eq('project_id', app.id)
@@ -75,11 +81,20 @@ export function Topbar({
       sb.from('sessions')
         .select('*', { count: 'exact', head: true })
         .eq('project_id', app.id),
-    ]).then(([{ data }, { count: critical }, { count: sessions }]) => {
-      setNotifications((data ?? []) as DbNotification[])
+    ]).then(([{ count: critical }, { count: sessions }]) => {
       setCriticalCount(critical ?? 0)
       setSessionCount(sessions ?? 0)
     })
+
+    // Same realtime pattern as app/notifications/page.tsx — without this the
+    // bell's count only ever reflected whatever was there at page load.
+    const channel = sb
+      .channel(`topbar-notifications:${app.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `project_id=eq.${app.id}` }, fetchNotifications)
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'notifications', filter: `project_id=eq.${app.id}` }, fetchNotifications)
+      .subscribe()
+
+    return () => { sb.removeChannel(channel) }
   }, [app.id])
 
   const results = search
