@@ -45,15 +45,19 @@ Deno.serve(async (req) => {
       { data: anomalies },
       { data: features },
       { data: journeys },
+      { data: sessionPages },
+      { data: formFields },
     ] = await Promise.all([
       pf(supabase.from('incidents').select('id, title, description, severity, status, created_at').neq('status', 'resolved')).limit(5),
       pf(supabase.from('errors').select('error_type, message, severity, status, screen, stack_trace, created_at').order('created_at', { ascending: false })).limit(50),
-      pf(supabase.from('sessions').select('id, status, duration, started_at').order('started_at', { ascending: false })).limit(100),
+      pf(supabase.from('sessions').select('id, status, outcome, duration, started_at, platform, device_type, os_name, browser_name, rage_click_count, dead_click_count, form_abandon_count').order('started_at', { ascending: false })).limit(100),
       pf(supabase.from('events').select('event_name, screen_name, session_id, timestamp').order('timestamp', { ascending: false })).limit(200),
       pf(supabase.from('performance_metrics').select('metric_type, value, created_at').order('created_at', { ascending: false })).limit(100),
       pf(supabase.from('anomaly_events').select('type, severity, detected_pattern, confidence')).limit(10),
       pf(supabase.from('feature_health').select('feature_name, health_score, trend, error_count').order('health_score')).limit(10),
       pf(supabase.from('user_journeys').select('journey_name, completed, drop_off_step')).limit(20),
+      pf(supabase.from('session_pages').select('page_path, duration_ms, scroll_depth_pct, interaction_count, error_count').order('created_at', { ascending: false })).limit(500),
+      pf(supabase.from('form_field_stats').select('form_name, field_name, had_error, completed, backspace_count').order('created_at', { ascending: false })).limit(300),
     ])
 
     const hasData = (events?.length ?? 0) > 0 || (errors?.length ?? 0) > 0 || (sessions?.length ?? 0) > 0
@@ -117,6 +121,36 @@ Use these exact paths when identifying affected_files in recommendations.`
     const openErrors = errors?.filter((e) => e.status === 'open') ?? []
     const fatalErrors = openErrors.filter((e) => e.severity === 'fatal')
 
+    const pageMap: Record<string, { visits: number; errors: number; interactions: number; scrollSum: number; scrollCount: number }> = {}
+    for (const p of sessionPages ?? []) {
+      const key = p.page_path ?? 'unknown'
+      if (!pageMap[key]) pageMap[key] = { visits: 0, errors: 0, interactions: 0, scrollSum: 0, scrollCount: 0 }
+      const row = pageMap[key]
+      row.visits++
+      row.errors += p.error_count ?? 0
+      row.interactions += p.interaction_count ?? 0
+      if (p.scroll_depth_pct != null) { row.scrollSum += p.scroll_depth_pct; row.scrollCount++ }
+    }
+    const topPages = Object.entries(pageMap)
+      .map(([page, r]) => ({ page, visits: r.visits, errors: r.errors, avgScrollPct: r.scrollCount > 0 ? Math.round(r.scrollSum / r.scrollCount) : null }))
+      .sort((a, b) => (b.errors * 10 + b.visits) - (a.errors * 10 + a.visits))
+      .slice(0, 10)
+
+    const fieldMap: Record<string, { touches: number; errors: number; abandoned: number }> = {}
+    for (const f of formFields ?? []) {
+      const key = `${f.form_name ?? 'form'}.${f.field_name}`
+      if (!fieldMap[key]) fieldMap[key] = { touches: 0, errors: 0, abandoned: 0 }
+      const row = fieldMap[key]
+      row.touches++
+      if (f.had_error) row.errors++
+      if (!f.completed) row.abandoned++
+    }
+    const problemFormFields = Object.entries(fieldMap)
+      .map(([field, r]) => ({ field, touches: r.touches, errorRate: Math.round((r.errors / r.touches) * 100), abandonRate: Math.round((r.abandoned / r.touches) * 100) }))
+      .filter((f) => f.errorRate > 0 || f.abandonRate > 0)
+      .sort((a, b) => (b.errorRate + b.abandonRate) - (a.errorRate + a.abandonRate))
+      .slice(0, 10)
+
     const context = {
       project_id: project_id ?? 'all',
       incidents: (incidents ?? []).map((i) => ({ title: i.title, severity: i.severity, status: i.status, created_at: i.created_at })),
@@ -140,7 +174,17 @@ Use these exact paths when identifying affected_files in recommendations.`
         abandoned,
         abandonmentRate: totalSessions > 0 ? Math.round((abandoned / totalSessions) * 100) : 0,
         avgDuration: avgDuration(sessions ?? []),
+        outcomes: aggregateBy((sessions ?? []).filter((s) => s.outcome), 'outcome'),
+        platforms: aggregateBy((sessions ?? []).filter((s) => s.platform), 'platform'),
+        devices: aggregateBy((sessions ?? []).filter((s) => s.device_type), 'device_type'),
       },
+      behaviorFriction: {
+        totalRageClicks: (sessions ?? []).reduce((a, s) => a + (s.rage_click_count ?? 0), 0),
+        totalDeadClicks: (sessions ?? []).reduce((a, s) => a + (s.dead_click_count ?? 0), 0),
+        totalFormAbandons: (sessions ?? []).reduce((a, s) => a + (s.form_abandon_count ?? 0), 0),
+      },
+      topPages,
+      problemFormFields,
       performance: groupMetrics(perf ?? []),
       anomalies: (anomalies ?? []).map((a) => ({ type: a.type, pattern: a.detected_pattern, confidence: a.confidence })),
       features: (features ?? []).map((f) => ({ name: f.feature_name, health: f.health_score, trend: f.trend, errors: f.error_count })),
@@ -267,7 +311,16 @@ Critical rules:
 - If no repository is connected, set affected_files to [] and note it in root_cause
 - Every recommendation must have at least one specific piece of evidence from the telemetry data
 - Timeline must have 3-5 entries based on actual data
-- Generate 3-5 recommendations — each must be actionable and reference real data
+- Generate 3-5 recommendations, and pull from DIFFERENT parts of the
+  telemetry — don't generate multiple recommendations about the same
+  error. Check topPages (which real page paths have the most errors/
+  lowest scroll depth), problemFormFields (which real field has the
+  highest error/abandon rate), behaviorFriction (rage/dead clicks, form
+  abandons), and sessions.outcomes/platforms/devices, not just the errors
+  list — those sections often hold the real story an errors-only view
+  misses.
+- If a telemetry section is empty or has too little signal, don't force a
+  recommendation out of it.
 - confidence and impact_score must be 0.0-1.0
 - Do not invent metrics — only use numbers from the provided data`,
       }],
@@ -287,7 +340,29 @@ Critical rules:
     } = {}
 
     if (rawText) {
-      try { result = JSON.parse(rawText) } catch { /* continue with partial */ }
+      try {
+        result = JSON.parse(rawText)
+      } catch (parseErr) {
+        await supabase.from('admin_audit_log').insert({
+          action: 'investigate_parse_failed',
+          resource_type: 'investigation',
+          resource_name: investigationId ?? 'unknown',
+          details: {
+            stopReason: aiMessage.stop_reason,
+            rawTextLength: rawText.length,
+            rawTextHead: rawText.slice(0, 500),
+            rawTextTail: rawText.slice(-500),
+            error: String(parseErr),
+          },
+        }).then(() => {}, () => {})
+      }
+    } else {
+      await supabase.from('admin_audit_log').insert({
+        action: 'investigate_empty_response',
+        resource_type: 'investigation',
+        resource_name: investigationId ?? 'unknown',
+        details: { stopReason: aiMessage.stop_reason },
+      }).then(() => {}, () => {})
     }
 
     const invData = result.investigation ?? {}
