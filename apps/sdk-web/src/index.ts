@@ -35,9 +35,45 @@ let _sdkToken = ''
 let _projectKey = ''
 let _platform = 'react'
 let _sessionId: string | null = null
+let _sessionStartedAt = 0
+let _sessionEnded = false
+let _hadFatalError = false
 let _queue: EventPayload[] = []
 let _config: PaaqConfig = { batchSize: 50, syncIntervalSeconds: 30 }
 let _flushTimer: ReturnType<typeof setInterval> | null = null
+
+type DeviceMetadata = {
+  userAgent: string | null
+  screenWidth: number | null
+  screenHeight: number | null
+  viewportWidth: number | null
+  viewportHeight: number | null
+  timezone: string | null
+  locale: string | null
+  connectionType: string | null
+  referrer: string | null
+  entryUrl: string | null
+}
+
+function collectDeviceMetadata(): DeviceMetadata {
+  const nav = typeof navigator !== 'undefined' ? navigator : null
+  const scr = typeof screen !== 'undefined' ? screen : null
+  return {
+    userAgent: nav?.userAgent ?? null,
+    screenWidth: scr?.width ?? null,
+    screenHeight: scr?.height ?? null,
+    viewportWidth: typeof window !== 'undefined' ? window.innerWidth : null,
+    viewportHeight: typeof window !== 'undefined' ? window.innerHeight : null,
+    timezone: (() => {
+      try { return Intl.DateTimeFormat().resolvedOptions().timeZone ?? null } catch { return null }
+    })(),
+    locale: nav?.language ?? null,
+    // deno-lint-ignore no-explicit-any
+    connectionType: (nav as any)?.connection?.effectiveType ?? null,
+    referrer: typeof document !== 'undefined' ? document.referrer || null : null,
+    entryUrl: typeof window !== 'undefined' ? window.location.href : null,
+  }
+}
 
 function buildHeaders() {
   return {
@@ -79,14 +115,19 @@ async function init(
     const res = await fetch(`${BASE_URL}/sdk-init`, {
       method: 'POST',
       headers: buildHeaders(),
-      body: JSON.stringify({ deviceId: getDeviceId() }),
+      body: JSON.stringify({ deviceId: getDeviceId(), deviceMetadata: collectDeviceMetadata() }),
     })
     const data: InitResult = await res.json()
     if (data.ok && data.sessionId) {
       _sessionId = data.sessionId
+      _sessionStartedAt = Date.now()
+      _sessionEnded = false
+      _hadFatalError = false
       if (data.config) _config = data.config
       scheduleFlush()
       installGlobalHandlers()
+      installAutoPageTracking()
+      installSessionEndHandlers()
     }
     return data
   } catch (err) {
@@ -160,6 +201,7 @@ function trackError(
 function installGlobalHandlers(): void {
   if (typeof window === 'undefined') return
   window.addEventListener('error', (event) => {
+    _hadFatalError = true
     void sendError({
       error_type: event.error?.name ?? 'UncaughtError',
       message: event.message || String(event.error),
@@ -181,9 +223,69 @@ function installGlobalHandlers(): void {
   })
 }
 
+// History API has no native "navigated" event — pushState/replaceState are
+// monkey-patched so page() fires automatically on every client-side route
+// change, matching how Sentry/analytics SDKs instrument SPA routers without
+// depending on any specific router library.
+function installAutoPageTracking(): void {
+  if (typeof window === 'undefined') return
+  const emit = () => page()
+  const originalPush = history.pushState
+  history.pushState = function (...args: Parameters<History['pushState']>) {
+    originalPush.apply(this, args)
+    emit()
+  }
+  const originalReplace = history.replaceState
+  history.replaceState = function (...args: Parameters<History['replaceState']>) {
+    originalReplace.apply(this, args)
+    emit()
+  }
+  window.addEventListener('popstate', emit)
+}
+
+// The web SDK can only positively detect a normal browser-level exit — it
+// cannot know whether the user "finished a task." 'completed' here means
+// "the session ended via a normal exit signal," downgraded to 'crashed' if
+// a fatal JS error was seen first. 'abandoned'/'timed_out'/'force_closed'
+// are left to session-sweep-cron, which can see whether the session ever
+// had real interactions. 'logged_out' requires the host app to call
+// endSession() explicitly — the SDK cannot infer a logout on its own.
+function installSessionEndHandlers(): void {
+  if (typeof window === 'undefined') return
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') endOnce(_hadFatalError ? 'crashed' : 'completed')
+  })
+  window.addEventListener('pagehide', () => endOnce(_hadFatalError ? 'crashed' : 'completed'))
+  // beforeunload is unreliable as a primary signal (especially mobile Safari) —
+  // used only as a last-chance flush, not the outcome decision.
+  window.addEventListener('beforeunload', () => { void flush() })
+}
+
+function endOnce(outcome: string): void {
+  void flush()
+  void endSession(outcome)
+}
+
+async function endSession(outcome: string): Promise<void> {
+  if (!_sessionId || !_sdkToken || _sessionEnded) return
+  _sessionEnded = true
+  const durationSeconds = _sessionStartedAt ? Math.round((Date.now() - _sessionStartedAt) / 1000) : undefined
+  const payload = JSON.stringify({ action: 'end', session_id: _sessionId, duration: durationSeconds, outcome })
+  const sent = typeof navigator !== 'undefined' && navigator.sendBeacon
+    ? navigator.sendBeacon(`${BASE_URL}/sessions`, new Blob([payload], { type: 'application/json' }))
+    : false
+  if (!sent) {
+    try {
+      await fetch(`${BASE_URL}/sessions`, { method: 'POST', headers: buildHeaders(), body: payload, keepalive: true })
+    } catch {
+      // fire-and-forget
+    }
+  }
+}
+
 function scheduleFlush() {
   if (_flushTimer) clearInterval(_flushTimer)
   _flushTimer = setInterval(() => void flush(), _config.syncIntervalSeconds * 1000)
 }
 
-export const paaq = { init, track, identify, page, flush, trackError }
+export const paaq = { init, track, identify, page, flush, trackError, endSession }

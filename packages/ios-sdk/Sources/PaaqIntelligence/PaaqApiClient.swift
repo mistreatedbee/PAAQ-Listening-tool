@@ -1,7 +1,56 @@
 import Foundation
+#if canImport(UIKit)
+import UIKit
+#endif
 
 private let baseURL = "https://mookyonwpovxscsbqwwl.supabase.co/functions/v1"
 private let sdkVersion = "1.0.0"
+
+/// Real device metadata reported once at init — first-party OS APIs only,
+/// nothing inferred or backfilled server-side (unlike the web SDK, which has
+/// only a raw User-Agent string to work with).
+struct PaaqDeviceMetadata: Encodable {
+    let osName: String
+    let osVersion: String
+    let deviceModel: String
+    let deviceType: String
+    let screenWidth: Int?
+    let screenHeight: Int?
+
+    static func collect() -> PaaqDeviceMetadata {
+#if canImport(UIKit)
+        let device = UIDevice.current
+        let bounds = UIScreen.main.bounds
+        let scale = UIScreen.main.scale
+        return PaaqDeviceMetadata(
+            osName: device.systemName,
+            osVersion: device.systemVersion,
+            deviceModel: device.model,
+            deviceType: device.userInterfaceIdiom == .pad ? "tablet" : "mobile",
+            screenWidth: Int(bounds.width * scale),
+            screenHeight: Int(bounds.height * scale)
+        )
+#else
+        return PaaqDeviceMetadata(
+            osName: "macOS", osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
+            deviceModel: "Mac", deviceType: "desktop", screenWidth: nil, screenHeight: nil
+        )
+#endif
+    }
+}
+
+private struct SdkInitBody: Encodable {
+    let deviceId: String
+    let appVersion: String?
+    let deviceMetadata: PaaqDeviceMetadata
+}
+
+private struct SessionEndBody: Encodable {
+    let action = "end"
+    let session_id: String
+    let duration: Int
+    let outcome: String
+}
 
 actor PaaqApiClient {
     private let config: PaaqConfig
@@ -31,7 +80,12 @@ actor PaaqApiClient {
         var req = URLRequest(url: URL(string: "\(baseURL)/sdk-init")!)
         req.httpMethod = "POST"
         headers.forEach { req.setValue($1, forHTTPHeaderField: $0) }
-        req.httpBody = try JSONEncoder().encode(["deviceId": deviceId])
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+        req.httpBody = try JSONEncoder().encode(SdkInitBody(
+            deviceId: deviceId,
+            appVersion: appVersion,
+            deviceMetadata: PaaqDeviceMetadata.collect()
+        ))
 
         let (data, _) = try await session.data(for: req)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
@@ -49,6 +103,18 @@ actor PaaqApiClient {
             req.httpMethod = "POST"
             headers.forEach { req.setValue($1, forHTTPHeaderField: $0) }
             req.httpBody = try JSONEncoder().encode(events)
+            _ = try await session.data(for: req)
+        } catch {
+            // fire-and-forget
+        }
+    }
+
+    func endSession(sessionId: String, duration: Int, outcome: String) async {
+        do {
+            var req = URLRequest(url: URL(string: "\(baseURL)/sessions")!)
+            req.httpMethod = "POST"
+            headers.forEach { req.setValue($1, forHTTPHeaderField: $0) }
+            req.httpBody = try JSONEncoder().encode(SessionEndBody(session_id: sessionId, duration: duration, outcome: outcome))
             _ = try await session.data(for: req)
         } catch {
             // fire-and-forget

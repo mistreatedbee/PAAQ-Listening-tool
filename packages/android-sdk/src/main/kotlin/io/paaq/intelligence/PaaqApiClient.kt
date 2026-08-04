@@ -40,8 +40,32 @@ internal class PaaqApiClient(private val config: PaaqConfig, private val deviceI
 
     data class InitResult(val sessionId: String?, val batchSize: Int?, val flushIntervalSeconds: Long?)
 
-    suspend fun sdkInit(): InitResult = withContext(Dispatchers.IO) {
-        val body = JSONObject().put("deviceId", deviceId).toString()
+    /**
+     * Real device metadata reported once at init — first-party Android APIs
+     * only (Build.*, DisplayMetrics), nothing inferred or backfilled
+     * server-side.
+     */
+    data class DeviceMetadata(
+        val osVersion: String,
+        val deviceModel: String,
+        val appVersion: String?,
+        val screenWidth: Int?,
+        val screenHeight: Int?,
+    )
+
+    suspend fun sdkInit(deviceMetadata: DeviceMetadata? = null): InitResult = withContext(Dispatchers.IO) {
+        val body = JSONObject().put("deviceId", deviceId).apply {
+            if (deviceMetadata != null) {
+                put("appVersion", deviceMetadata.appVersion)
+                put("deviceMetadata", JSONObject()
+                    .put("osName", "Android")
+                    .put("osVersion", deviceMetadata.osVersion)
+                    .put("deviceModel", deviceMetadata.deviceModel)
+                    .put("deviceType", "mobile")
+                    .put("screenWidth", deviceMetadata.screenWidth)
+                    .put("screenHeight", deviceMetadata.screenHeight))
+            }
+        }.toString()
         val response = post("sdk-init", body) ?: return@withContext InitResult(null, null, null)
         val json = JSONObject(response)
         val sessionId = if (json.has("sessionId")) json.getString("sessionId") else null
@@ -49,6 +73,16 @@ internal class PaaqApiClient(private val config: PaaqConfig, private val deviceI
         val batchSize = cfg?.optInt("batchSize")
         val flushSecs = cfg?.optLong("syncIntervalSeconds")
         InitResult(sessionId, batchSize, flushSecs)
+    }
+
+    suspend fun endSession(sessionId: String, durationSeconds: Long, outcome: String) = withContext(Dispatchers.IO) {
+        val body = JSONObject()
+            .put("action", "end")
+            .put("session_id", sessionId)
+            .put("duration", durationSeconds)
+            .put("outcome", outcome)
+            .toString()
+        post("sessions", body)
     }
 
     suspend fun flush(events: List<PaaqEvent>) = withContext(Dispatchers.IO) {

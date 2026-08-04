@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { PageHeader, Card, CardHead, ToneBadge } from '@/components/kit'
-import { Route, RefreshCw, CheckCircle2, XCircle } from 'lucide-react'
+import { Route, RefreshCw, CheckCircle2, XCircle, ExternalLink } from 'lucide-react'
+import Link from 'next/link'
 
 type Journey = {
   id: string
@@ -191,6 +192,14 @@ export default function UserJourneyPage() {
                 <CardHead
                   title={selected.journey_name ?? 'Journey'}
                   desc={selected.completed ? 'Completed successfully' : `Dropped off at: ${selected.drop_off_step ?? 'unknown'}`}
+                  action={
+                    <Link
+                      href={`/sessions/${selected.session_id}`}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-card/60 px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" /> View full session
+                    </Link>
+                  }
                 />
                 <div className="px-5 pb-5">
                   {/* Funnel visualization */}

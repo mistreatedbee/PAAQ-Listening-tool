@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { checkAndRecordDbHeartbeat } from '../_shared/db-heartbeat.ts'
+import { recordPageViews } from '../_shared/session-pages.ts'
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -80,14 +81,23 @@ Deno.serve(async (req) => {
     timestamp:      e.timestamp ?? new Date().toISOString(),
   }))
 
+  let insertedRows = rows
   let { error } = await supabase.from('events').insert(rows)
   if (error?.code === '23503') {
     // session_id/user_id don't resolve to real rows for this project yet — degrade
     // gracefully rather than dropping the whole batch.
-    const fallback = rows.map((r) => ({ ...r, session_id: null, user_id: null }))
-    ;({ error } = await supabase.from('events').insert(fallback))
+    insertedRows = rows.map((r) => ({ ...r, session_id: null, user_id: null }))
+    ;({ error } = await supabase.from('events').insert(insertedRows))
   }
   if (error) return respond({ error: error.message }, 500)
+
+  // Maintain the real page-by-page breakdown from $page_view/$screen events in
+  // this batch — best-effort, never blocks the SDK's response on failure.
+  try {
+    await recordPageViews(supabase, project.id, insertedRows)
+  } catch (e) {
+    console.error('events: recordPageViews failed', e)
+  }
 
   const now = new Date().toISOString()
   const platform = req.headers.get('x-platform') ?? 'react'

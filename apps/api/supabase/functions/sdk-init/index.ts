@@ -11,7 +11,18 @@
  *   X-Environment:  production | staging | development
  *
  * Optional JSON body:
- *   { "deviceId": "...", "appVersion": "...", "sessionId": "..." }
+ *   {
+ *     "deviceId": "...", "appVersion": "...", "sessionId": "...",
+ *     "deviceMetadata": {
+ *       // web: raw UA string, parsed server-side
+ *       "userAgent": "...", "screenWidth": 1920, "screenHeight": 1080,
+ *       "viewportWidth": 1440, "viewportHeight": 900, "timezone": "Africa/Johannesburg",
+ *       "locale": "en-ZA", "connectionType": "4g", "referrer": "...", "entryUrl": "...",
+ *       // mobile: structured fields reported directly by the OS, no UA to parse
+ *       "osName": "iOS", "osVersion": "17.4", "deviceModel": "iPhone 14 Pro", "deviceType": "mobile"
+ *     }
+ *   }
+ * All deviceMetadata fields are optional and additive — older SDK versions that don't send it keep working.
  *
  * Returns on success (200):
  *   {
@@ -27,6 +38,7 @@
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { parseUserAgent } from '../_shared/ua-parse.ts'
 
 const sb = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -108,7 +120,15 @@ async function _handle(req: Request): Promise<Response> {
   }
 
   // ── 5. Parse optional body ────────────────────────────────────
-  let body: { deviceId?: string; appVersion?: string; sessionId?: string } = {}
+  type DeviceMetadata = {
+    userAgent?: string
+    screenWidth?: number; screenHeight?: number
+    viewportWidth?: number; viewportHeight?: number
+    timezone?: string; locale?: string; connectionType?: string
+    referrer?: string; entryUrl?: string
+    osName?: string; osVersion?: string; deviceModel?: string; deviceType?: string
+  }
+  let body: { deviceId?: string; appVersion?: string; sessionId?: string; deviceMetadata?: DeviceMetadata } = {}
   try { body = await req.json() } catch { /* body is optional */ }
 
   // ── 6. Upsert sdk_installations ──────────────────────────────
@@ -157,13 +177,39 @@ async function _handle(req: Request): Promise<Response> {
   }
 
   // ── 8. Create a real session row so events can be linked via FK ──
+  // Device/browser/OS metadata is only ever written from what the SDK actually
+  // reports here — never inferred or backfilled. Mobile SDKs send structured
+  // fields directly (they have first-party OS APIs); web sends a raw UA string
+  // that gets parsed server-side since that's the only signal it has.
+  const dm = body.deviceMetadata ?? {}
+  const ua = dm.userAgent ? parseUserAgent(dm.userAgent) : null
+  const sessionMetadata = {
+    platform,
+    browser_name:    ua?.browserName ?? null,
+    browser_version: ua?.browserVersion ?? null,
+    os_name:          dm.osName ?? ua?.osName ?? null,
+    os_version:       dm.osVersion ?? ua?.osVersion ?? null,
+    device_type:      dm.deviceType ?? ua?.deviceType ?? null,
+    device_model:     dm.deviceModel ?? null,
+    screen_width:     dm.screenWidth ?? null,
+    screen_height:    dm.screenHeight ?? null,
+    viewport_width:   dm.viewportWidth ?? null,
+    viewport_height:  dm.viewportHeight ?? null,
+    timezone:         dm.timezone ?? null,
+    locale:           dm.locale ?? null,
+    connection_type:  dm.connectionType ?? null,
+    app_version:      body.appVersion ?? null,
+    entry_url:        dm.entryUrl ?? null,
+    referrer:         dm.referrer ?? null,
+  }
+
   // Falls back to an unlinked id if this tenant project has no legacy
   // `projects` mirror row yet (sessions.project_id still FKs to `projects`).
   let sessionId: string
   try {
     const { data: sessionRow, error: sessionErr } = await sb
       .from('sessions')
-      .insert({ project_id: project.id, status: 'active' })
+      .insert({ project_id: project.id, status: 'active', ...sessionMetadata })
       .select('id')
       .single()
     if (sessionErr || !sessionRow) throw sessionErr ?? new Error('session insert failed')

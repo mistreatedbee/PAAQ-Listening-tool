@@ -1,10 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { AppState, AppStateStatus, Platform } from 'react-native'
+import { AppState, AppStateStatus, Dimensions, Platform } from 'react-native'
 
 const BASE_URL = 'https://mookyonwpovxscsbqwwl.supabase.co/functions/v1'
 const SDK_VERSION = '1.0.0'
 const DEVICE_ID_KEY = '@paaq:device_id'
 const HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000
+// Grace period after backgrounding before a session is considered ended —
+// distinguishes a brief app-switch from the user actually being done.
+const BACKGROUND_GRACE_MS = 30_000
 
 type EventPayload = {
   event_name: string
@@ -32,6 +35,8 @@ let _projectKey = ''
 let _environment = 'production'
 let _deviceId = ''
 let _sessionId: string | null = null
+let _sessionStartedAt = 0
+let _sessionEnded = false
 let _queue: EventPayload[] = []
 let _batchSize = 50
 let _flushIntervalMs = 30_000
@@ -39,6 +44,7 @@ let _debug = false
 let _flushTimer: ReturnType<typeof setInterval> | null = null
 let _heartbeatTimer: ReturnType<typeof setInterval> | null = null
 let _appStateSubscription: { remove(): void } | null = null
+let _backgroundGraceTimer: ReturnType<typeof setTimeout> | null = null
 
 function uuidV4(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -75,6 +81,21 @@ function log(...args: unknown[]) {
   if (_debug) console.log('[PAAQ]', ...args)
 }
 
+// No new native dependency (react-native-device-info isn't a listed
+// dependency of this package) — Platform + Dimensions are built into RN and
+// cover OS name/version and screen size without requiring host apps to add
+// anything.
+function collectDeviceMetadata() {
+  const { width, height } = Dimensions.get('window')
+  return {
+    osName: Platform.OS === 'ios' ? 'iOS' : 'Android',
+    osVersion: String(Platform.Version),
+    deviceType: 'mobile',
+    screenWidth: Math.round(width),
+    screenHeight: Math.round(height),
+  }
+}
+
 export async function initialize(options: InitOptions): Promise<InitResult> {
   _sdkToken = options.sdkToken
   _projectKey = options.projectId
@@ -88,13 +109,15 @@ export async function initialize(options: InitOptions): Promise<InitResult> {
     const res = await fetch(`${BASE_URL}/sdk-init`, {
       method: 'POST',
       headers: buildHeaders(),
-      body: JSON.stringify({ deviceId: _deviceId }),
+      body: JSON.stringify({ deviceId: _deviceId, deviceMetadata: collectDeviceMetadata() }),
     })
     const data = (await res.json()) as InitResult & {
       config?: { batchSize: number; syncIntervalSeconds: number }
     }
     if (data.ok && data.sessionId) {
       _sessionId = data.sessionId
+      _sessionStartedAt = Date.now()
+      _sessionEnded = false
       if (data.config) {
         _batchSize = data.config.batchSize
         _flushIntervalMs = data.config.syncIntervalSeconds * 1000
@@ -169,24 +192,67 @@ function scheduleHeartbeat() {
   _heartbeatTimer = setInterval(() => void heartbeat(), HEARTBEAT_INTERVAL_MS)
 }
 
+// RN can't reliably intercept a hard app-kill (same limitation as native
+// iOS/Android) — that case is left to session-sweep-cron server-side, which
+// classifies a session that goes silent as 'timed_out'/'abandoned'. This SDK
+// only positively detects "backgrounded past a grace period", reported as
+// 'completed'.
 function watchAppState() {
   _appStateSubscription?.remove()
   _appStateSubscription = AppState.addEventListener('change', (state: AppStateStatus) => {
-    // Flush before going to background — iOS suspends the JS engine shortly after
     if (state === 'background' || state === 'inactive') {
+      // Flush before going to background — iOS suspends the JS engine shortly after
       void flush()
+      if (_backgroundGraceTimer) clearTimeout(_backgroundGraceTimer)
+      _backgroundGraceTimer = setTimeout(() => void endSession('completed'), BACKGROUND_GRACE_MS)
+    } else if (state === 'active') {
+      if (_backgroundGraceTimer) {
+        clearTimeout(_backgroundGraceTimer)
+        _backgroundGraceTimer = null
+      }
     }
   })
+}
+
+export async function endSession(outcome: string): Promise<void> {
+  if (!_sessionId || !_sdkToken || _sessionEnded) return
+  _sessionEnded = true
+  const durationSeconds = _sessionStartedAt ? Math.round((Date.now() - _sessionStartedAt) / 1000) : undefined
+  try {
+    await fetch(`${BASE_URL}/sessions`, {
+      method: 'POST',
+      headers: buildHeaders(),
+      body: JSON.stringify({ action: 'end', session_id: _sessionId, duration: durationSeconds, outcome }),
+    })
+  } catch {
+    // fire-and-forget
+  }
 }
 
 export async function dispose(): Promise<void> {
   if (_flushTimer) clearInterval(_flushTimer)
   if (_heartbeatTimer) clearInterval(_heartbeatTimer)
+  if (_backgroundGraceTimer) clearTimeout(_backgroundGraceTimer)
   _appStateSubscription?.remove()
   _flushTimer = null
   _heartbeatTimer = null
+  _backgroundGraceTimer = null
   _appStateSubscription = null
   await flush()
+  await endSession('completed')
 }
 
-export const PAAQ = { initialize, track, identify, screen, flush, dispose }
+// Opt-in automatic screen tracking for @react-navigation/native apps — call
+// from a NavigationContainer's onStateChange:
+//
+//   <NavigationContainer
+//     ref={navigationRef}
+//     onStateChange={() => trackNavigationScreen(navigationRef.current?.getCurrentRoute()?.name)}
+//   >
+//
+// Not silently auto-installed since there's no universal RN router to hook.
+export function trackNavigationScreen(routeName: string | undefined): void {
+  if (routeName) screen(routeName)
+}
+
+export const PAAQ = { initialize, track, identify, screen, flush, dispose, endSession, trackNavigationScreen }

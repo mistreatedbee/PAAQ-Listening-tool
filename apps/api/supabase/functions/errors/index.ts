@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { recordErrorsOnPages } from '../_shared/session-pages.ts'
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -76,6 +77,12 @@ Deno.serve(async (req) => {
 
   const { error } = await supabase.from('errors').insert(rows)
   if (error) return respond({ error: error.message }, 500)
+
+  try {
+    await recordErrorsOnPages(supabase, rows)
+  } catch (e) {
+    console.error('errors: recordErrorsOnPages failed', e)
+  }
 
   return respond({ ok: true, inserted: rows.length })
 })

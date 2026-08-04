@@ -1,4 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { closeSession, type SessionOutcome } from '../_shared/session-close.ts'
+
+const VALID_OUTCOMES: SessionOutcome[] = ['completed', 'abandoned', 'timed_out', 'logged_out', 'crashed', 'force_closed']
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -59,41 +62,43 @@ Deno.serve(async (req) => {
   const body = await req.json().catch(() => null)
   if (!body) return respond({ error: 'Invalid JSON' }, 400)
 
-  // action: 'start' | 'end'
-  const { action, session_id, user_id, device_id, ended_at, duration } = body as Record<string, string>
+  // action: 'start' (deprecated) | 'end'
+  const { action, session_id, ended_at, duration, outcome } = body as Record<string, string>
 
   if (action === 'start') {
-    const { data, error } = await supabase
-      .from('sessions')
-      .insert({
-        project_id: project.id,
-        user_id:    user_id ?? null,
-        device_id:  device_id ?? null,
-        status:     'active',
-      })
-      .select('id')
-      .single()
-
-    if (error) return respond({ error: error.message }, 500)
-    return respond({ ok: true, session_id: data.id })
+    // sdk-init already creates the session row on every call — this action
+    // predates that and, left live, causes double-session-row inserts. No SDK
+    // calls it anymore (confirmed by grep across all SDK sources).
+    return respond({ error: 'Deprecated — sessions are created automatically by sdk-init' }, 410)
   }
 
   if (action === 'end' && session_id) {
-    const { error } = await supabase
+    const { data: session } = await supabase
       .from('sessions')
-      .update({
-        status:    duration ? 'completed' : 'abandoned',
-        ended_at:  ended_at ?? new Date().toISOString(),
-        duration:  duration ? Number(duration) : null,
-      })
+      .select('started_at')
       .eq('id', session_id)
       .eq('project_id', project.id)
+      .maybeSingle()
 
-    if (error) return respond({ error: error.message }, 500)
+    if (!session) return respond({ error: 'Session not found' }, 404)
+
+    const resolvedOutcome: SessionOutcome = VALID_OUTCOMES.includes(outcome as SessionOutcome)
+      ? (outcome as SessionOutcome)
+      : (duration ? 'completed' : 'abandoned')
+
+    const result = await closeSession(supabase, {
+      sessionId: session_id,
+      projectId: project.id,
+      startedAt: session.started_at,
+      outcome: resolvedOutcome,
+      endedAt: ended_at ?? new Date().toISOString(),
+    })
+
+    if (!result.ok) return respond({ error: result.reason }, 500)
     return respond({ ok: true })
   }
 
-  return respond({ error: 'Invalid action. Use "start" or "end".' }, 400)
+  return respond({ error: 'Invalid action. Use "end".' }, 400)
 })
 
 function corsHeaders() {

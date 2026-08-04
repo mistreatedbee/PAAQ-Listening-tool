@@ -7,6 +7,12 @@ class ErrorTracker {
   String? _currentUserId;
   String? _currentSessionId;
 
+  /// Fired best-effort on a fatal (uncaught, platform-level) error, so the
+  /// session can be closed with outcome 'crashed' before the isolate might
+  /// be killed — app-lifecycle callbacks (e.g. AppLifecycleState.detached)
+  /// aren't guaranteed to fire on a hard crash.
+  void Function()? onFatalError;
+
   ErrorTracker(this._client);
 
   String? get currentScreen => _currentScreen;
@@ -30,6 +36,7 @@ class ErrorTracker {
         stack: stack.toString(),
         severity: 'fatal',
       );
+      onFatalError?.call();
       return false; // Let the platform handle it.
     };
   }

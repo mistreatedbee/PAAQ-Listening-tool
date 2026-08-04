@@ -60,7 +60,13 @@ public final class PAAQ {
 
     /// Dispose and flush — call before app termination
     public static func dispose() async {
-        await shared.teardown()
+        await shared.teardown(outcome: "completed")
+    }
+
+    /// End the current session because the host app knows the user logged
+    /// out — the SDK cannot infer this on its own.
+    public static func endSessionOnLogout() async {
+        await shared.teardown(outcome: "logged_out")
     }
 
     // MARK: - Private singleton
@@ -73,11 +79,15 @@ public final class PAAQ {
 private actor PaaqInstance {
     private var api: PaaqApiClient?
     private var sessionId: String?
+    private var sessionStartedAt: Date?
+    private var sessionEnded = false
+    private var explicitDispose = false
     private var queue: [PaaqEvent] = []
     private var batchSize = 50
     private var flushInterval: TimeInterval = 30
     private var flushTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
+    private var backgroundGraceTask: Task<Void, Never>?
     private var debug = false
 
     func start(config: PaaqConfig) async -> Bool {
@@ -89,6 +99,9 @@ private actor PaaqInstance {
         do {
             let result = try await client.sdkInit()
             sessionId = result.sessionId
+            sessionStartedAt = Date()
+            sessionEnded = false
+            explicitDispose = false
             if let bs = result.serverBatchSize { batchSize = bs }
             if let fi = result.serverFlushInterval { flushInterval = fi }
             log("Initialized — session: \(sessionId ?? "nil")")
@@ -122,10 +135,20 @@ private actor PaaqInstance {
         await api.flush(events: batch)
     }
 
-    func teardown() async {
+    func teardown(outcome: String) async {
+        explicitDispose = true
         flushTask?.cancel()
         heartbeatTask?.cancel()
+        backgroundGraceTask?.cancel()
         await flush()
+        await endSession(outcome: outcome)
+    }
+
+    private func endSession(outcome: String) async {
+        guard let api, let sessionId, !sessionEnded else { return }
+        sessionEnded = true
+        let duration = sessionStartedAt.map { Int(Date().timeIntervalSince($0)) } ?? 0
+        await api.endSession(sessionId: sessionId, duration: duration, outcome: outcome)
     }
 
     private func startFlushLoop() {
@@ -149,6 +172,10 @@ private actor PaaqInstance {
         }
     }
 
+    // Grace period after backgrounding before a session is considered ended —
+    // distinguishes a brief app-switch from the user actually being done.
+    private static let backgroundGracePeriod: UInt64 = 30_000_000_000 // 30s in nanoseconds
+
     private func registerLifecycleObservers() {
 #if canImport(UIKit)
         NotificationCenter.default.addObserver(
@@ -159,7 +186,52 @@ private actor PaaqInstance {
             // Flush before iOS suspends the app
             Task { [weak self] in await self?.flush() }
         }
+
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            Task { [weak self] in await self?.onBackgrounded() }
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            Task { [weak self] in await self?.onForegrounded() }
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.willTerminateNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            // Real app termination — if dispose() wasn't called explicitly
+            // first, this wasn't a deliberate teardown. Best-effort only:
+            // iOS gives very little time to run code here.
+            Task { [weak self] in await self?.onWillTerminate() }
+        }
 #endif
+    }
+
+    private func onBackgrounded() async {
+        backgroundGraceTask?.cancel()
+        backgroundGraceTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: PaaqInstance.backgroundGracePeriod)
+            guard !Task.isCancelled else { return }
+            await self?.endSession(outcome: "completed")
+        }
+    }
+
+    private func onForegrounded() async {
+        backgroundGraceTask?.cancel()
+    }
+
+    private func onWillTerminate() async {
+        guard !explicitDispose else { return }
+        await endSession(outcome: "force_closed")
     }
 
     private func log(_ message: String) {

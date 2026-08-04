@@ -29,12 +29,25 @@ class ApiClient {
   /// Real handshake with the backend — registers this install in
   /// sdk_installations and opens a session row, same contract every
   /// other PAAQ SDK (web, server) uses.
-  Future<InitResult> initHandshake(String deviceId) async {
+  Future<InitResult> initHandshake(
+    String deviceId, {
+    Map<String, String?>? deviceMetadata,
+  }) async {
     try {
       final res = await http.post(
         Uri.parse('${config.baseUrl}/sdk-init'),
         headers: _headers,
-        body: jsonEncode({'deviceId': deviceId}),
+        body: jsonEncode({
+          'deviceId': deviceId,
+          'appVersion': deviceMetadata?['app_version'],
+          if (deviceMetadata != null)
+            'deviceMetadata': {
+              'osName': deviceMetadata['os'],
+              'osVersion': deviceMetadata['os_version'],
+              'deviceModel': deviceMetadata['device_type'],
+              'deviceType': 'mobile',
+            },
+        }),
       );
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       if (res.statusCode == 200 && data['ok'] == true) {
@@ -67,11 +80,12 @@ class ApiClient {
   Future<bool> postError(Map<String, dynamic> error) =>
       _post('errors', [error]);
 
-  Future<bool> endSession(String sessionId, int durationSeconds) =>
+  Future<bool> endSession(String sessionId, int durationSeconds, String outcome) =>
       _post('sessions', {
         'action': 'end',
         'session_id': sessionId,
         'duration': durationSeconds,
+        'outcome': outcome,
       });
 
   Future<bool> _post(String endpoint, dynamic body) async {

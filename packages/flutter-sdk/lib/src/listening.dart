@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/widgets.dart';
 import 'config.dart';
 import 'api_client.dart';
 import 'event_queue.dart';
@@ -6,6 +7,10 @@ import 'error_tracker.dart';
 import 'device_info.dart';
 import 'models/event.dart';
 import 'models/session.dart';
+
+/// Grace period after backgrounding before a session is considered ended —
+/// distinguishes a brief app-switch from the user actually being done.
+const _backgroundGracePeriod = Duration(seconds: 30);
 
 /// Entry point for the PAAQ Intelligence SDK.
 ///
@@ -16,7 +21,7 @@ import 'models/session.dart';
 ///   projectId: 'proj_xxxxxxxx',
 /// );
 /// ```
-class PAAQ {
+class PAAQ with WidgetsBindingObserver {
   static PAAQ? _instance;
 
   final PaaqConfig _config;
@@ -28,6 +33,8 @@ class PAAQ {
   String _deviceId = '';
   PAQSession? _session;
   Timer? _heartbeatTimer;
+  Timer? _backgroundGraceTimer;
+  bool _explicitDispose = false;
 
   PAAQ._(this._config)
       : _api = ApiClient(_config),
@@ -49,11 +56,31 @@ class PAAQ {
     );
 
     _instance = PAAQ._(config);
+    _instance!._errors.onFatalError = () => _instance!._endSession(outcome: 'crashed');
     _instance!._errors.install();
     _instance!._queue.start();
+    WidgetsBinding.instance.addObserver(_instance!);
 
     await _instance!._startSession();
     _instance!._scheduleHeartbeat();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      _backgroundGraceTimer?.cancel();
+      _backgroundGraceTimer = Timer(_backgroundGracePeriod, () {
+        _endSession(outcome: 'completed');
+      });
+    } else if (state == AppLifecycleState.resumed) {
+      _backgroundGraceTimer?.cancel();
+    } else if (state == AppLifecycleState.detached) {
+      // Real app termination — if dispose() wasn't called explicitly first,
+      // this wasn't a deliberate teardown.
+      if (!_explicitDispose) {
+        _endSession(outcome: 'force_closed');
+      }
+    }
   }
 
   static PAAQ get _i {
@@ -106,12 +133,21 @@ class PAAQ {
   /// Flush the event queue immediately (e.g. before app close).
   static Future<void> flush() => _i._queue.flush();
 
-  /// Dispose the SDK (call in app lifecycle onDetach).
+  /// Dispose the SDK (call explicitly when the app is deliberately tearing
+  /// down PAAQ, e.g. sign-out). A deliberate call here means a later
+  /// AppLifecycleState.detached is not treated as a force-close.
   static Future<void> dispose() async {
+    _i._explicitDispose = true;
+    _i._backgroundGraceTimer?.cancel();
     _i._heartbeatTimer?.cancel();
-    await _i._endSession();
+    WidgetsBinding.instance.removeObserver(_i);
+    await _i._endSession(outcome: 'completed');
     _i._queue.dispose();
   }
+
+  /// End the current session because the host app knows the user logged out
+  /// — the SDK cannot infer this on its own.
+  static Future<void> endSessionOnLogout() => _i._endSession(outcome: 'logged_out');
 
   // ── Internal ──────────────────────────────────────────────
 
@@ -119,19 +155,20 @@ class PAAQ {
 
   Future<void> _startSession() async {
     _deviceId = await DeviceInfoCollector.deviceId();
-    final result = await _api.initHandshake(_deviceId);
+    final deviceMetadata = await DeviceInfoCollector.collect();
+    final result = await _api.initHandshake(_deviceId, deviceMetadata: deviceMetadata);
     if (result.ok && result.sessionId != null) {
       _session = PAQSession(id: result.sessionId!);
       _errors.setSession(result.sessionId);
     }
   }
 
-  Future<void> _endSession() async {
+  Future<void> _endSession({required String outcome}) async {
     final s = _session;
     if (s == null) return;
     s.end();
-    await _api.endSession(s.id, s.durationSeconds);
-    _session = null;
+    _session = null; // clear first — guards against a race with a second lifecycle callback
+    await _api.endSession(s.id, s.durationSeconds, outcome);
   }
 
   void _scheduleHeartbeat() {
