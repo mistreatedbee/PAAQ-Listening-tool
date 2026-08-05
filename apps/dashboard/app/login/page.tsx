@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import { createClient } from '@/utils/supabase/client'
 import { Sparkles, ArrowRight, Loader2, Eye, EyeOff, Check, X } from 'lucide-react'
@@ -94,8 +94,10 @@ function AuthInput({ type = 'text', value, onChange, placeholder, autoComplete, 
 
 type Mode = 'signin' | 'signup'
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const returnTo = searchParams.get('returnTo') ?? '/dashboard'
   const [mode, setMode] = useState<Mode>('signin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -116,7 +118,7 @@ export default function LoginPage() {
     if (mode === 'signin') {
       const { error: err } = await sb.auth.signInWithPassword({ email, password })
       if (err) { setError(err.message); setLoading(false); return }
-      router.push('/dashboard')
+      router.push(returnTo)
       router.refresh()
     } else {
       if (password.length < 8) { setError('Password must be at least 8 characters.'); setLoading(false); return }
@@ -136,7 +138,7 @@ export default function LoginPage() {
     const sb = createClient()
     const { error: err } = await sb.auth.signInWithOAuth({
       provider,
-      options: { redirectTo: `${window.location.origin}/dashboard` },
+      options: { redirectTo: `${window.location.origin}${returnTo}` },
     })
     if (err) { setError(err.message); setOauthLoading(null) }
   }
@@ -320,5 +322,13 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
   )
 }
