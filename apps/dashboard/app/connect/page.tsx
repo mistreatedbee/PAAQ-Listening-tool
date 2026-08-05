@@ -242,10 +242,8 @@ function getDeviceMeta() {
   const nav = navigator as any
   return {
     userAgent:      navigator.userAgent,
-    screenWidth:    screen.width,
-    screenHeight:   screen.height,
-    viewportWidth:  window.innerWidth,
-    viewportHeight: window.innerHeight,
+    screenWidth:    screen.width,         screenHeight:   screen.height,
+    viewportWidth:  window.innerWidth,    viewportHeight: window.innerHeight,
     timezone:       Intl.DateTimeFormat().resolvedOptions().timeZone,
     locale:         navigator.language,
     connectionType: nav?.connection?.effectiveType ?? null,
@@ -263,37 +261,82 @@ export const paaq = {
   sdkToken:   '${tok}',
   projectKey: '${key}',
   base:       '${PAAQ_BASE}',
-  sessionId:  typeof crypto !== 'undefined' ? crypto.randomUUID() : '',
+  sessionId:  null as string | null,
+
+  _headers(): Record<string, string> {
+    return { 'Content-Type': 'application/json', 'Authorization': \`Bearer \${this.sdkToken}\`, 'X-Project-ID': this.projectKey }
+  },
 
   async init() {
+    if (typeof window === 'undefined') return
     const res = await fetch(\`\${this.base}/sdk-init\`, {
       method: 'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': \`Bearer \${this.sdkToken}\`,
-        'X-Project-ID':  this.projectKey,
-        'X-SDK-Version': '1.0.0',
-        'X-Platform':    'nextjs',
-        'X-Environment': process.env.NODE_ENV ?? 'production',
-      },
-      body: JSON.stringify({ sessionId: this.sessionId, deviceMetadata: getDeviceMeta() }),
+      headers: { ...this._headers(), 'X-SDK-Version': '1.0.0', 'X-Platform': 'nextjs', 'X-Environment': process.env.NODE_ENV ?? 'production' },
+      body: JSON.stringify({ deviceMetadata: getDeviceMeta() }),
     }).catch(() => null)
     const data = await res?.json().catch(() => null)
-    if (data?.ok) { this.sessionId = data.sessionId; console.log('[PAAQ] Connected') }
+    if (data?.ok) {
+      this.sessionId = data.sessionId
+      this._install()
+      console.log('[PAAQ] Connected', this.sessionId)
+    }
   },
 
   async track(event: string, props: Record<string, unknown> = {}) {
+    if (!this.sessionId || typeof window === 'undefined') return
     await fetch(\`\${this.base}/events\`, {
-      method: 'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': \`Bearer \${this.sdkToken}\`,
-        'X-Project-ID':  this.projectKey,
-      },
+      method: 'POST', headers: this._headers(),
       body: JSON.stringify([{ event_name: event, session_id: this.sessionId,
-        screen_name: typeof window !== 'undefined' ? window.location.pathname : '/',
-        properties: props, timestamp: new Date().toISOString() }]),
+        screen_name: window.location.pathname, properties: props, timestamp: new Date().toISOString() }]),
     }).catch(() => null)
+  },
+
+  trackError(err: unknown) {
+    if (!this.sessionId) return
+    const e = err instanceof Error ? err : { name: 'Error', message: String(err), stack: undefined }
+    void fetch(\`\${this.base}/errors\`, {
+      method: 'POST', headers: this._headers(),
+      body: JSON.stringify({ error_type: (e as Error).name || 'Error', message: (e as Error).message,
+        stack_trace: (e as Error).stack || null, screen: window.location.pathname, severity: 'error', session_id: this.sessionId }),
+    }).catch(() => null)
+  },
+
+  _install() {
+    if (typeof window === 'undefined') return
+    const trackPage = () => this.track('page_view', { path: window.location.pathname, title: document.title })
+    const _push = history.pushState.bind(history); history.pushState = (...a: Parameters<History['pushState']>) => { _push(...a); trackPage() }
+    const _rep  = history.replaceState.bind(history); history.replaceState = (...a: Parameters<History['replaceState']>) => { _rep(...a); trackPage() }
+    window.addEventListener('popstate', trackPage)
+    trackPage()
+
+    window.addEventListener('error', (e) => this.trackError(e.error ?? new Error(e.message)))
+    window.addEventListener('unhandledrejection', (e) => this.trackError(e.reason instanceof Error ? e.reason : new Error(String(e.reason))))
+
+    const _t = new WeakMap<Element, number>()
+    document.addEventListener('focusin', (e) => {
+      const el = e.target as Element
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) _t.set(el, Date.now())
+    })
+    document.addEventListener('focusout', (e) => {
+      const el = e.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+      if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) return
+      const start = _t.get(el); if (!start) return; _t.delete(el)
+      void this.track('$form_field', { page: window.location.pathname,
+        formName: el.closest('form')?.getAttribute('name') || el.closest('form')?.id || null,
+        fieldName: el.name || el.id || el.type || 'unknown',
+        timeSpentMs: Date.now() - start,
+        hadError: el.getAttribute('aria-invalid') === 'true' || el.classList.contains('error'),
+        completed: el.value?.trim().length > 0 })
+    })
+
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') this._end() })
+    window.addEventListener('pagehide', () => this._end())
+  },
+
+  _end() {
+    if (!this.sessionId) return
+    void fetch(\`\${this.base}/sessions\`, { method: 'POST', headers: this._headers(),
+      body: JSON.stringify({ action: 'end', session_id: this.sessionId, outcome: 'completed' }), keepalive: true }).catch(() => null)
   },
 }
 
@@ -310,10 +353,8 @@ export const paaq = {
 function getDeviceMeta() {
   return {
     userAgent:      navigator.userAgent,
-    screenWidth:    screen.width,
-    screenHeight:   screen.height,
-    viewportWidth:  window.innerWidth,
-    viewportHeight: window.innerHeight,
+    screenWidth:    screen.width,         screenHeight:   screen.height,
+    viewportWidth:  window.innerWidth,    viewportHeight: window.innerHeight,
     timezone:       Intl.DateTimeFormat().resolvedOptions().timeZone,
     locale:         navigator.language,
     connectionType: navigator.connection?.effectiveType ?? null,
@@ -331,37 +372,85 @@ export const paaq = {
   sdkToken:   '${tok}',
   projectKey: '${key}',
   base:       '${PAAQ_BASE}',
-  sessionId:  crypto.randomUUID(),
+  sessionId:  null,
+
+  _headers() {
+    return { 'Content-Type': 'application/json', 'Authorization': \`Bearer \${this.sdkToken}\`, 'X-Project-ID': this.projectKey }
+  },
 
   async init() {
     const res = await fetch(\`\${this.base}/sdk-init\`, {
       method: 'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': \`Bearer \${this.sdkToken}\`,
-        'X-Project-ID':  this.projectKey,
-        'X-SDK-Version': '1.0.0',
-        'X-Platform':    'react',
-        'X-Environment': import.meta.env?.MODE ?? 'production',
-      },
-      body: JSON.stringify({ sessionId: this.sessionId, deviceMetadata: getDeviceMeta() }),
+      headers: { ...this._headers(), 'X-SDK-Version': '1.0.0', 'X-Platform': 'react', 'X-Environment': import.meta.env?.MODE ?? 'production' },
+      body: JSON.stringify({ deviceMetadata: getDeviceMeta() }),
     }).catch(() => null)
     const data = await res?.json().catch(() => null)
-    if (data?.ok) console.log('[PAAQ] Connected')
+    if (data?.ok) {
+      this.sessionId = data.sessionId  // always use the server-assigned ID
+      this._install()
+      console.log('[PAAQ] Connected', this.sessionId)
+    }
   },
 
   async track(event, props = {}) {
+    if (!this.sessionId) return
     await fetch(\`\${this.base}/events\`, {
-      method: 'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': \`Bearer \${this.sdkToken}\`,
-        'X-Project-ID':  this.projectKey,
-      },
+      method: 'POST', headers: this._headers(),
       body: JSON.stringify([{ event_name: event, session_id: this.sessionId,
-        screen_name: window.location.pathname, properties: props,
-        timestamp: new Date().toISOString() }]),
+        screen_name: window.location.pathname, properties: props, timestamp: new Date().toISOString() }]),
     }).catch(() => null)
+  },
+
+  trackError(err) {
+    if (!this.sessionId) return
+    fetch(\`\${this.base}/errors\`, {
+      method: 'POST', headers: this._headers(),
+      body: JSON.stringify({ error_type: err?.name || 'Error', message: err?.message || String(err),
+        stack_trace: err?.stack || null, screen: window.location.pathname, severity: 'error', session_id: this.sessionId }),
+    }).catch(() => null)
+  },
+
+  _install() {
+    // Page tracking — fires on every SPA route change
+    const trackPage = () => this.track('page_view', { path: window.location.pathname, title: document.title })
+    const _push = history.pushState.bind(history); history.pushState = (...a) => { _push(...a); trackPage() }
+    const _rep  = history.replaceState.bind(history); history.replaceState = (...a) => { _rep(...a); trackPage() }
+    window.addEventListener('popstate', trackPage)
+    trackPage()
+
+    // Global error capture
+    window.addEventListener('error', (e) => this.trackError(e.error ?? { name: 'Error', message: e.message }))
+    window.addEventListener('unhandledrejection', (e) => this.trackError(e.reason instanceof Error ? e.reason : { name: 'UnhandledRejection', message: String(e.reason) }))
+
+    // Form field tracking
+    const _t = new WeakMap()
+    document.addEventListener('focusin', (e) => {
+      const el = e.target
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) _t.set(el, Date.now())
+    })
+    document.addEventListener('focusout', (e) => {
+      const el = e.target
+      if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) return
+      const start = _t.get(el); if (!start) return; _t.delete(el)
+      this.track('$form_field', { page: window.location.pathname,
+        formName: el.closest('form')?.name || el.closest('form')?.id || null,
+        fieldName: el.name || el.id || el.type || 'unknown',
+        timeSpentMs: Date.now() - start,
+        hadError: el.getAttribute('aria-invalid') === 'true' || el.classList.contains('error'),
+        completed: (el.value?.trim().length ?? 0) > 0 })
+    })
+
+    // Session end
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') this._end()
+    })
+    window.addEventListener('pagehide', () => this._end())
+  },
+
+  _end() {
+    if (!this.sessionId) return
+    const payload = JSON.stringify({ action: 'end', session_id: this.sessionId, outcome: 'completed' })
+    fetch(\`\${this.base}/sessions\`, { method: 'POST', headers: this._headers(), body: payload, keepalive: true }).catch(() => null)
   },
 }
 
@@ -371,10 +460,8 @@ export const paaq = {
 function getDeviceMeta() {
   return {
     userAgent:      navigator.userAgent,
-    screenWidth:    screen.width,
-    screenHeight:   screen.height,
-    viewportWidth:  window.innerWidth,
-    viewportHeight: window.innerHeight,
+    screenWidth:    screen.width,         screenHeight:   screen.height,
+    viewportWidth:  window.innerWidth,    viewportHeight: window.innerHeight,
     timezone:       Intl.DateTimeFormat().resolvedOptions().timeZone,
     locale:         navigator.language,
     connectionType: navigator.connection?.effectiveType ?? null,
@@ -392,37 +479,81 @@ export const paaq = {
   sdkToken:   '${tok}',
   projectKey: '${key}',
   base:       '${PAAQ_BASE}',
-  sessionId:  crypto.randomUUID(),
+  sessionId:  null,
+
+  _headers() {
+    return { 'Content-Type': 'application/json', 'Authorization': \`Bearer \${this.sdkToken}\`, 'X-Project-ID': this.projectKey }
+  },
 
   async init() {
     const res = await fetch(\`\${this.base}/sdk-init\`, {
       method: 'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': \`Bearer \${this.sdkToken}\`,
-        'X-Project-ID':  this.projectKey,
-        'X-SDK-Version': '1.0.0',
-        'X-Platform':    'vue',
-        'X-Environment': import.meta.env?.MODE ?? 'production',
-      },
-      body: JSON.stringify({ sessionId: this.sessionId, deviceMetadata: getDeviceMeta() }),
+      headers: { ...this._headers(), 'X-SDK-Version': '1.0.0', 'X-Platform': 'vue', 'X-Environment': import.meta.env?.MODE ?? 'production' },
+      body: JSON.stringify({ deviceMetadata: getDeviceMeta() }),
     }).catch(() => null)
     const data = await res?.json().catch(() => null)
-    if (data?.ok) console.log('[PAAQ] Connected')
+    if (data?.ok) {
+      this.sessionId = data.sessionId
+      this._install()
+      console.log('[PAAQ] Connected', this.sessionId)
+    }
   },
 
   async track(event, props = {}) {
+    if (!this.sessionId) return
     await fetch(\`\${this.base}/events\`, {
-      method: 'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': \`Bearer \${this.sdkToken}\`,
-        'X-Project-ID':  this.projectKey,
-      },
+      method: 'POST', headers: this._headers(),
       body: JSON.stringify([{ event_name: event, session_id: this.sessionId,
-        screen_name: window.location.pathname, properties: props,
-        timestamp: new Date().toISOString() }]),
+        screen_name: window.location.pathname, properties: props, timestamp: new Date().toISOString() }]),
     }).catch(() => null)
+  },
+
+  trackError(err) {
+    if (!this.sessionId) return
+    fetch(\`\${this.base}/errors\`, {
+      method: 'POST', headers: this._headers(),
+      body: JSON.stringify({ error_type: err?.name || 'Error', message: err?.message || String(err),
+        stack_trace: err?.stack || null, screen: window.location.pathname, severity: 'error', session_id: this.sessionId }),
+    }).catch(() => null)
+  },
+
+  _install() {
+    const trackPage = () => this.track('page_view', { path: window.location.pathname, title: document.title })
+    const _push = history.pushState.bind(history); history.pushState = (...a) => { _push(...a); trackPage() }
+    const _rep  = history.replaceState.bind(history); history.replaceState = (...a) => { _rep(...a); trackPage() }
+    window.addEventListener('popstate', trackPage)
+    trackPage()
+
+    window.addEventListener('error', (e) => this.trackError(e.error ?? { name: 'Error', message: e.message }))
+    window.addEventListener('unhandledrejection', (e) => this.trackError(e.reason instanceof Error ? e.reason : { name: 'UnhandledRejection', message: String(e.reason) }))
+
+    const _t = new WeakMap()
+    document.addEventListener('focusin', (e) => {
+      const el = e.target
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) _t.set(el, Date.now())
+    })
+    document.addEventListener('focusout', (e) => {
+      const el = e.target
+      if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) return
+      const start = _t.get(el); if (!start) return; _t.delete(el)
+      this.track('$form_field', { page: window.location.pathname,
+        formName: el.closest('form')?.name || el.closest('form')?.id || null,
+        fieldName: el.name || el.id || el.type || 'unknown',
+        timeSpentMs: Date.now() - start,
+        hadError: el.getAttribute('aria-invalid') === 'true' || el.classList.contains('error'),
+        completed: (el.value?.trim().length ?? 0) > 0 })
+    })
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') this._end()
+    })
+    window.addEventListener('pagehide', () => this._end())
+  },
+
+  _end() {
+    if (!this.sessionId) return
+    fetch(\`\${this.base}/sessions\`, { method: 'POST', headers: this._headers(),
+      body: JSON.stringify({ action: 'end', session_id: this.sessionId, outcome: 'completed' }), keepalive: true }).catch(() => null)
   },
 }
 
@@ -433,10 +564,8 @@ export const paaq = {
 function getDeviceMeta() {
   return {
     userAgent:      navigator.userAgent,
-    screenWidth:    screen.width,
-    screenHeight:   screen.height,
-    viewportWidth:  window.innerWidth,
-    viewportHeight: window.innerHeight,
+    screenWidth:    screen.width,         screenHeight:   screen.height,
+    viewportWidth:  window.innerWidth,    viewportHeight: window.innerHeight,
     timezone:       Intl.DateTimeFormat().resolvedOptions().timeZone,
     locale:         navigator.language,
     connectionType: navigator.connection?.effectiveType ?? null,
@@ -454,37 +583,77 @@ const paaq = {
   sdkToken:   '${tok}',
   projectKey: '${key}',
   base:       '${PAAQ_BASE}',
-  sessionId:  crypto.randomUUID(),
+  sessionId:  null,
+
+  _h() {
+    return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.sdkToken, 'X-Project-ID': this.projectKey }
+  },
 
   async init() {
     const res = await fetch(this.base + '/sdk-init', {
       method: 'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': 'Bearer ' + this.sdkToken,
-        'X-Project-ID':  this.projectKey,
-        'X-SDK-Version': '1.0.0',
-        'X-Platform':    'vanilla',
-        'X-Environment': 'production',
-      },
-      body: JSON.stringify({ sessionId: this.sessionId, deviceMetadata: getDeviceMeta() }),
+      headers: Object.assign(this._h(), { 'X-SDK-Version': '1.0.0', 'X-Platform': 'vanilla', 'X-Environment': 'production' }),
+      body: JSON.stringify({ deviceMetadata: getDeviceMeta() }),
     }).catch(() => null)
     const data = await res?.json().catch(() => null)
-    if (data?.ok) console.log('[PAAQ] Connected')
+    if (data?.ok) { this.sessionId = data.sessionId; this._install(); console.log('[PAAQ] Connected', this.sessionId) }
   },
 
   async track(event, props) {
+    if (!this.sessionId) return
     await fetch(this.base + '/events', {
-      method: 'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': 'Bearer ' + this.sdkToken,
-        'X-Project-ID':  this.projectKey,
-      },
+      method: 'POST', headers: this._h(),
       body: JSON.stringify([{ event_name: event, session_id: this.sessionId,
-        screen_name: location.pathname, properties: props ?? {},
-        timestamp: new Date().toISOString() }]),
+        screen_name: location.pathname, properties: props ?? {}, timestamp: new Date().toISOString() }]),
     }).catch(() => null)
+  },
+
+  trackError(err) {
+    if (!this.sessionId) return
+    fetch(this.base + '/errors', {
+      method: 'POST', headers: this._h(),
+      body: JSON.stringify({ error_type: err?.name || 'Error', message: err?.message || String(err),
+        stack_trace: err?.stack || null, screen: location.pathname, severity: 'error', session_id: this.sessionId }),
+    }).catch(() => null)
+  },
+
+  _install() {
+    const trackPage = () => this.track('page_view', { path: location.pathname, title: document.title })
+    const _push = history.pushState.bind(history); history.pushState = (...a) => { _push(...a); trackPage() }
+    const _rep  = history.replaceState.bind(history); history.replaceState = (...a) => { _rep(...a); trackPage() }
+    window.addEventListener('popstate', trackPage)
+    trackPage()
+
+    window.addEventListener('error', (e) => this.trackError(e.error ?? { name: 'Error', message: e.message }))
+    window.addEventListener('unhandledrejection', (e) => this.trackError(e.reason instanceof Error ? e.reason : { name: 'UnhandledRejection', message: String(e.reason) }))
+
+    const _t = new WeakMap()
+    document.addEventListener('focusin', (e) => {
+      const el = e.target
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) _t.set(el, Date.now())
+    })
+    document.addEventListener('focusout', (e) => {
+      const el = e.target
+      if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) return
+      const start = _t.get(el); if (!start) return; _t.delete(el)
+      this.track('$form_field', { page: location.pathname,
+        formName: el.closest('form')?.name || el.closest('form')?.id || null,
+        fieldName: el.name || el.id || el.type || 'unknown',
+        timeSpentMs: Date.now() - start,
+        hadError: el.getAttribute('aria-invalid') === 'true' || el.classList.contains('error'),
+        completed: (el.value?.trim().length ?? 0) > 0 })
+    })
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') this._end()
+    })
+    window.addEventListener('pagehide', () => this._end())
+  },
+
+  _end() {
+    if (!this.sessionId) return
+    fetch(this.base + '/sessions', { method: 'POST', headers: this._h(),
+      body: JSON.stringify({ action: 'end', session_id: this.sessionId, outcome: 'completed' }), keepalive: true }).catch(() => null)
   },
 }
 

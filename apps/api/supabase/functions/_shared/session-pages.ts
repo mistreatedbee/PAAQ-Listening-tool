@@ -1,7 +1,9 @@
 // deno-lint-ignore no-explicit-any
 type SupabaseClient = any
 
-const PAGE_VIEW_EVENTS = new Set(['$page_view', '$screen'])
+// Accept both $ and non-$ prefixed variants — different SDK versions and
+// integrations use both forms interchangeably.
+const PAGE_VIEW_EVENTS = new Set(['$page_view', '$screen', 'page_view', 'screen_view', 'screen'])
 
 type IncomingEventRow = {
   session_id: string | null
