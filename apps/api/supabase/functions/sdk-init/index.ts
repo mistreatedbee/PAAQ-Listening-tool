@@ -188,6 +188,10 @@ async function _handle(req: Request): Promise<Response> {
   // Accept-Language header gives us locale as a fallback (e.g. "en-ZA,en;q=0.9")
   const acceptLang = req.headers.get('accept-language') ?? ''
   const localeFallback = acceptLang ? acceptLang.split(',')[0].trim() : null
+  // Referer header contains the full URL of the page that made the fetch() call —
+  // this is the entry URL. Browsers send it automatically for cross-origin requests
+  // (subject to Referrer-Policy; may be origin-only on strict policies).
+  const refererHeader = req.headers.get('referer') ?? req.headers.get('origin') ?? null
   const sessionMetadata = {
     platform,
     browser_name:    ua?.browserName ?? null,
@@ -204,7 +208,7 @@ async function _handle(req: Request): Promise<Response> {
     locale:           dm.locale ?? localeFallback,
     connection_type:  dm.connectionType ?? null,
     app_version:      body.appVersion ?? null,
-    entry_url:        dm.entryUrl ?? null,
+    entry_url:        dm.entryUrl ?? refererHeader,
     referrer:         dm.referrer ?? null,
     pixel_ratio:      dm.pixelRatio ?? null,
     orientation:      dm.orientation ?? null,
