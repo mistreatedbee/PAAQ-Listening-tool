@@ -127,6 +127,8 @@ async function _handle(req: Request): Promise<Response> {
     timezone?: string; locale?: string; connectionType?: string
     referrer?: string; entryUrl?: string
     osName?: string; osVersion?: string; deviceModel?: string; deviceType?: string
+    pixelRatio?: number; orientation?: string; touchSupport?: boolean
+    cpuCores?: number; memoryGb?: number
   }
   let body: { deviceId?: string; appVersion?: string; sessionId?: string; deviceMetadata?: DeviceMetadata } = {}
   try { body = await req.json() } catch { /* body is optional */ }
@@ -201,6 +203,11 @@ async function _handle(req: Request): Promise<Response> {
     app_version:      body.appVersion ?? null,
     entry_url:        dm.entryUrl ?? null,
     referrer:         dm.referrer ?? null,
+    pixel_ratio:      dm.pixelRatio ?? null,
+    orientation:      dm.orientation ?? null,
+    touch_support:    dm.touchSupport ?? null,
+    cpu_cores:        dm.cpuCores ?? null,
+    memory_gb:        dm.memoryGb ?? null,
   }
 
   // Falls back to an unlinked id if this tenant project has no legacy

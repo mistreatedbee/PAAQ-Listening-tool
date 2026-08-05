@@ -55,25 +55,44 @@ type DeviceMetadata = {
   connectionType: string | null
   referrer: string | null
   entryUrl: string | null
+  pixelRatio: number | null
+  orientation: string | null
+  touchSupport: boolean | null
+  cpuCores: number | null
+  memoryGb: number | null
 }
 
 function collectDeviceMetadata(): DeviceMetadata {
   const nav = typeof navigator !== 'undefined' ? navigator : null
   const scr = typeof screen !== 'undefined' ? screen : null
+  const win = typeof window !== 'undefined' ? window : null
+  // deno-lint-ignore no-explicit-any
+  const navAny = nav as any
   return {
     userAgent: nav?.userAgent ?? null,
     screenWidth: scr?.width ?? null,
     screenHeight: scr?.height ?? null,
-    viewportWidth: typeof window !== 'undefined' ? window.innerWidth : null,
-    viewportHeight: typeof window !== 'undefined' ? window.innerHeight : null,
+    viewportWidth: win?.innerWidth ?? null,
+    viewportHeight: win?.innerHeight ?? null,
     timezone: (() => {
       try { return Intl.DateTimeFormat().resolvedOptions().timeZone ?? null } catch { return null }
     })(),
     locale: nav?.language ?? null,
-    // deno-lint-ignore no-explicit-any
-    connectionType: (nav as any)?.connection?.effectiveType ?? null,
+    connectionType: navAny?.connection?.effectiveType ?? null,
     referrer: typeof document !== 'undefined' ? document.referrer || null : null,
-    entryUrl: typeof window !== 'undefined' ? window.location.href : null,
+    entryUrl: win ? win.location.href : null,
+    pixelRatio: win?.devicePixelRatio ?? null,
+    orientation: (() => {
+      if (!win) return null
+      try {
+        const type = (screen as any)?.orientation?.type as string | undefined
+        if (type) return type.startsWith('portrait') ? 'portrait' : 'landscape'
+        return win.innerWidth >= win.innerHeight ? 'landscape' : 'portrait'
+      } catch { return null }
+    })(),
+    touchSupport: win ? 'ontouchstart' in win : null,
+    cpuCores: nav?.hardwareConcurrency ?? null,
+    memoryGb: navAny?.deviceMemory ?? null,
   }
 }
 
@@ -133,6 +152,12 @@ async function init(
       installClickTracking()
       installScrollTracking()
       installFormTracking()
+      installDoubleClickTracking()
+      installCopyPasteTracking()
+      installKeyboardTracking()
+      installDownloadTracking()
+      installUploadTracking()
+      installHoverTracking()
       installDomRecording()
     }
     return data
@@ -293,6 +318,124 @@ async function endSession(outcome: string): Promise<void> {
       // fire-and-forget
     }
   }
+}
+
+// ── Double click tracking ───────────────────────────────────────────────
+function installDoubleClickTracking(): void {
+  if (typeof document === 'undefined') return
+  document.addEventListener('dblclick', (event) => {
+    const target = event.target as Element | null
+    track('$double_click', {
+      targetSelector: cssPath(target),
+      x: event.clientX,
+      y: event.clientY,
+      page: window.location.pathname,
+    })
+  }, { passive: true })
+}
+
+// ── Copy / paste tracking ───────────────────────────────────────────────
+function installCopyPasteTracking(): void {
+  if (typeof document === 'undefined') return
+  document.addEventListener('copy', (event) => {
+    const selection = window.getSelection()?.toString() ?? ''
+    track('$copy', {
+      page: window.location.pathname,
+      charCount: selection.length,
+      targetSelector: cssPath(event.target as Element | null),
+    })
+  }, { passive: true })
+  document.addEventListener('paste', (event) => {
+    const text = (event as ClipboardEvent).clipboardData?.getData('text') ?? ''
+    track('$paste', {
+      page: window.location.pathname,
+      charCount: text.length,
+      targetSelector: cssPath(event.target as Element | null),
+    })
+  }, { passive: true })
+}
+
+// ── Keyboard shortcut tracking ──────────────────────────────────────────
+// Only capture modifier + key combos (Ctrl/Cmd + something) — never raw
+// keystrokes so user input is never recorded.
+const TRACKED_SHORTCUTS = new Set(['a', 'c', 'v', 'x', 'z', 'y', 'f', 's', 'p'])
+function installKeyboardTracking(): void {
+  if (typeof document === 'undefined') return
+  document.addEventListener('keydown', (event) => {
+    const key = event.key.toLowerCase()
+    if ((event.ctrlKey || event.metaKey) && TRACKED_SHORTCUTS.has(key)) {
+      track('$keyboard_shortcut', {
+        key,
+        ctrl: event.ctrlKey,
+        meta: event.metaKey,
+        shift: event.shiftKey,
+        page: window.location.pathname,
+      })
+    }
+  }, { passive: true })
+}
+
+// ── Download link tracking ──────────────────────────────────────────────
+function installDownloadTracking(): void {
+  if (typeof document === 'undefined') return
+  document.addEventListener('click', (event) => {
+    const target = (event.target as Element | null)?.closest('a[download], a[href$=".pdf"], a[href$=".csv"], a[href$=".zip"], a[href$=".xlsx"], a[href$=".docx"]')
+    if (!target) return
+    const href = (target as HTMLAnchorElement).href ?? ''
+    const ext = href.split('.').pop()?.split('?')[0] ?? ''
+    track('$download', {
+      url: href,
+      ext,
+      page: window.location.pathname,
+    })
+  }, { passive: true })
+}
+
+// ── File upload tracking ────────────────────────────────────────────────
+function installUploadTracking(): void {
+  if (typeof document === 'undefined') return
+  document.addEventListener('change', (event) => {
+    const el = event.target as HTMLInputElement | null
+    if (el?.type !== 'file' || !el.files) return
+    const files = Array.from(el.files)
+    track('$upload', {
+      fileCount: files.length,
+      totalBytes: files.reduce((sum, f) => sum + f.size, 0),
+      types: [...new Set(files.map((f) => f.type || 'unknown'))],
+      page: window.location.pathname,
+      fieldName: el.name || el.id || null,
+    })
+  }, { passive: true })
+}
+
+// ── Hover tracking ──────────────────────────────────────────────────────
+// Only tracks meaningful hover dwell (>= 1s on interactive/significant elements)
+// to avoid flooding the event stream with every mouseover.
+const HOVER_DWELL_MS = 1_000
+function installHoverTracking(): void {
+  if (typeof document === 'undefined') return
+  let hoverTimer: ReturnType<typeof setTimeout> | null = null
+  let lastTarget: Element | null = null
+
+  document.addEventListener('mouseover', (event) => {
+    const target = event.target as Element | null
+    if (target === lastTarget) return
+    lastTarget = target
+    if (hoverTimer) clearTimeout(hoverTimer)
+    if (!target || !isInteractiveElement(target)) return
+    hoverTimer = setTimeout(() => {
+      track('$hover', {
+        targetSelector: cssPath(target),
+        page: window.location.pathname,
+        dwellMs: HOVER_DWELL_MS,
+      })
+    }, HOVER_DWELL_MS)
+  }, { passive: true })
+
+  document.addEventListener('mouseout', () => {
+    if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null }
+    lastTarget = null
+  }, { passive: true })
 }
 
 // ── Visual session replay (web) ─────────────────────────────────────────
