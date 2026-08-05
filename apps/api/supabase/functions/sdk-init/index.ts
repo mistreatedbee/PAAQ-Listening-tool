@@ -179,12 +179,15 @@ async function _handle(req: Request): Promise<Response> {
   }
 
   // ── 8. Create a real session row so events can be linked via FK ──
-  // Device/browser/OS metadata is only ever written from what the SDK actually
-  // reports here — never inferred or backfilled. Mobile SDKs send structured
-  // fields directly (they have first-party OS APIs); web sends a raw UA string
-  // that gets parsed server-side since that's the only signal it has.
   const dm = body.deviceMetadata ?? {}
-  const ua = dm.userAgent ? parseUserAgent(dm.userAgent) : null
+  // Browsers always send User-Agent in the request header — use it as a
+  // server-side fallback so browser/OS fields populate even for integrations
+  // that don't send deviceMetadata in the body (e.g. old snippet versions).
+  const rawUA = dm.userAgent ?? req.headers.get('user-agent') ?? ''
+  const ua = rawUA ? parseUserAgent(rawUA) : null
+  // Accept-Language header gives us locale as a fallback (e.g. "en-ZA,en;q=0.9")
+  const acceptLang = req.headers.get('accept-language') ?? ''
+  const localeFallback = acceptLang ? acceptLang.split(',')[0].trim() : null
   const sessionMetadata = {
     platform,
     browser_name:    ua?.browserName ?? null,
@@ -198,7 +201,7 @@ async function _handle(req: Request): Promise<Response> {
     viewport_width:   dm.viewportWidth ?? null,
     viewport_height:  dm.viewportHeight ?? null,
     timezone:         dm.timezone ?? null,
-    locale:           dm.locale ?? null,
+    locale:           dm.locale ?? localeFallback,
     connection_type:  dm.connectionType ?? null,
     app_version:      body.appVersion ?? null,
     entry_url:        dm.entryUrl ?? null,
