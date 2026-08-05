@@ -237,6 +237,28 @@ DONE WHEN
 
   const snippets: Record<Framework, string> = {
     nextjs: `// lib/paaq.ts — create this file in your Next.js project
+function getDeviceMeta() {
+  if (typeof window === 'undefined') return {}
+  const nav = navigator as any
+  return {
+    userAgent:      navigator.userAgent,
+    screenWidth:    screen.width,
+    screenHeight:   screen.height,
+    viewportWidth:  window.innerWidth,
+    viewportHeight: window.innerHeight,
+    timezone:       Intl.DateTimeFormat().resolvedOptions().timeZone,
+    locale:         navigator.language,
+    connectionType: nav?.connection?.effectiveType ?? null,
+    referrer:       document.referrer || null,
+    entryUrl:       window.location.href,
+    pixelRatio:     window.devicePixelRatio,
+    orientation:    window.innerWidth >= window.innerHeight ? 'landscape' : 'portrait',
+    touchSupport:   'ontouchstart' in window,
+    cpuCores:       navigator.hardwareConcurrency ?? null,
+    memoryGb:       nav?.deviceMemory ?? null,
+  }
+}
+
 export const paaq = {
   sdkToken:   '${tok}',
   projectKey: '${key}',
@@ -254,7 +276,7 @@ export const paaq = {
         'X-Platform':    'nextjs',
         'X-Environment': process.env.NODE_ENV ?? 'production',
       },
-      body: JSON.stringify({ sessionId: this.sessionId }),
+      body: JSON.stringify({ sessionId: this.sessionId, deviceMetadata: getDeviceMeta() }),
     }).catch(() => null)
     const data = await res?.json().catch(() => null)
     if (data?.ok) { this.sessionId = data.sessionId; console.log('[PAAQ] Connected') }
@@ -285,6 +307,26 @@ export const paaq = {
 // }`,
 
     react: `// src/paaq.js — create this file in your React project
+function getDeviceMeta() {
+  return {
+    userAgent:      navigator.userAgent,
+    screenWidth:    screen.width,
+    screenHeight:   screen.height,
+    viewportWidth:  window.innerWidth,
+    viewportHeight: window.innerHeight,
+    timezone:       Intl.DateTimeFormat().resolvedOptions().timeZone,
+    locale:         navigator.language,
+    connectionType: navigator.connection?.effectiveType ?? null,
+    referrer:       document.referrer || null,
+    entryUrl:       window.location.href,
+    pixelRatio:     window.devicePixelRatio,
+    orientation:    window.innerWidth >= window.innerHeight ? 'landscape' : 'portrait',
+    touchSupport:   'ontouchstart' in window,
+    cpuCores:       navigator.hardwareConcurrency ?? null,
+    memoryGb:       navigator.deviceMemory ?? null,
+  }
+}
+
 export const paaq = {
   sdkToken:   '${tok}',
   projectKey: '${key}',
@@ -302,7 +344,7 @@ export const paaq = {
         'X-Platform':    'react',
         'X-Environment': import.meta.env?.MODE ?? 'production',
       },
-      body: JSON.stringify({ sessionId: this.sessionId }),
+      body: JSON.stringify({ sessionId: this.sessionId, deviceMetadata: getDeviceMeta() }),
     }).catch(() => null)
     const data = await res?.json().catch(() => null)
     if (data?.ok) console.log('[PAAQ] Connected')
@@ -326,6 +368,26 @@ export const paaq = {
 // src/main.jsx: import { paaq } from './paaq'; paaq.init()`,
 
     vue: `// src/paaq.js — create this file in your Vue 3 project
+function getDeviceMeta() {
+  return {
+    userAgent:      navigator.userAgent,
+    screenWidth:    screen.width,
+    screenHeight:   screen.height,
+    viewportWidth:  window.innerWidth,
+    viewportHeight: window.innerHeight,
+    timezone:       Intl.DateTimeFormat().resolvedOptions().timeZone,
+    locale:         navigator.language,
+    connectionType: navigator.connection?.effectiveType ?? null,
+    referrer:       document.referrer || null,
+    entryUrl:       window.location.href,
+    pixelRatio:     window.devicePixelRatio,
+    orientation:    window.innerWidth >= window.innerHeight ? 'landscape' : 'portrait',
+    touchSupport:   'ontouchstart' in window,
+    cpuCores:       navigator.hardwareConcurrency ?? null,
+    memoryGb:       navigator.deviceMemory ?? null,
+  }
+}
+
 export const paaq = {
   sdkToken:   '${tok}',
   projectKey: '${key}',
@@ -343,7 +405,7 @@ export const paaq = {
         'X-Platform':    'vue',
         'X-Environment': import.meta.env?.MODE ?? 'production',
       },
-      body: JSON.stringify({ sessionId: this.sessionId }),
+      body: JSON.stringify({ sessionId: this.sessionId, deviceMetadata: getDeviceMeta() }),
     }).catch(() => null)
     const data = await res?.json().catch(() => null)
     if (data?.ok) console.log('[PAAQ] Connected')
@@ -368,6 +430,26 @@ export const paaq = {
 
     vanilla: `<!-- Add before </body> in your HTML page -->
 <script>
+function getDeviceMeta() {
+  return {
+    userAgent:      navigator.userAgent,
+    screenWidth:    screen.width,
+    screenHeight:   screen.height,
+    viewportWidth:  window.innerWidth,
+    viewportHeight: window.innerHeight,
+    timezone:       Intl.DateTimeFormat().resolvedOptions().timeZone,
+    locale:         navigator.language,
+    connectionType: navigator.connection?.effectiveType ?? null,
+    referrer:       document.referrer || null,
+    entryUrl:       window.location.href,
+    pixelRatio:     window.devicePixelRatio,
+    orientation:    window.innerWidth >= window.innerHeight ? 'landscape' : 'portrait',
+    touchSupport:   'ontouchstart' in window,
+    cpuCores:       navigator.hardwareConcurrency ?? null,
+    memoryGb:       navigator.deviceMemory ?? null,
+  }
+}
+
 const paaq = {
   sdkToken:   '${tok}',
   projectKey: '${key}',
@@ -385,7 +467,7 @@ const paaq = {
         'X-Platform':    'vanilla',
         'X-Environment': 'production',
       },
-      body: JSON.stringify({ sessionId: this.sessionId }),
+      body: JSON.stringify({ sessionId: this.sessionId, deviceMetadata: getDeviceMeta() }),
     }).catch(() => null)
     const data = await res?.json().catch(() => null)
     if (data?.ok) console.log('[PAAQ] Connected')
