@@ -308,15 +308,18 @@ async function endSession(outcome: string): Promise<void> {
   _sessionEnded = true
   const durationSeconds = _sessionStartedAt ? Math.round((Date.now() - _sessionStartedAt) / 1000) : undefined
   const payload = JSON.stringify({ action: 'end', session_id: _sessionId, duration: durationSeconds, outcome })
-  const sent = typeof navigator !== 'undefined' && navigator.sendBeacon
-    ? navigator.sendBeacon(`${BASE_URL}/sessions`, new Blob([payload], { type: 'application/json' }))
-    : false
-  if (!sent) {
-    try {
-      await fetch(`${BASE_URL}/sessions`, { method: 'POST', headers: buildHeaders(), body: payload, keepalive: true })
-    } catch {
-      // fire-and-forget
-    }
+  // sendBeacon cannot send custom headers, so the sessions endpoint would reject
+  // it with 401. fetch+keepalive is the spec-correct replacement: it sends all
+  // headers and is guaranteed to complete even when the page is unloading.
+  try {
+    await fetch(`${BASE_URL}/sessions`, {
+      method: 'POST',
+      headers: buildHeaders(),
+      body: payload,
+      keepalive: true,
+    })
+  } catch {
+    // fire-and-forget — session-sweep-cron closes stale sessions as a fallback
   }
 }
 
