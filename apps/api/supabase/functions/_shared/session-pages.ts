@@ -94,29 +94,62 @@ export async function recordPageViews(
 }
 
 /**
- * Increments error_count on whichever session_pages row is currently open
- * for each error's session — called from the errors edge function after
- * inserting a batch, mirroring recordPageViews' interaction_count logic.
+ * Attributes each error to the real session_pages row it happened on —
+ * matched by page_path === error.screen AND the error's timestamp falling
+ * within that page's [entered_at, exited_at ?? now) window, not just
+ * "whichever page happens to be open right now." The naive open-page-only
+ * version silently dropped the count whenever no page-view had fired yet,
+ * the page had already closed, or the errors/events batches raced each
+ * other — even though errors.screen already has the correct page tagged at
+ * capture time (see apps/sdk-web/src/index.ts's sendError()). Falls back to
+ * the currently-open page only when no page_path match exists at all, so a
+ * genuinely un-attributable error (e.g. no page_view ever sent) still isn't
+ * silently lost if there's at least one open page to charge it to.
  */
 export async function recordErrorsOnPages(
   supabase: SupabaseClient,
-  rows: { session_id: string | null }[],
+  rows: { session_id: string | null; screen: string | null; created_at: string }[],
 ): Promise<void> {
-  const sessionIds = [...new Set(rows.map((r) => r.session_id).filter((id): id is string => !!id))]
+  const bySession = new Map<string, { screen: string | null; created_at: string }[]>()
+  for (const row of rows) {
+    if (!row.session_id) continue
+    if (!bySession.has(row.session_id)) bySession.set(row.session_id, [])
+    bySession.get(row.session_id)!.push({ screen: row.screen, created_at: row.created_at })
+  }
 
-  for (const sessionId of sessionIds) {
-    const { data: open } = await supabase
+  for (const [sessionId, sessionErrors] of bySession) {
+    const { data: pages } = await supabase
       .from('session_pages')
-      .select('id, error_count')
+      .select('id, page_path, entered_at, exited_at, error_count')
       .eq('session_id', sessionId)
-      .is('exited_at', null)
-      .maybeSingle()
+      .order('entered_at', { ascending: true })
 
-    if (!open) continue
+    if (!pages || pages.length === 0) continue
 
-    const count = rows.filter((r) => r.session_id === sessionId).length
-    await supabase.from('session_pages')
-      .update({ error_count: (open.error_count ?? 0) + count })
-      .eq('id', open.id)
+    const deltas = new Map<string, number>()
+    for (const err of sessionErrors) {
+      const errMs = new Date(err.created_at).getTime()
+      // deno-lint-ignore no-explicit-any
+      let match = (pages as any[]).find((p) => {
+        if (err.screen == null || p.page_path !== err.screen) return false
+        const enteredMs = new Date(p.entered_at).getTime()
+        const exitedMs = p.exited_at ? new Date(p.exited_at).getTime() : Infinity
+        return errMs >= enteredMs && errMs < exitedMs
+      })
+      // Fall back to the currently-open page (still-better-than-nothing) if
+      // the screen didn't match anything exactly.
+      // deno-lint-ignore no-explicit-any
+      if (!match) match = (pages as any[]).find((p) => p.exited_at == null)
+      if (!match) continue
+      deltas.set(match.id, (deltas.get(match.id) ?? 0) + 1)
+    }
+
+    for (const [pageId, delta] of deltas) {
+      // deno-lint-ignore no-explicit-any
+      const page = (pages as any[]).find((p) => p.id === pageId)
+      await supabase.from('session_pages')
+        .update({ error_count: (page?.error_count ?? 0) + delta })
+        .eq('id', pageId)
+    }
   }
 }

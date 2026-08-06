@@ -5,6 +5,7 @@ type IncomingEventRow = {
   session_id: string | null
   event_name: string
   properties: Record<string, unknown> | null
+  timestamp?: string
 }
 
 /**
@@ -25,7 +26,11 @@ export async function recordBehaviorEvents(
   rows: IncomingEventRow[],
 ): Promise<void> {
   const sessionDeltas = new Map<string, { rage: number; dead: number; formAbandon: number }>()
-  const maxScrollBySession = new Map<string, number>()
+  // Keyed by session — each entry keeps the max pct seen *and* the page/time
+  // it happened on, so it can be attributed to the right session_pages row
+  // below instead of "whichever page happens to be open right now" (same
+  // fragile-matching bug fixed for errors in session-pages.ts).
+  const maxScrollBySession = new Map<string, { pct: number; page: string | null; timestamp: string }>()
   const formFieldRows: Record<string, unknown>[] = []
 
   for (const row of rows) {
@@ -40,8 +45,14 @@ export async function recordBehaviorEvents(
       sessionDeltas.set(row.session_id, delta)
     } else if (row.event_name === '$scroll_depth') {
       const pct = Math.max(0, Math.min(100, Number(props.pct ?? 0)))
-      const prev = maxScrollBySession.get(row.session_id) ?? 0
-      if (pct > prev) maxScrollBySession.set(row.session_id, pct)
+      const prev = maxScrollBySession.get(row.session_id)
+      if (!prev || pct > prev.pct) {
+        maxScrollBySession.set(row.session_id, {
+          pct,
+          page: typeof props.page === 'string' ? props.page : null,
+          timestamp: row.timestamp ?? new Date().toISOString(),
+        })
+      }
     } else if (row.event_name === '$form_field') {
       formFieldRows.push({
         project_id: projectId,
@@ -72,15 +83,26 @@ export async function recordBehaviorEvents(
     }).eq('id', sessionId)
   }
 
-  for (const [sessionId, pct] of maxScrollBySession) {
-    const { data: openPage } = await supabase
+  for (const [sessionId, scroll] of maxScrollBySession) {
+    const { data: pages } = await supabase
       .from('session_pages')
-      .select('id, scroll_depth_pct')
+      .select('id, page_path, entered_at, exited_at, scroll_depth_pct')
       .eq('session_id', sessionId)
-      .is('exited_at', null)
-      .maybeSingle()
-    if (openPage && (openPage.scroll_depth_pct ?? 0) < pct) {
-      await supabase.from('session_pages').update({ scroll_depth_pct: pct }).eq('id', openPage.id)
+      .order('entered_at', { ascending: true })
+    if (!pages || pages.length === 0) continue
+
+    const scrollMs = new Date(scroll.timestamp).getTime()
+    // deno-lint-ignore no-explicit-any
+    let match = (pages as any[]).find((p) => {
+      if (scroll.page == null || p.page_path !== scroll.page) return false
+      const enteredMs = new Date(p.entered_at).getTime()
+      const exitedMs = p.exited_at ? new Date(p.exited_at).getTime() : Infinity
+      return scrollMs >= enteredMs && scrollMs < exitedMs
+    })
+    // deno-lint-ignore no-explicit-any
+    if (!match) match = (pages as any[]).find((p) => p.exited_at == null)
+    if (match && (match.scroll_depth_pct ?? 0) < scroll.pct) {
+      await supabase.from('session_pages').update({ scroll_depth_pct: scroll.pct }).eq('id', match.id)
     }
   }
 

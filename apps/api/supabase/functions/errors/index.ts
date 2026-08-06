@@ -75,11 +75,14 @@ Deno.serve(async (req) => {
     context:     (e.context && typeof e.context === 'object' && !Array.isArray(e.context)) ? e.context : null,
   }))
 
-  const { error } = await supabase.from('errors').insert(rows)
+  // Re-select after insert (rather than reusing `rows`) so recordErrorsOnPages
+  // gets each error's real server-assigned created_at to match against a
+  // page's time window, not just whatever page happens to be open right now.
+  const { data: inserted, error } = await supabase.from('errors').insert(rows).select('session_id, screen, created_at')
   if (error) return respond({ error: error.message }, 500)
 
   try {
-    await recordErrorsOnPages(supabase, rows)
+    await recordErrorsOnPages(supabase, inserted ?? [])
   } catch (e) {
     console.error('errors: recordErrorsOnPages failed', e)
   }

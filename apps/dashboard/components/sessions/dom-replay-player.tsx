@@ -5,9 +5,14 @@ import 'rrweb-player/dist/style.css'
 import { Card, CardHead } from '@/components/kit'
 import { Video } from 'lucide-react'
 
-export function DomReplayPlayer({ sessionId }: { sessionId: string }) {
+// deno-lint-ignore no-explicit-any
+type PlayerInstance = { goto: (timeOffset: number, play?: boolean) => void; getReplayer: () => { getMetaData: () => { startTime: number } } }
+
+export function DomReplayPlayer({ sessionId, seekToIso }: { sessionId: string; seekToIso?: string | null }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [state, setState] = useState<'loading' | 'none' | 'ready' | 'error'>('loading')
+  const playerRef = useRef<PlayerInstance | null>(null)
+  const recordingStartMsRef = useRef<number | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -40,13 +45,16 @@ export function DomReplayPlayer({ sessionId }: { sessionId: string }) {
 
         // rrweb-player renders itself into the DOM directly — dynamically
         // imported since it touches window/document at module load time.
+        const firstTs = events.map((e: Record<string, unknown>) => e.timestamp as number | undefined).find((t: number | undefined): t is number => typeof t === 'number')
+        recordingStartMsRef.current = firstTs ?? null
+
         const { default: RrwebPlayer } = await import('rrweb-player')
         if (cancelled || !containerRef.current) return
         containerRef.current.innerHTML = ''
-        new RrwebPlayer({
+        playerRef.current = new RrwebPlayer({
           target: containerRef.current,
           props: { events, width: containerRef.current.clientWidth || 800, height: 500, autoPlay: false },
-        })
+        }) as unknown as PlayerInstance
         setState('ready')
       } catch {
         if (!cancelled) setState('error')
@@ -57,10 +65,20 @@ export function DomReplayPlayer({ sessionId }: { sessionId: string }) {
     return () => { cancelled = true }
   }, [sessionId])
 
+  // Jump to a specific moment when a timeline thumbnail is clicked — reuses
+  // the same already-loaded player/events, no re-fetch.
+  useEffect(() => {
+    if (!seekToIso || state !== 'ready' || !playerRef.current || recordingStartMsRef.current == null) return
+    const offsetMs = Math.max(0, new Date(seekToIso).getTime() - recordingStartMsRef.current)
+    playerRef.current.goto(offsetMs, false)
+    document.getElementById('replay-player')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [seekToIso, state])
+
   if (state === 'none') return null
 
   return (
     <Card>
+      <div id="replay-player" />
       <CardHead title="Screen recording" desc="Real DOM-reconstructed playback — not a video, not pixels; sensitive input values are masked" icon={<Video className="h-4 w-4" />} />
       <div className="px-5 pb-5">
         {state === 'loading' && <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">Loading recording…</div>}

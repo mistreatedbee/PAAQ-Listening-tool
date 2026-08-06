@@ -14,6 +14,7 @@ import { TimelineScrubber } from '@/components/sessions/timeline-scrubber'
 import { FormAnalyticsPanel, type FormFieldStat } from '@/components/sessions/form-analytics-panel'
 import { DomReplayPlayer } from '@/components/sessions/dom-replay-player'
 import { ScreenshotReplayPlayer } from '@/components/sessions/screenshot-replay-player'
+import { useSessionRecording } from '@/lib/use-session-recording'
 
 export default function SessionDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -31,6 +32,8 @@ export default function SessionDetailPage() {
   const [formFields, setFormFields] = useState<FormFieldStat[]>([])
   const [loading, setLoading] = useState(true)
   const [scrubTime, setScrubTime] = useState<string | null>(null)
+  const [seekTarget, setSeekTarget] = useState<string | null>(null)
+  const recording = useSessionRecording(session?.id ?? null)
 
   useEffect(() => {
     if (!id) return
@@ -136,9 +139,9 @@ export default function SessionDetailPage() {
       />
 
       {session.platform === 'web' ? (
-        <DomReplayPlayer sessionId={session.id} />
+        <DomReplayPlayer sessionId={session.id} seekToIso={seekTarget} />
       ) : (
-        <ScreenshotReplayPlayer sessionId={session.id} />
+        <ScreenshotReplayPlayer sessionId={session.id} seekToIso={seekTarget} />
       )}
 
       {events.length > 0 && (
@@ -146,14 +149,14 @@ export default function SessionDetailPage() {
       )}
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <InteractionTimeline events={events} errors={errors} cutoffTime={scrubTime} />
+        <InteractionTimeline events={events} errors={errors} cutoffTime={scrubTime} recording={recording} onSeek={setSeekTarget} />
         <div className="space-y-4">
           <NavigationMap pages={pages} />
           <AiSummaryPanel sessionId={session.id} summary={summary} onGenerated={setSummary} />
         </div>
       </div>
 
-      <PageBreakdown pages={pages} />
+      <PageBreakdown pages={pages} errors={errors} />
 
       <FormAnalyticsPanel fields={formFields} />
 

@@ -8,7 +8,7 @@ type Chunk = { sequence: number; capturedAt: string; url: string }
 
 const SLIDE_INTERVAL_MS = 1500
 
-export function ScreenshotReplayPlayer({ sessionId }: { sessionId: string }) {
+export function ScreenshotReplayPlayer({ sessionId, seekToIso }: { sessionId: string; seekToIso?: string | null }) {
   const [state, setState] = useState<'loading' | 'none' | 'ready' | 'error'>('loading')
   const [chunks, setChunks] = useState<Chunk[]>([])
   const [index, setIndex] = useState(0)
@@ -55,12 +55,27 @@ export function ScreenshotReplayPlayer({ sessionId }: { sessionId: string }) {
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
   }, [playing, chunks.length])
 
+  useEffect(() => {
+    if (!seekToIso || state !== 'ready' || chunks.length === 0) return
+    const targetMs = new Date(seekToIso).getTime()
+    let nearestIdx = 0
+    let nearestDiff = Infinity
+    chunks.forEach((c, i) => {
+      const diff = Math.abs(new Date(c.capturedAt).getTime() - targetMs)
+      if (diff < nearestDiff) { nearestDiff = diff; nearestIdx = i }
+    })
+    setPlaying(false)
+    setIndex(nearestIdx)
+    document.getElementById('replay-player')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [seekToIso, state, chunks])
+
   if (state === 'none') return null
 
   const current = chunks[index]
 
   return (
     <Card>
+      <div id="replay-player" />
       <CardHead title="Screen recording" desc="Periodic real screenshots captured during the session" icon={<Video className="h-4 w-4" />} />
       <div className="px-5 pb-5">
         {state === 'loading' && <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">Loading recording…</div>}
