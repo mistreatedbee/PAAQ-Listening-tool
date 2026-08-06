@@ -1,15 +1,15 @@
 {
   "name": "@paaq/web-sdk",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "PAAQ Intelligence SDK for React, Next.js, Vue, and any web app",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
-      "require": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "require": "./dist/index.js"
     }
   },
   "files": [
