@@ -1,12 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { cn } from '@/lib/utils'
-import { Sparkles, Loader2, ChevronDown, ChevronUp, Copy, Check, AlertTriangle, Lightbulb, ShieldCheck, Code2 } from 'lucide-react'
+import { Sparkles, Loader2, ChevronDown, ChevronUp, Copy, Check, AlertTriangle, Lightbulb, ShieldCheck, Code2, Route } from 'lucide-react'
 
 type FixResult = {
   rootCause: string
+  whatHappened: string | null
   fix: string
   codeExample: string | null
   language: string | null
@@ -24,6 +25,8 @@ type ErrorPayload = {
   screen?: string | null
   stackTrace?: string | null
   context?: Record<string, unknown> | null
+  precedingEvents?: { time: string; label: string }[]
+  userIdentity?: { email?: string | null; externalUserId?: string | null } | null
 }
 
 function ConfidenceBar({ value }: { value: number }) {
@@ -61,7 +64,7 @@ function CodeBlock({ code, language }: { code: string; language: string | null }
   )
 }
 
-export function GenerateFix({ payload, compact = false }: { payload: ErrorPayload; compact?: boolean }) {
+export function GenerateFix({ payload, compact = false, autoRun = false }: { payload: ErrorPayload; compact?: boolean; autoRun?: boolean }) {
   const [state, setState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
   const [result, setResult] = useState<FixResult | null>(null)
   const [errMsg, setErrMsg] = useState<string | null>(null)
@@ -82,6 +85,8 @@ export function GenerateFix({ payload, compact = false }: { payload: ErrorPayloa
           screen: payload.screen,
           stackTrace: payload.stackTrace,
           context: payload.context,
+          precedingEvents: payload.precedingEvents,
+          userIdentity: payload.userIdentity,
         },
       })
       if (error) throw new Error(error.message)
@@ -94,6 +99,15 @@ export function GenerateFix({ payload, compact = false }: { payload: ErrorPayloa
       setState('error')
     }
   }
+
+  // Auto-run once real context (preceding events / identity, when
+  // available) has finished loading upstream — matches "when a developer
+  // opens an error, the AI should automatically provide..." instead of
+  // waiting for a manual click. Guarded to fire only once.
+  useEffect(() => {
+    if (autoRun && state === 'idle') void handleGenerate()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRun])
 
   return (
     <div className="space-y-3">
@@ -157,6 +171,17 @@ export function GenerateFix({ payload, compact = false }: { payload: ErrorPayloa
 
           {expanded && (
             <div className="space-y-4 p-4">
+              {/* What happened — real event timeline, when available */}
+              {result.whatHappened && (
+                <div className="flex gap-3">
+                  <Route className="h-4 w-4 shrink-0 text-intel mt-0.5" />
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">What Happened</p>
+                    <p className="text-sm text-foreground leading-relaxed">{result.whatHappened}</p>
+                  </div>
+                </div>
+              )}
+
               {/* Root cause */}
               <div className="flex gap-3">
                 <AlertTriangle className="h-4 w-4 shrink-0 text-warning mt-0.5" />

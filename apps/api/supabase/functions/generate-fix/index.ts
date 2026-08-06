@@ -21,6 +21,8 @@ Deno.serve(async (req) => {
     screen?: string
     stackTrace?: string
     context?: Record<string, unknown>
+    precedingEvents?: { time: string; label: string }[]
+    userIdentity?: { email?: string | null; externalUserId?: string | null } | null
   }
 
   try {
@@ -29,7 +31,7 @@ Deno.serve(async (req) => {
     return respond({ error: 'Invalid JSON body' }, 400)
   }
 
-  const { message, errorType, severity, screen, stackTrace, context } = body
+  const { message, errorType, severity, screen, stackTrace, context, precedingEvents, userIdentity } = body
 
   if (!message) return respond({ error: 'message is required' }, 400)
 
@@ -39,17 +41,28 @@ Deno.serve(async (req) => {
 
   const stackBlock = stackTrace ? `\nStack trace:\n${stackTrace.slice(0, 2000)}` : ''
 
+  // Real captured session context, when available — grounds "what happened"
+  // in the actual sequence of real events leading to the error, instead of
+  // the model inferring a plausible-sounding story from the message alone.
+  const timelineBlock = precedingEvents?.length
+    ? `\nReal events captured in this session immediately before the error, in order:\n${precedingEvents.map((e) => `  ${e.time}  ${e.label}`).join('\n')}`
+    : ''
+  const userBlock = userIdentity?.email || userIdentity?.externalUserId
+    ? `\nAffected user: ${userIdentity.email ?? userIdentity.externalUserId}`
+    : ''
+
   const prompt = `You are the Incident Investigator AI agent for the PAAQ Intelligence. A production error has been captured. Analyse it and return a structured JSON fix — no markdown, no explanation, JSON only.
 
 Error details:
   Type: ${errorType ?? 'unknown'}
   Severity: ${severity ?? 'unknown'}
   Screen / module: ${screen ?? 'unknown'}
-  Message: ${message}${stackBlock}${contextBlock}
+  Message: ${message}${stackBlock}${contextBlock}${userBlock}${timelineBlock}
 
 Return this exact JSON structure:
 {
   "rootCause": "One specific sentence explaining exactly why this error occurred — reference the error type and screen",
+  "whatHappened": "1-3 sentences narrating what the real user actually did leading up to this error, grounded in the real event timeline above if one was given (e.g. 'User navigated to checkout, entered card details, clicked Pay Now, then the API returned a 500.'). If no timeline was provided, say only what can be inferred from the error itself — do not invent user actions that weren't given to you.",
   "fix": "2-4 numbered steps the developer should take right now to fix this",
   "codeExample": "Optional: a short code snippet (max 8 lines) that demonstrates the fix, or null if not applicable",
   "language": "dart | typescript | javascript | null — the language for the code example",
@@ -61,6 +74,7 @@ Return this exact JSON structure:
 
 Rules:
 - rootCause must be specific to THIS error, never generic
+- whatHappened must only state real events given above — never invent a user action that wasn't in the timeline
 - fix must be actionable steps a developer can execute immediately
 - confidence is 0-100 integer based on how much signal is in the error data
 - If the stack trace or context is missing, lower confidence accordingly`

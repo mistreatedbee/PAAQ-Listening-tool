@@ -7,14 +7,17 @@ import { createClient } from '@/utils/supabase/client'
 import { PageHeader, Card, CardHead, ToneBadge } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import { toneText, toneBg } from '@/lib/tones'
-import { ArrowLeft, Bug, Terminal, CheckCircle2, EyeOff, Sparkles, Wrench, Loader2 } from 'lucide-react'
+import { ArrowLeft, Bug, Terminal, CheckCircle2, EyeOff, Sparkles, Wrench, Loader2, User, Video } from 'lucide-react'
 import { GenerateFix } from '@/components/dashboard/generate-fix'
 import { FixExecution } from '@/components/dashboard/fix-execution'
+import { ReplayMomentModal, type PrecedingItem } from '@/components/sessions/replay-moment-modal'
+import { useSessionRecording } from '@/lib/use-session-recording'
 import type { Tone } from '@/lib/data'
 
 type DbError = {
   id: string
   project_id: string
+  session_id: string | null
   error_type: string
   message: string
   severity: string
@@ -25,11 +28,29 @@ type DbError = {
   created_at: string
 }
 
+type EvidenceUser = { external_user_id: string | null; email: string | null }
+
 const severityTone: Record<string, Tone> = {
   fatal: 'critical', error: 'critical', warning: 'warning', info: 'intel',
 }
 const statusTone: Record<string, Tone> = {
   open: 'critical', resolved: 'healthy', ignored: 'intel',
+}
+
+/** Mirrors interaction-timeline.tsx's describeEvent — kept local since this
+ * page only needs a one-line label for the "leading up to this" strip, not
+ * the full row-rendering logic. */
+function describeEventName(name: string, properties: Record<string, unknown> | null): string {
+  if (name === '$page_view' || name === '$screen') {
+    const page = (properties?.page ?? properties?.name) as string | undefined
+    return `Viewed ${page ?? 'page'}`
+  }
+  if (name === '$identify') return 'User identified'
+  if (name === '$form_field') {
+    const field = (properties?.fieldName as string | undefined) ?? 'field'
+    return properties?.hadError === true ? `Form field error — ${field}` : `Form field — ${field}`
+  }
+  return name.replace(/^\$/, '').replace(/_/g, ' ')
 }
 
 export default function ErrorDetailPage() {
@@ -42,6 +63,11 @@ export default function ErrorDetailPage() {
   const [startingFix, setStartingFix] = useState(false)
   const [fixError, setFixError] = useState<string | null>(null)
   const [executing, setExecuting] = useState<{ recommendationId: string; title: string } | null>(null)
+  const [evidenceUser, setEvidenceUser] = useState<EvidenceUser | null>(null)
+  const [precedingEvents, setPrecedingEvents] = useState<PrecedingItem[]>([])
+  const [contextLoaded, setContextLoaded] = useState(false)
+  const [showReplay, setShowReplay] = useState(false)
+  const recording = useSessionRecording(error?.session_id ?? null)
 
   const showToast = (msg: string) => {
     setToast(msg)
@@ -51,7 +77,7 @@ export default function ErrorDetailPage() {
   useEffect(() => {
     const sb = createClient()
     sb.from('errors')
-      .select('id, project_id, error_type, message, severity, status, screen, stack_trace, context, created_at')
+      .select('id, project_id, session_id, error_type, message, severity, status, screen, stack_trace, context, created_at')
       .eq('id', id)
       .single()
       .then(({ data }) => {
@@ -59,6 +85,34 @@ export default function ErrorDetailPage() {
         setLoading(false)
       })
   }, [id])
+
+  // Real evidence for the AI diagnosis and the "leading up to this" strip —
+  // the affected user's identity and the real events captured on this
+  // session immediately before the error, not inferred from the message.
+  useEffect(() => {
+    if (!error?.session_id) { setContextLoaded(true); return }
+    const sb = createClient()
+    Promise.all([
+      sb.from('sessions').select('user_id').eq('id', error.session_id).maybeSingle(),
+      sb.from('events').select('event_name, properties, timestamp')
+        .eq('session_id', error.session_id)
+        .lt('timestamp', error.created_at)
+        .order('timestamp', { ascending: false })
+        .limit(8),
+    ]).then(async ([{ data: session }, { data: eventRows }]) => {
+      if (session?.user_id) {
+        const { data: userRow } = await sb.from('users').select('external_user_id, email').eq('id', session.user_id).maybeSingle()
+        setEvidenceUser(userRow as EvidenceUser | null)
+      }
+      const ordered = (eventRows ?? []).slice().reverse()
+      setPrecedingEvents(ordered.map((e) => ({
+        time: new Date(e.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        label: describeEventName(e.event_name, e.properties as Record<string, unknown> | null),
+        isError: false,
+      })))
+      setContextLoaded(true)
+    })
+  }, [error?.session_id, error?.created_at])
 
   useEffect(() => {
     if (!error?.project_id) return
@@ -119,6 +173,16 @@ export default function ErrorDetailPage() {
 
   return (
     <div className="space-y-6">
+      {showReplay && recording && (
+        <ReplayMomentModal
+          recording={recording}
+          targetIso={error.created_at}
+          precedingItems={precedingEvents}
+          currentLabel={`${error.error_type}: ${error.message}`}
+          onClose={() => setShowReplay(false)}
+        />
+      )}
+
       {executing && (
         <FixExecution
           projectId={error.project_id}
@@ -194,7 +258,29 @@ export default function ErrorDetailPage() {
             icon={<Sparkles className="h-4 w-4 text-ai" />}
           />
           <div className="space-y-4 px-5 pb-5">
+            {(evidenceUser || error.session_id) && (
+              <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-xs">
+                {evidenceUser && (
+                  <span className="flex items-center gap-1.5 text-foreground">
+                    <User className="h-3.5 w-3.5 text-muted-foreground" />
+                    {evidenceUser.email ?? evidenceUser.external_user_id ?? 'Anonymous'}
+                  </span>
+                )}
+                {error.session_id && (
+                  <Link href={`/sessions/${error.session_id}`} className="flex items-center gap-1.5 text-intel hover:underline">
+                    <Video className="h-3.5 w-3.5" /> View session
+                  </Link>
+                )}
+                {error.session_id && (
+                  <button onClick={() => setShowReplay(true)} className="flex items-center gap-1.5 text-intel hover:underline">
+                    <Video className="h-3.5 w-3.5" /> View replay at this moment
+                  </button>
+                )}
+              </div>
+            )}
+
             <GenerateFix
+              autoRun={contextLoaded}
               payload={{
                 errorId: error.id,
                 message: error.message,
@@ -203,6 +289,8 @@ export default function ErrorDetailPage() {
                 screen: error.screen,
                 stackTrace: error.stack_trace,
                 context: error.context,
+                precedingEvents,
+                userIdentity: evidenceUser ? { email: evidenceUser.email, externalUserId: evidenceUser.external_user_id } : null,
               }}
             />
 

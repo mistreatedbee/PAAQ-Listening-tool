@@ -74,6 +74,13 @@ function pageOf(e: SessionEvent): string | undefined {
   return own ?? undefined
 }
 
+/** One-line label for any timeline row — shared between the row itself and
+ * the "before this moment" strip inside the replay modal, so the two never
+ * describe the same event differently. */
+function labelFor(item: TimelineItem): string {
+  return item.kind === 'error' ? `${item.data.error_type}: ${item.data.message}` : describeEvent(item.data)
+}
+
 export function InteractionTimeline({
   events,
   errors,
@@ -85,7 +92,7 @@ export function InteractionTimeline({
   cutoffTime: string | null
   recording?: SessionRecordingState
 }) {
-  const [openMomentIso, setOpenMomentIso] = useState<string | null>(null)
+  const [openMoment, setOpenMoment] = useState<{ iso: string; index: number } | null>(null)
 
   const items: TimelineItem[] = [
     ...events.map((e): TimelineItem => ({ kind: 'event', id: e.id, timestamp: e.timestamp, data: e })),
@@ -182,7 +189,7 @@ export function InteractionTimeline({
                   </div>
                   {showWatchButton && (
                     <button
-                      onClick={() => setOpenMomentIso(item.timestamp)}
+                      onClick={() => setOpenMoment({ iso: item.timestamp, index: i })}
                       className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-critical/30 bg-critical/5 text-critical hover:bg-critical/10 transition-colors"
                       title="Watch this moment in the replay"
                     >
@@ -196,8 +203,18 @@ export function InteractionTimeline({
         )}
       </div>
 
-      {openMomentIso && recording && (
-        <ReplayMomentModal recording={recording} targetIso={openMomentIso} onClose={() => setOpenMomentIso(null)} />
+      {openMoment && recording && (
+        <ReplayMomentModal
+          recording={recording}
+          targetIso={openMoment.iso}
+          precedingItems={items.slice(Math.max(0, openMoment.index - 5), openMoment.index).map((item) => ({
+            time: new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            label: labelFor(item),
+            isError: item.kind === 'error',
+          }))}
+          currentLabel={labelFor(items[openMoment.index])}
+          onClose={() => setOpenMoment(null)}
+        />
       )}
     </Card>
   )
