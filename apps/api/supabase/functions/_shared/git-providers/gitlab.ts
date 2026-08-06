@@ -3,10 +3,18 @@
 // this environment — treat as beta/unverified until smoke-tested with
 // real credentials (see plan verification notes).
 import type {
-  GitAdapter, RepoRef, RepoFile, TestResult, ListReposResult, GetFileResult, OpenPrResult, PrStatusResult,
+  GitAdapter, RepoRef, RepoFile, TestResult, ListReposResult, GetFileResult, OpenPrResult, PrStatusResult, TreeEntry, ListTreeResult,
 } from './types.ts'
 
 const API = 'https://gitlab.com/api/v4'
+
+const EXCLUDED_SEGMENTS = ['node_modules', '.git', 'dist', 'build', 'vendor', '.next', '.turbo', 'coverage']
+const MAX_TREE_ENTRIES = 2000
+
+function isExcludedPath(path: string): boolean {
+  const segments = path.split('/')
+  return EXCLUDED_SEGMENTS.some((seg) => segments.includes(seg))
+}
 
 function headers(token: string) {
   return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
@@ -47,6 +55,28 @@ async function getFileContent(token: string, repo: RepoRef, path: string, ref: s
   const res = await glFetch(`/projects/${projectId(repo)}/repository/files/${encodeURIComponent(path)}/raw?ref=${encodeURIComponent(ref)}`, token)
   if (!res.ok) return { ok: false, error: typeof res.body === 'string' ? res.body : `GitLab get file failed (${res.status})` }
   return { ok: true, content: typeof res.body === 'string' ? res.body : JSON.stringify(res.body) }
+}
+
+async function listTree(token: string, repo: RepoRef, path: string, ref: string, opts?: { recursive?: boolean }): Promise<ListTreeResult> {
+  const recursive = opts?.recursive === true
+  const entries: TreeEntry[] = []
+  let page: string | null = '1'
+  while (page) {
+    const qp = new URLSearchParams({ path, ref, recursive: String(recursive), per_page: '100', page })
+    const res = await fetch(`${API}/projects/${projectId(repo)}/repository/tree?${qp.toString()}`, { headers: headers(token) })
+    const contentType = res.headers.get('content-type') ?? ''
+    const body = contentType.includes('application/json') ? await res.json().catch(() => ({})) : await res.text()
+    if (!res.ok) return { ok: false, error: typeof body === 'string' ? body : (body?.message ?? `GitLab list tree failed (${res.status})`) }
+    const items: any[] = Array.isArray(body) ? body : []
+    for (const item of items) {
+      if (!item?.path || isExcludedPath(item.path)) continue
+      entries.push({ path: item.path, type: item.type === 'tree' ? 'dir' : 'file' })
+      if (entries.length >= MAX_TREE_ENTRIES) break
+    }
+    if (entries.length >= MAX_TREE_ENTRIES) break
+    page = res.headers.get('x-next-page') || null
+  }
+  return { ok: true, entries }
 }
 
 async function createBranch(token: string, repo: RepoRef, fromRef: string, newBranch: string): Promise<TestResult> {
@@ -111,5 +141,5 @@ async function mergePR(token: string, repo: RepoRef, prNumber: number): Promise<
 }
 
 export const gitlabAdapter: GitAdapter = {
-  verifyToken, listRepos, getFileContent, createBranch, commitFiles, openPR, getPRStatus, mergePR,
+  verifyToken, listRepos, getFileContent, listTree, createBranch, commitFiles, openPR, getPRStatus, mergePR,
 }

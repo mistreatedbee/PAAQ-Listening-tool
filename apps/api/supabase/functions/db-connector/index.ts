@@ -14,38 +14,14 @@
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { verifySdkAuth } from '../_shared/auth.ts'
-import { decryptSecret, encryptSecret, parseDisplayHint } from '../_shared/crypto.ts'
-import { categorizeError } from '../_shared/db-engines/types.ts'
-import type { DbAdapter, TableInfo } from '../_shared/db-engines/types.ts'
+import { decryptSecret } from '../_shared/crypto.ts'
+import { runPipeline, saveDbConnection } from '../_shared/db-engines/pipeline.ts'
+import type { Engine } from '../_shared/db-engines/pipeline.ts'
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
 )
-
-type Engine = 'postgres' | 'mysql' | 'mongodb' | 'sqlite' | 'redis' | 'supabase'
-
-// Lazily imported so a driver that fails to resolve in the deployed edge
-// runtime (npm: specifiers for mysql2/mongodb/@libsql/redis have known
-// compatibility gaps there) only breaks requests for that one engine,
-// instead of crashing the whole function at module-load time.
-async function loadAdapter(engine: Engine): Promise<DbAdapter> {
-  switch (engine) {
-    case 'postgres':
-    case 'supabase': // Supabase is Postgres under the hood
-      return (await import('../_shared/db-engines/postgres.ts')).postgresAdapter
-    case 'mysql':
-      return (await import('../_shared/db-engines/mysql.ts')).mysqlAdapter
-    case 'mongodb':
-      return (await import('../_shared/db-engines/mongodb.ts')).mongodbAdapter
-    case 'sqlite': // "SQLite" here means libSQL/Turso — see libsql.ts
-      return (await import('../_shared/db-engines/libsql.ts')).libsqlAdapter
-    case 'redis':
-      return (await import('../_shared/db-engines/redis.ts')).redisAdapter
-    default:
-      throw new Error(`Unsupported engine: ${engine}`)
-  }
-}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders() })
@@ -93,31 +69,6 @@ async function handleStatus(projectId: string): Promise<Response> {
   })
 }
 
-type PipelineResult =
-  | { ok: true; tables: TableInfo[] }
-  | { ok: false; step: 'connect' | 'introspect' | 'readonly'; errorCategory: ReturnType<typeof categorizeError>; error: string }
-
-async function runPipeline(engine: Engine, connectionString: string): Promise<PipelineResult> {
-  let adapter: DbAdapter
-  try {
-    adapter = await loadAdapter(engine)
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    return { ok: false, step: 'connect', errorCategory: 'unsupported_engine', error: `This engine's driver is unavailable right now: ${msg.slice(0, 200)}` }
-  }
-
-  const connResult = await adapter.testConnection(connectionString)
-  if (!connResult.ok) return { ok: false, step: 'connect', errorCategory: categorizeError(connResult.error), error: connResult.error }
-
-  const introspectResult = await adapter.introspectSchema(connectionString)
-  if (!introspectResult.ok) return { ok: false, step: 'introspect', errorCategory: categorizeError(introspectResult.error), error: introspectResult.error }
-
-  const roResult = await adapter.verifyReadOnly(connectionString, introspectResult.tables)
-  if (!roResult.ok) return { ok: false, step: 'readonly', errorCategory: categorizeError(roResult.error), error: roResult.error }
-
-  return { ok: true, tables: introspectResult.tables }
-}
-
 async function handleTest(body: Record<string, unknown>): Promise<Response> {
   const engine = body.engine as Engine
   const connectionString = body.connectionString as string
@@ -141,48 +92,10 @@ async function handleSave(projectId: string, tenantId: string, body: Record<stri
   if (!connectionString) return respond({ ok: false, error: 'connectionString is required' }, 400)
 
   // Never trust a stale client-side "it passed" state — always re-verify
-  // server-side right before persisting anything.
-  const result = await runPipeline(engine, connectionString)
+  // server-side right before persisting anything. Shared with onboard-agent's
+  // configure_db_connection/verify_database tools — see _shared/db-engines/pipeline.ts.
+  const result = await saveDbConnection(supabase, { projectId, tenantId, engine, connectionString })
   if (!result.ok) return respond(result)
-
-  const { ciphertext, iv } = await encryptSecret(connectionString)
-  const hint = parseDisplayHint(engine, connectionString)
-  const now = new Date().toISOString()
-
-  await supabase.from('database_connectors').upsert(
-    {
-      project_id: projectId,
-      engine,
-      display_host: hint.host,
-      display_database: hint.database,
-      display_username: hint.username,
-      ciphertext,
-      iv,
-      status: 'connected',
-      last_test_at: now,
-      last_test_ok: true,
-      last_error: null,
-      introspected_tables: result.tables,
-      updated_at: now,
-    },
-    { onConflict: 'project_id' },
-  )
-
-  // Feed the existing app-wide connected-status mechanism (DATABASE_PLATFORMS
-  // in connected-app-context.tsx) so "N/3 systems connected" reflects this
-  // for free, with no separate status plumbing needed elsewhere.
-  await supabase.from('sdk_installations').upsert(
-    {
-      tenant_id: tenantId,
-      project_id: projectId,
-      platform: engine,
-      device_id: 'db-connector',
-      sdk_version: '1.0.0',
-      last_seen: now,
-      status: 'active',
-    },
-    { onConflict: 'tenant_id,project_id,device_id,platform' },
-  )
 
   return handleStatus(projectId)
 }

@@ -100,16 +100,19 @@ export async function GET(
   const code = searchParams.get('code')
   const stateParam = searchParams.get('state')
 
-  // Decode state to get projectId
+  // Decode state to get projectId (and optionally where to send the user back)
   let projectId: string | null = null
+  let returnTo: string | null = null
   try {
     const state = JSON.parse(Buffer.from(stateParam ?? '', 'base64url').toString())
     projectId = state.projectId
+    returnTo = typeof state.returnTo === 'string' ? state.returnTo : null
   } catch {
     // ignore
   }
 
-  const fallback = projectId ? `/apps/${projectId}?repo_error=auth_failed` : '/setup'
+  const base = returnTo || `/apps/${projectId}`
+  const fallback = projectId ? `${base}?repo_error=auth_failed` : '/setup'
 
   if (!code || !projectId || !EXCHANGE_FNS[provider]) {
     return NextResponse.redirect(new URL(fallback, request.url))
@@ -134,7 +137,7 @@ export async function GET(
     })
     const storeData = await storeRes.json().catch(() => ({ ok: false }))
     if (!storeData.ok) {
-      return NextResponse.redirect(new URL(`/apps/${projectId}?repo_error=token_store_failed`, request.url))
+      return NextResponse.redirect(new URL(`${base}?repo_error=token_store_failed`, request.url))
     }
 
     // Identity-only metadata — never a secret — stays in project_repositories,
@@ -153,7 +156,7 @@ export async function GET(
       { onConflict: 'project_id,provider' },
     )
 
-    return NextResponse.redirect(new URL(`/apps/${projectId}?repo_connected=${provider}&needs_repo_pick=1`, request.url))
+    return NextResponse.redirect(new URL(`${base}?repo_connected=${provider}&needs_repo_pick=1`, request.url))
   } catch {
     return NextResponse.redirect(new URL(`/apps/${projectId}?repo_error=auth_failed`, request.url))
   }

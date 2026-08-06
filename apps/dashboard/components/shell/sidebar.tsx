@@ -5,7 +5,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
-import { navGroups } from '@/lib/nav'
+import { getNavGroups } from '@/lib/nav'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { cn } from '@/lib/utils'
 import { toneSoft } from '@/lib/tones'
@@ -19,7 +19,7 @@ export function Sidebar({
   onClose: () => void
 }) {
   const pathname = usePathname()
-  const { app } = useConnectedApp()
+  const { app, allApps } = useConnectedApp()
   const [openIncidents, setOpenIncidents] = useState(0)
   const [openErrors, setOpenErrors] = useState(0)
   const [aiInsights, setAiInsights] = useState(0)
@@ -53,6 +53,16 @@ export function Sidebar({
   const allConnected = app.sdkStatus.frontend === 'connected'
     && app.sdkStatus.backend === 'connected'
     && app.sdkStatus.database === 'connected'
+
+  // Nav toggle checks EVERY app the user has, not just the currently active
+  // one — once any single app is fully wired up, the generic Connect/Setup
+  // entry points give way to a direct link into that app's management page.
+  const anyAppFullyConnected = allApps.some((a) =>
+    a.sdkStatus.frontend === 'connected'
+    && a.sdkStatus.backend === 'connected'
+    && a.sdkStatus.database === 'connected',
+  )
+  const navGroups = getNavGroups(anyAppFullyConnected, app.id !== '__loading__' ? app.id : undefined)
 
   return (
     <>

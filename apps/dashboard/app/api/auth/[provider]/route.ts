@@ -38,6 +38,11 @@ export async function GET(
   const { provider } = await params
   const { searchParams } = new URL(request.url)
   const projectId = searchParams.get('project_id')
+  // Optional: where to send the user back after the OAuth round-trip, e.g.
+  // the onboarding agent's chat view (/connect/[runId]) instead of the
+  // default /apps/[id] — falls back to /apps/[id] in the callback if absent,
+  // so every other caller of this route keeps its existing behavior.
+  const returnTo = searchParams.get('returnTo')
 
   const config = PROVIDER_CONFIG[provider]
 
@@ -54,7 +59,7 @@ export async function GET(
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin
   const redirectUri = `${appUrl}/api/auth/${provider}/callback`
-  const state = Buffer.from(JSON.stringify({ projectId, provider })).toString('base64url')
+  const state = Buffer.from(JSON.stringify({ projectId, provider, returnTo })).toString('base64url')
 
   return NextResponse.redirect(config.buildUrl(clientId, redirectUri, state))
 }

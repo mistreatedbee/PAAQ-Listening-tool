@@ -89,6 +89,9 @@ function detectFramework(packageJsonContent, requirementsTxtContent) {
 }
 
 // ── Snippet generators — all use new multi-tenant auth ──────────────────────
+// Canonical source is apps/api/supabase/functions/_shared/sdk-snippets.ts —
+// kept in sync manually since this is a separate Node package with no import
+// path into Deno edge functions (same reasoning as FRONTEND_PLATFORMS above).
 
 function snippet_nextjs(sdkToken, projectKey) {
   return `// lib/paaq.ts — create this file in your Next.js project

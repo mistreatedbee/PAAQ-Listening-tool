@@ -2,10 +2,18 @@
 // Never exercised against a live Bitbucket workspace in this environment —
 // treat as beta/unverified until smoke-tested with real credentials.
 import type {
-  GitAdapter, RepoRef, RepoFile, TestResult, ListReposResult, GetFileResult, OpenPrResult, PrStatusResult,
+  GitAdapter, RepoRef, RepoFile, TestResult, ListReposResult, GetFileResult, OpenPrResult, PrStatusResult, TreeEntry, ListTreeResult,
 } from './types.ts'
 
 const API = 'https://api.bitbucket.org/2.0'
+
+const EXCLUDED_SEGMENTS = ['node_modules', '.git', 'dist', 'build', 'vendor', '.next', '.turbo', 'coverage']
+const MAX_TREE_ENTRIES = 2000
+
+function isExcludedPath(path: string): boolean {
+  const segments = path.split('/')
+  return EXCLUDED_SEGMENTS.some((seg) => segments.includes(seg))
+}
 
 function headers(token: string) {
   return { Authorization: `Bearer ${token}` }
@@ -48,6 +56,32 @@ async function getFileContent(token: string, repo: RepoRef, path: string, ref: s
   const res = await bbFetch(`/repositories/${repo.fullName}/src/${encodeURIComponent(ref)}/${path}`, token)
   if (!res.ok) return { ok: false, error: typeof res.body === 'string' ? res.body : `Bitbucket get file failed (${res.status})` }
   return { ok: true, content: typeof res.body === 'string' ? res.body : JSON.stringify(res.body) }
+}
+
+async function listTree(token: string, repo: RepoRef, path: string, ref: string, opts?: { recursive?: boolean }): Promise<ListTreeResult> {
+  const recursive = opts?.recursive === true
+  const entries: TreeEntry[] = []
+  const queue: string[] = [path ?? '']
+  while (queue.length > 0 && entries.length < MAX_TREE_ENTRIES) {
+    const currentPath = queue.shift() as string
+    let nextUrl: string | null = `${API}/repositories/${repo.fullName}/src/${encodeURIComponent(ref)}/${currentPath}`
+    while (nextUrl && entries.length < MAX_TREE_ENTRIES) {
+      const res = await fetch(nextUrl, { headers: headers(token) })
+      const contentType = res.headers.get('content-type') ?? ''
+      const body: any = contentType.includes('json') ? await res.json().catch(() => ({})) : await res.text()
+      if (!res.ok) return { ok: false, error: typeof body === 'string' ? body : (body?.error?.message ?? `Bitbucket list tree failed (${res.status})`) }
+      const items: any[] = Array.isArray(body?.values) ? body.values : []
+      for (const item of items) {
+        if (!item?.path || isExcludedPath(item.path)) continue
+        const type: 'file' | 'dir' = item.type === 'commit_directory' ? 'dir' : 'file'
+        entries.push({ path: item.path, type, size: item.size })
+        if (type === 'dir' && recursive) queue.push(item.path)
+        if (entries.length >= MAX_TREE_ENTRIES) break
+      }
+      nextUrl = body?.next ?? null
+    }
+  }
+  return { ok: true, entries }
 }
 
 async function createBranch(token: string, repo: RepoRef, fromRef: string, newBranch: string): Promise<TestResult> {
@@ -116,5 +150,5 @@ async function mergePR(token: string, repo: RepoRef, prNumber: number): Promise<
 }
 
 export const bitbucketAdapter: GitAdapter = {
-  verifyToken, listRepos, getFileContent, createBranch, commitFiles, openPR, getPRStatus, mergePR,
+  verifyToken, listRepos, getFileContent, listTree, createBranch, commitFiles, openPR, getPRStatus, mergePR,
 }

@@ -4,6 +4,8 @@ export type RepoFile = { path: string; newContent: string }
 export type TestResult = { ok: true } | { ok: false; error: string }
 export type ListReposResult = { ok: true; repos: RepoRef[] } | { ok: false; error: string }
 export type GetFileResult = { ok: true; content: string; sha?: string } | { ok: false; error: string }
+export type TreeEntry = { path: string; type: 'file' | 'dir'; size?: number }
+export type ListTreeResult = { ok: true; entries: TreeEntry[] } | { ok: false; error: string }
 export type OpenPrResult = { ok: true; prUrl: string; prNumber: number } | { ok: false; error: string }
 export type PrStatusResult =
   | {
@@ -24,6 +26,8 @@ export interface GitAdapter {
   verifyToken(token: string): Promise<TestResult>
   listRepos(token: string): Promise<ListReposResult>
   getFileContent(token: string, repo: RepoRef, path: string, ref: string): Promise<GetFileResult>
+  /** Non-recursive-by-default directory listing; recursive:true for a full tree. */
+  listTree(token: string, repo: RepoRef, path: string, ref: string, opts?: { recursive?: boolean }): Promise<ListTreeResult>
   createBranch(token: string, repo: RepoRef, fromRef: string, newBranch: string): Promise<TestResult>
   /** One atomic call where the provider supports it (GitLab/Azure); sequential per-file elsewhere (GitHub/Bitbucket). */
   commitFiles(token: string, repo: RepoRef, branch: string, files: RepoFile[], message: string): Promise<TestResult>

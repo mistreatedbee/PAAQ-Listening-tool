@@ -1,9 +1,17 @@
 import type {
-  GitAdapter, RepoRef, RepoFile, TestResult, ListReposResult, GetFileResult, OpenPrResult, PrStatusResult,
+  GitAdapter, RepoRef, RepoFile, TestResult, ListReposResult, GetFileResult, OpenPrResult, PrStatusResult, TreeEntry, ListTreeResult,
 } from './types.ts'
 import { categorizeGitError } from './types.ts'
 
 const API = 'https://api.github.com'
+
+const EXCLUDED_SEGMENTS = ['node_modules', '.git', 'dist', 'build', 'vendor', '.next', '.turbo', 'coverage']
+const MAX_TREE_ENTRIES = 2000
+
+function isExcludedPath(path: string): boolean {
+  const segments = path.split('/')
+  return EXCLUDED_SEGMENTS.some((seg) => segments.includes(seg))
+}
 
 function headers(token: string) {
   return {
@@ -49,6 +57,32 @@ async function getFileContent(token: string, repo: RepoRef, path: string, ref: s
   const { ok, status, body } = await ghFetch(`/repos/${repo.fullName}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(ref)}`, token)
   if (!ok) return { ok: false, error: body?.message ?? `GitHub get file failed (${status})` }
   return { ok: true, content: fromBase64(body.content), sha: body.sha }
+}
+
+async function listTree(token: string, repo: RepoRef, path: string, ref: string, opts?: { recursive?: boolean }): Promise<ListTreeResult> {
+  if (opts?.recursive) {
+    const { ok, status, body } = await ghFetch(`/repos/${repo.fullName}/git/trees/${encodeURIComponent(ref)}?recursive=1`, token)
+    if (!ok) return { ok: false, error: body?.message ?? `GitHub list tree failed (${status})` }
+    const entries: TreeEntry[] = []
+    for (const item of (body?.tree ?? [])) {
+      if (item.type !== 'blob' && item.type !== 'tree') continue
+      if (isExcludedPath(item.path)) continue
+      entries.push({ path: item.path, type: item.type === 'blob' ? 'file' : 'dir', size: item.size })
+      if (entries.length >= MAX_TREE_ENTRIES) break
+    }
+    return { ok: true, entries }
+  }
+  const p = path ? `/${encodeURIComponent(path)}` : ''
+  const { ok, status, body } = await ghFetch(`/repos/${repo.fullName}/contents${p}?ref=${encodeURIComponent(ref)}`, token)
+  if (!ok) return { ok: false, error: body?.message ?? `GitHub list tree failed (${status})` }
+  const items: any[] = Array.isArray(body) ? body : [body]
+  const entries: TreeEntry[] = []
+  for (const item of items) {
+    if (!item?.path || isExcludedPath(item.path)) continue
+    entries.push({ path: item.path, type: item.type === 'dir' ? 'dir' : 'file', size: item.size })
+    if (entries.length >= MAX_TREE_ENTRIES) break
+  }
+  return { ok: true, entries }
 }
 
 async function createBranch(token: string, repo: RepoRef, fromRef: string, newBranch: string): Promise<TestResult> {
@@ -152,7 +186,7 @@ async function mergePR(token: string, repo: RepoRef, prNumber: number): Promise<
 }
 
 export const githubAdapter: GitAdapter = {
-  verifyToken, listRepos, getFileContent, createBranch, commitFiles, openPR, getPRStatus, mergePR,
+  verifyToken, listRepos, getFileContent, listTree, createBranch, commitFiles, openPR, getPRStatus, mergePR,
 }
 
 export { categorizeGitError }

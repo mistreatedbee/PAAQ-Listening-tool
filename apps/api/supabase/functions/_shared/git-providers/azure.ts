@@ -5,10 +5,18 @@
 // RepoRef.fullName convention for this provider: "{org}/{project}/{repo}"
 // (Azure repos are always scoped to an org+project, unlike the other 3).
 import type {
-  GitAdapter, RepoRef, RepoFile, TestResult, ListReposResult, GetFileResult, OpenPrResult, PrStatusResult,
+  GitAdapter, RepoRef, RepoFile, TestResult, ListReposResult, GetFileResult, OpenPrResult, PrStatusResult, TreeEntry, ListTreeResult,
 } from './types.ts'
 
 const API_VERSION = '7.1'
+
+const EXCLUDED_SEGMENTS = ['node_modules', '.git', 'dist', 'build', 'vendor', '.next', '.turbo', 'coverage']
+const MAX_TREE_ENTRIES = 2000
+
+function isExcludedPath(path: string): boolean {
+  const segments = path.split('/')
+  return EXCLUDED_SEGMENTS.some((seg) => segments.includes(seg))
+}
 
 function headers(token: string) {
   return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
@@ -64,6 +72,24 @@ async function getFileContent(token: string, repo: RepoRef, path: string, ref: s
   const res = await azFetch(url, token)
   if (!res.ok) return { ok: false, error: typeof res.body === 'string' ? res.body : `Azure get file failed (${res.status})` }
   return { ok: true, content: typeof res.body === 'string' ? res.body : JSON.stringify(res.body) }
+}
+
+async function listTree(token: string, repo: RepoRef, path: string, ref: string, opts?: { recursive?: boolean }): Promise<ListTreeResult> {
+  const { org, project, repo: repoName } = parts(repo)
+  const recursionLevel = opts?.recursive ? 'Full' : 'OneLevel'
+  const scopePath = path ? path : '/'
+  const url = `https://dev.azure.com/${org}/${project}/_apis/git/repositories/${repoName}/items?scopePath=${encodeURIComponent(scopePath)}&recursionLevel=${recursionLevel}&versionDescriptor.version=${encodeURIComponent(ref)}&api-version=${API_VERSION}`
+  const res = await azFetch(url, token)
+  if (!res.ok) return { ok: false, error: typeof res.body === 'string' ? res.body : (res.body?.message ?? `Azure list tree failed (${res.status})`) }
+  const items: any[] = Array.isArray(res.body?.value) ? res.body.value : []
+  const entries: TreeEntry[] = []
+  for (const item of items) {
+    const itemPath = typeof item.path === 'string' ? item.path.replace(/^\//, '') : ''
+    if (!itemPath || isExcludedPath(itemPath)) continue
+    entries.push({ path: itemPath, type: item.gitObjectType === 'tree' ? 'dir' : 'file' })
+    if (entries.length >= MAX_TREE_ENTRIES) break
+  }
+  return { ok: true, entries }
 }
 
 async function createBranch(token: string, repo: RepoRef, fromRef: string, newBranch: string): Promise<TestResult> {
@@ -144,5 +170,5 @@ async function mergePR(token: string, repo: RepoRef, prNumber: number): Promise<
 }
 
 export const azureAdapter: GitAdapter = {
-  verifyToken, listRepos, getFileContent, createBranch, commitFiles, openPR, getPRStatus, mergePR,
+  verifyToken, listRepos, getFileContent, listTree, createBranch, commitFiles, openPR, getPRStatus, mergePR,
 }
