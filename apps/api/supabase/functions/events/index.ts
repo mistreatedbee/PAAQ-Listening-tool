@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { checkAndRecordDbHeartbeat } from '../_shared/db-heartbeat.ts'
+import { checkAndSweepStaleSessions } from '../_shared/session-sweep.ts'
 import { recordPageViews } from '../_shared/session-pages.ts'
 import { recordBehaviorEvents } from '../_shared/behavior-events.ts'
 
@@ -174,12 +175,18 @@ Deno.serve(async (req) => {
   // Background: real DB connection test for health metrics — kept separate
   // so it doesn't slow down the response.
   const dbCheckPromise = checkAndRecordDbHeartbeat(supabase, project.id)
+  // Background: sweep this project's own stale-active sessions — session-sweep-cron's
+  // Deno.cron schedule isn't guaranteed to fire on every deployment, so real traffic
+  // is the dependable backstop, same reasoning as the DB heartbeat check above.
+  const sessionSweepPromise = checkAndSweepStaleSessions(supabase, project.id)
   // deno-lint-ignore no-explicit-any
   const runtime = globalThis as any
   if (typeof runtime.EdgeRuntime?.waitUntil === 'function') {
     runtime.EdgeRuntime.waitUntil(dbCheckPromise)
+    runtime.EdgeRuntime.waitUntil(sessionSweepPromise)
   } else {
     dbCheckPromise.catch(() => {})
+    sessionSweepPromise.catch(() => {})
   }
 
   return respond({ ok: true, inserted: rows.length })
