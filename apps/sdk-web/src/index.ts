@@ -595,8 +595,12 @@ function installDomRecording(): void {
     blockClass: 'paaq-block',
     maskTextClass: 'paaq-mask',
     // Periodic full snapshot so the player can render mid-recording without
-    // replaying every incremental mutation from session start.
-    checkoutEveryNms: 60_000,
+    // replaying every incremental mutation from session start — also the
+    // real floor on how short a "watch this moment" clip can be, since the
+    // dashboard clips playback to start at the latest snapshot before a
+    // moment. 15s keeps clips consistently short at the cost of somewhat
+    // more captured data per session than the previous 60s cadence.
+    checkoutEveryNms: 15_000,
   }) ?? null
 
   if (_recordingFlushTimer) clearInterval(_recordingFlushTimer)
