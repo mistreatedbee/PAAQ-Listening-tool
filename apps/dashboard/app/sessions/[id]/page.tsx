@@ -137,10 +137,16 @@ export default function SessionDetailPage() {
         environment={environment}
       />
 
-      {session.platform === 'web' ? (
-        <DomReplayPlayer sessionId={session.id} />
-      ) : (
+      {/* `session.platform` describes the host framework (react/vue/nextjs/
+          flutter/...), never literally 'web' — branching the replay player
+          on it meant DomReplayPlayer never rendered for any real web SDK
+          session, only ScreenshotReplayPlayer, which then found the wrong
+          recording kind and rendered nothing. The real signal for which
+          player to use is the recording's own kind, already loaded above. */}
+      {recording.kind === 'screenshots' ? (
         <ScreenshotReplayPlayer sessionId={session.id} />
+      ) : (
+        <DomReplayPlayer sessionId={session.id} />
       )}
 
       {events.length > 0 && (
