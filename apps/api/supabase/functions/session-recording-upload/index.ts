@@ -76,8 +76,28 @@ Deno.serve(async (req) => {
       .insert({ project_id: project.id, session_id: sessionId, kind, started_at: capturedAt })
       .select('id, chunk_count')
       .single()
-    if (error) return respond({ error: error.message }, 500)
-    recording = created
+    if (error) {
+      // 23505 = unique_violation on session_recordings_session_id_key — the
+      // SDK deliberately flushes the first snapshot/meta chunk immediately
+      // rather than waiting for the batch timer, so two chunks can genuinely
+      // race to create this session's recording row at once. The loser here
+      // isn't a real failure — the row now exists (created by the other
+      // request), just re-fetch it instead of surfacing a raw 500 for what
+      // is, from the SDK's point of view, a successful upload.
+      if (error.code === '23505') {
+        const { data: existing } = await supabase
+          .from('session_recordings')
+          .select('id, chunk_count')
+          .eq('session_id', sessionId)
+          .maybeSingle()
+        if (!existing) return respond({ error: error.message }, 500)
+        recording = existing
+      } else {
+        return respond({ error: error.message }, 500)
+      }
+    } else {
+      recording = created
+    }
   }
 
   const ext = kind === 'screenshots' ? 'jpg' : 'json'
