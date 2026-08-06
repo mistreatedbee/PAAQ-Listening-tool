@@ -94,7 +94,7 @@ async function _handle(req: Request): Promise<Response> {
 function cors() {
   return {
     'Access-Control-Allow-Origin':  '*',
-    'Access-Control-Allow-Headers': 'content-type, authorization, x-project-id, x-sdk-version, x-platform',
+    'Access-Control-Allow-Headers': 'content-type, authorization, x-project-id, x-sdk-version, x-platform, x-environment',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
   }
 }

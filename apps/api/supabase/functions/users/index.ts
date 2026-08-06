@@ -94,7 +94,7 @@ Deno.serve(async (req) => {
 function corsHeaders() {
   return {
     'Access-Control-Allow-Origin':  '*',
-    'Access-Control-Allow-Headers': 'content-type, authorization, x-project-id',
+    'Access-Control-Allow-Headers': 'content-type, authorization, x-project-id, x-sdk-version, x-platform, x-environment',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
   }
 }
