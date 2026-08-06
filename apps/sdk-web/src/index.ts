@@ -16,6 +16,7 @@ type ErrorPayload = {
 type EventPayload = {
   event_name: string
   session_id: string | null
+  user_id?: string | null
   properties: Record<string, unknown>
   timestamp: string
 }
@@ -37,6 +38,7 @@ let _sdkToken = ''
 let _projectKey = ''
 let _platform = 'react'
 let _sessionId: string | null = null
+let _currentUserId: string | null = null
 let _sessionStartedAt = 0
 let _sessionEnded = false
 let _hadFatalError = false
@@ -126,7 +128,7 @@ function getDeviceId(): string {
 async function init(
   sdkToken: string,
   projectKey: string,
-  options: { platform?: string } = {},
+  options: { platform?: string; appVersion?: string } = {},
 ): Promise<InitResult> {
   _sdkToken = sdkToken
   _projectKey = projectKey
@@ -136,11 +138,16 @@ async function init(
     const res = await fetch(`${BASE_URL}/sdk-init`, {
       method: 'POST',
       headers: buildHeaders(),
-      body: JSON.stringify({ deviceId: getDeviceId(), deviceMetadata: collectDeviceMetadata() }),
+      body: JSON.stringify({
+        deviceId: getDeviceId(),
+        appVersion: options.appVersion,
+        deviceMetadata: collectDeviceMetadata(),
+      }),
     })
     const data: InitResult = await res.json()
     if (data.ok && data.sessionId) {
       _sessionId = data.sessionId
+      _currentUserId = null
       _sessionStartedAt = Date.now()
       _sessionEnded = false
       _hadFatalError = false
@@ -173,14 +180,44 @@ function track(eventName: string, properties: Record<string, unknown> = {}) {
   _queue.push({
     event_name: eventName,
     session_id: _sessionId,
+    user_id: _currentUserId,
     properties,
     timestamp: new Date().toISOString(),
   })
   if (_queue.length >= _config.batchSize) void flush()
 }
 
-function identify(userId: string, traits: Record<string, unknown> = {}) {
+// Resolves/creates the user via the `/users` endpoint (keyed on the caller's
+// own external_user_id) and links the resulting user_id onto the current
+// session immediately — not just once the session closes — so Identity/
+// Email/Type/Lifetime-sessions populate right away in the dashboard.
+async function identify(userId: string, traits: Record<string, unknown> = {}): Promise<void> {
   track('$identify', { userId, ...traits })
+
+  if (!_sdkToken) return
+  try {
+    const email = typeof traits.email === 'string' ? traits.email : undefined
+    const res = await fetch(`${BASE_URL}/users`, {
+      method: 'POST',
+      headers: buildHeaders(),
+      body: JSON.stringify({ external_user_id: userId, email }),
+    })
+    const data: { ok?: boolean; user_id?: string } = await res.json().catch(() => ({}))
+    if (!data.ok || !data.user_id) return
+
+    _currentUserId = data.user_id
+
+    if (_sessionId) {
+      await fetch(`${BASE_URL}/sessions`, {
+        method: 'POST',
+        headers: buildHeaders(),
+        body: JSON.stringify({ action: 'identify', session_id: _sessionId, user_id: data.user_id }),
+      })
+    }
+  } catch {
+    // fire-and-forget — a failed identify just leaves the session unlinked,
+    // it never blocks tracking
+  }
 }
 
 function page(pageName?: string, properties: Record<string, unknown> = {}) {
@@ -537,6 +574,13 @@ function installClickTracking(): void {
     const x = event.clientX
     const y = event.clientY
 
+    // ── Plain click: every click, not just rage/dead-click patterns. This is
+    // the actual "did the user interact with this page" signal — session_pages'
+    // interaction_count only ever increments off of *some* tracked event
+    // existing, and a normal single click on a button/link previously produced
+    // nothing at all, so page-by-page "clicks" was always 0 for ordinary use.
+    track('$click', { targetSelector: cssPath(target), x, y, page: window.location.pathname })
+
     // ── Rage click: 3+ clicks in quick succession, close together ──
     _recentClicks = _recentClicks.filter((c) => now - c.time < RAGE_CLICK_WINDOW_MS)
     _recentClicks.push({ time: now, x, y, target })
@@ -582,7 +626,7 @@ function installScrollTracking(): void {
     for (const milestone of SCROLL_MILESTONES) {
       if (pct >= milestone && !_reportedScrollMilestones.has(milestone)) {
         _reportedScrollMilestones.add(milestone)
-        track('$scroll_depth', { pct: milestone })
+        track('$scroll_depth', { pct: milestone, page: window.location.pathname })
       }
     }
   }

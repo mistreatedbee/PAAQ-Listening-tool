@@ -62,14 +62,37 @@ Deno.serve(async (req) => {
   const body = await req.json().catch(() => null)
   if (!body) return respond({ error: 'Invalid JSON' }, 400)
 
-  // action: 'start' (deprecated) | 'end'
-  const { action, session_id, ended_at, duration, outcome } = body as Record<string, string>
+  // action: 'start' (deprecated) | 'end' | 'identify'
+  const { action, session_id, ended_at, duration, outcome, user_id } = body as Record<string, string>
 
   if (action === 'start') {
     // sdk-init already creates the session row on every call — this action
     // predates that and, left live, causes double-session-row inserts. No SDK
     // calls it anymore (confirmed by grep across all SDK sources).
     return respond({ error: 'Deprecated — sessions are created automatically by sdk-init' }, 410)
+  }
+
+  if (action === 'identify' && session_id && user_id) {
+    // Called from the SDK's identify() once /users has resolved a user_id, so
+    // Identity/Email/Type/Lifetime-sessions can populate immediately instead of
+    // waiting for the session to close.
+    const { data: session } = await supabase
+      .from('sessions')
+      .select('id')
+      .eq('id', session_id)
+      .eq('project_id', project.id)
+      .maybeSingle()
+
+    if (!session) return respond({ error: 'Session not found' }, 404)
+
+    const { error } = await supabase
+      .from('sessions')
+      .update({ user_id })
+      .eq('id', session_id)
+      .eq('project_id', project.id)
+
+    if (error) return respond({ error: error.message }, 500)
+    return respond({ ok: true })
   }
 
   if (action === 'end' && session_id) {
@@ -98,7 +121,7 @@ Deno.serve(async (req) => {
     return respond({ ok: true })
   }
 
-  return respond({ error: 'Invalid action. Use "end".' }, 400)
+  return respond({ error: 'Invalid action. Use "end" or "identify".' }, 400)
 })
 
 function corsHeaders() {
