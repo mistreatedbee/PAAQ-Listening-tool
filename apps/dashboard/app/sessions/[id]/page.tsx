@@ -37,25 +37,6 @@ export default function SessionDetailPage() {
   useEffect(() => {
     if (!id) return
     const sb = createClient()
-    let loadedUserId: string | null = null
-
-    // Real user identity + lifetime session count for a given user_id —
-    // pulled out so it can run both on initial load and again whenever a
-    // live session UPDATE links a user mid-session (identify() called after
-    // the page was already open), not just once at mount. Guarded so a
-    // session row updating for unrelated reasons (duration ticking, page
-    // count) doesn't re-fetch the same user over and over.
-    const loadUserInfo = async (userId: string) => {
-      if (loadedUserId === userId) return
-      loadedUserId = userId
-      const [{ data: userRow }, { count }] = await Promise.all([
-        sb.from('users').select('id, external_user_id, email, created_at').eq('id', userId).maybeSingle(),
-        sb.from('sessions').select('id', { count: 'exact', head: true }).eq('user_id', userId),
-      ])
-      setUser(userRow as SessionUser | null)
-      setLifetimeSessionCount(count ?? null)
-      setIsReturning((count ?? 0) > 1)
-    }
 
     const load = async () => {
       const { data: sessionRow } = await sb
@@ -83,36 +64,27 @@ export default function SessionDetailPage() {
       setSummary(summaryRow as SessionAiSummary | null)
       setFormFields((formFieldRows ?? []) as FormFieldStat[])
 
-      if (sessionRow.user_id) await loadUserInfo(sessionRow.user_id)
+      if (sessionRow.user_id) {
+        const [{ data: userRow }, { count }] = await Promise.all([
+          sb.from('users').select('id, external_user_id, email, created_at').eq('id', sessionRow.user_id).maybeSingle(),
+          sb.from('sessions').select('id', { count: 'exact', head: true }).eq('user_id', sessionRow.user_id),
+        ])
+        setUser(userRow as SessionUser | null)
+        setLifetimeSessionCount(count ?? null)
+        setIsReturning((count ?? 0) > 1)
+      }
 
       setLoading(false)
     }
 
     load()
 
-    // While a session is still active, its row (identity link, duration,
-    // page/interaction counts) only gets finalized server-side when it
-    // closes — watching a LIVE session without this subscription showed the
-    // timeline updating in real time while identity/duration/counts stayed
-    // frozen at whatever they were the instant the page loaded, which is
-    // exactly what looked like "it stopped working" for a session opened
-    // right as it started. Real UPDATE events from Postgres, not a poll.
     const channel = sb
       .channel(`session-detail:${id}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'events', filter: `session_id=eq.${id}` },
         (payload) => setEvents((prev) => [...prev, payload.new as SessionEvent]))
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'errors', filter: `session_id=eq.${id}` },
         (payload) => setErrors((prev) => [...prev, payload.new as SessionError]))
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'session_pages', filter: `session_id=eq.${id}` },
-        (payload) => setPages((prev) => [...prev, payload.new as SessionPage]))
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'form_field_stats', filter: `session_id=eq.${id}` },
-        (payload) => setFormFields((prev) => [...prev, payload.new as FormFieldStat]))
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'sessions', filter: `id=eq.${id}` },
-        (payload) => {
-          const updated = payload.new as SessionRow
-          setSession((prev) => (prev ? { ...prev, ...updated } : updated))
-          if (updated.user_id) void loadUserInfo(updated.user_id)
-        })
       .subscribe()
 
     return () => { sb.removeChannel(channel) }
@@ -158,16 +130,7 @@ export default function SessionDetailPage() {
       />
 
       <SessionOverviewCard
-        session={{
-          ...session,
-          // page_count/interaction_count on the sessions row are only
-          // finalized server-side when a session closes — for a session
-          // being watched live, the rows already streamed in via Realtime
-          // (pages/events, subscribed above) are the real current count,
-          // never behind what's actually on screen in the timeline below.
-          page_count: Math.max(session.page_count ?? 0, pages.length),
-          interaction_count: Math.max(session.interaction_count ?? 0, events.length),
-        }}
+        session={session}
         user={user}
         isReturning={isReturning}
         lifetimeSessionCount={lifetimeSessionCount}
