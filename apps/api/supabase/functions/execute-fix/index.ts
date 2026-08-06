@@ -472,7 +472,15 @@ async function handleStatus(rec: RecRow) {
   // rec sits in 'pending' forever and Deployment Intelligence never learns
   // the change shipped, even once GitHub confirms it did.
   if (status.state === 'merged' && rec.fix_pr_state !== 'merged') {
-    await recordMerge(rec, { actingUserId: null })
+    // No commitSha here — PAAQ never called mergePR() itself for a merge it
+    // only detected after the fact, so there's no merge response to read
+    // one from. checksPassed/checksSupported are real, though — same
+    // getPRStatus() call already fetched above.
+    await recordMerge(rec, {
+      actingUserId: null,
+      validationPassed: status.checksPassed,
+      validationResults: { checksPassed: status.checksPassed, checksPending: status.checksPending ?? false, checksSupported: status.checksSupported },
+    })
   } else if (status.state !== 'open' && status.state !== rec.fix_pr_state) {
     await supabase.from('recommendations').update({ fix_pr_state: status.state }).eq('id', rec.id)
   }

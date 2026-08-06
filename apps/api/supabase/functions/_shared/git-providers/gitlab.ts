@@ -4,6 +4,7 @@
 // real credentials (see plan verification notes).
 import type {
   GitAdapter, RepoRef, RepoFile, TestResult, ListReposResult, GetFileResult, OpenPrResult, PrStatusResult, TreeEntry, ListTreeResult,
+  MergePrResult, CreateWebhookResult,
 } from './types.ts'
 
 const API = 'https://gitlab.com/api/v4'
@@ -134,12 +135,27 @@ async function getPRStatus(token: string, repo: RepoRef, prNumber: number): Prom
   }
 }
 
-async function mergePR(token: string, repo: RepoRef, prNumber: number): Promise<TestResult> {
+async function mergePR(token: string, repo: RepoRef, prNumber: number): Promise<MergePrResult> {
   const res = await glFetch(`/projects/${projectId(repo)}/merge_requests/${prNumber}/merge`, token, { method: 'PUT' })
   if (!res.ok) return { ok: false, error: res.body?.message ?? `GitLab merge failed (${res.status})` }
+  return { ok: true, commitSha: res.body.sha ?? null }
+}
+
+async function createWebhook(token: string, repo: RepoRef, callbackUrl: string): Promise<CreateWebhookResult> {
+  const res = await glFetch(`/projects/${projectId(repo)}/hooks`, token, {
+    method: 'POST',
+    body: JSON.stringify({ url: callbackUrl, push_events: true, deployment_events: true }),
+  })
+  if (!res.ok) return { ok: false, error: res.body?.message ?? `GitLab webhook creation failed (${res.status})` }
+  return { ok: true, webhookId: String(res.body.id) }
+}
+
+async function deleteWebhook(token: string, repo: RepoRef, webhookId: string): Promise<TestResult> {
+  const res = await glFetch(`/projects/${projectId(repo)}/hooks/${webhookId}`, token, { method: 'DELETE' })
+  if (!res.ok && res.status !== 404) return { ok: false, error: res.body?.message ?? `GitLab webhook deletion failed (${res.status})` }
   return { ok: true }
 }
 
 export const gitlabAdapter: GitAdapter = {
-  verifyToken, listRepos, getFileContent, listTree, createBranch, commitFiles, openPR, getPRStatus, mergePR,
+  verifyToken, listRepos, getFileContent, listTree, createBranch, commitFiles, openPR, getPRStatus, mergePR, createWebhook, deleteWebhook,
 }

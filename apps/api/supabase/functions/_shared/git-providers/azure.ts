@@ -6,6 +6,7 @@
 // (Azure repos are always scoped to an org+project, unlike the other 3).
 import type {
   GitAdapter, RepoRef, RepoFile, TestResult, ListReposResult, GetFileResult, OpenPrResult, PrStatusResult, TreeEntry, ListTreeResult,
+  MergePrResult, CreateWebhookResult,
 } from './types.ts'
 
 const API_VERSION = '7.1'
@@ -157,7 +158,7 @@ async function getPRStatus(token: string, repo: RepoRef, prNumber: number): Prom
   return { ok: true, state, mergeable: res.body.mergeStatus === 'succeeded', checksPassed: null, checksSupported: false }
 }
 
-async function mergePR(token: string, repo: RepoRef, prNumber: number): Promise<TestResult> {
+async function mergePR(token: string, repo: RepoRef, prNumber: number): Promise<MergePrResult> {
   const { org, project, repo: repoName } = parts(repo)
   const prRes = await azFetch(`https://dev.azure.com/${org}/${project}/_apis/git/repositories/${repoName}/pullrequests/${prNumber}?api-version=${API_VERSION}`, token)
   if (!prRes.ok) return { ok: false, error: prRes.body?.message ?? `Azure get PR failed (${prRes.status})` }
@@ -166,9 +167,34 @@ async function mergePR(token: string, repo: RepoRef, prNumber: number): Promise<
     body: JSON.stringify({ status: 'completed', lastMergeSourceCommit: prRes.body.lastMergeSourceCommit }),
   })
   if (!res.ok) return { ok: false, error: res.body?.message ?? `Azure merge failed (${res.status})` }
+  return { ok: true, commitSha: res.body.lastMergeCommit?.commitId ?? null }
+}
+
+async function createWebhook(token: string, repo: RepoRef, callbackUrl: string): Promise<CreateWebhookResult> {
+  const { org, project, repo: repoName } = parts(repo)
+  const res = await azFetch(`https://dev.azure.com/${org}/${project}/_apis/hooks/subscriptions?api-version=${API_VERSION}`, token, {
+    method: 'POST',
+    body: JSON.stringify({
+      publisherId: 'tfs',
+      eventType: 'git.push',
+      resourceVersion: '1.0',
+      consumerId: 'webHooks',
+      consumerActionId: 'httpRequest',
+      publisherInputs: { projectId: project, repository: repoName },
+      consumerInputs: { url: callbackUrl },
+    }),
+  })
+  if (!res.ok) return { ok: false, error: res.body?.message ?? `Azure webhook creation failed (${res.status})` }
+  return { ok: true, webhookId: res.body.id }
+}
+
+async function deleteWebhook(token: string, repo: RepoRef, webhookId: string): Promise<TestResult> {
+  const { org, project } = parts(repo)
+  const res = await azFetch(`https://dev.azure.com/${org}/${project}/_apis/hooks/subscriptions/${webhookId}?api-version=${API_VERSION}`, token, { method: 'DELETE' })
+  if (!res.ok && res.status !== 404) return { ok: false, error: res.body?.message ?? `Azure webhook deletion failed (${res.status})` }
   return { ok: true }
 }
 
 export const azureAdapter: GitAdapter = {
-  verifyToken, listRepos, getFileContent, listTree, createBranch, commitFiles, openPR, getPRStatus, mergePR,
+  verifyToken, listRepos, getFileContent, listTree, createBranch, commitFiles, openPR, getPRStatus, mergePR, createWebhook, deleteWebhook,
 }

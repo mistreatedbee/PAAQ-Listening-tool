@@ -33,6 +33,8 @@ export type RecRow = {
   fix_pr_number: number | null
   fix_pr_state: string
   risk_level: string | null
+  investigation_id?: string | null
+  created_at?: string | null
 }
 
 export type ApprovalMode = 'advisory' | 'assisted' | 'team' | 'autonomous'
@@ -130,7 +132,12 @@ export async function performMerge(
     return { ok: false, blockedByProtection: category === 'blocked_by_protection', error: mergeResult.error }
   }
 
-  await recordMerge(rec, { actingUserId: opts.actingUserId })
+  await recordMerge(rec, {
+    actingUserId: opts.actingUserId,
+    commitSha: mergeResult.commitSha,
+    validationPassed: status.checksPassed,
+    validationResults: { checksPassed: status.checksPassed, checksPending: status.checksPending ?? false, checksSupported: status.checksSupported },
+  })
   return { ok: true, merged: true }
 }
 
@@ -146,7 +153,18 @@ export async function performMerge(
  * actingUserId is left null for a detected-not-performed merge — never
  * attribute an approval to nobody actually gave through PAAQ.
  */
-export async function recordMerge(rec: RecRow, opts: { actingUserId: string | null }): Promise<void> {
+export async function recordMerge(
+  rec: RecRow,
+  opts: {
+    actingUserId: string | null
+    /** Real merge-commit SHA from mergePR()'s response — undefined/null when
+     * PAAQ only detected an externally-performed merge and never called
+     * mergePR() itself, so no such response exists to read one from. */
+    commitSha?: string | null
+    validationPassed?: boolean | null
+    validationResults?: unknown
+  },
+): Promise<void> {
   const now = new Date().toISOString()
   await supabase.from('recommendations').update({
     status: 'approved',
@@ -158,8 +176,12 @@ export async function recordMerge(rec: RecRow, opts: { actingUserId: string | nu
   }).eq('id', rec.id)
 
   // Write to deployment_registry so Deployment Intelligence shows this fix.
+  // branch is the real branch name; git_commit/version keep their prior
+  // meaning for backwards compatibility, commit_sha is the real merge SHA
+  // (only ever set when mergePR() itself returned one — never guessed).
   const branch = rec.fix_branch ?? `paaq-fix-${rec.id.slice(0, 8)}`
   const changedFiles = (rec.fix_changeset ?? []).map((c) => ({ path: c.path }))
+  const durationMs = rec.created_at ? new Date(now).getTime() - new Date(rec.created_at).getTime() : null
   try {
     // tenant_id is NOT NULL on this table with no default — every prior
     // insert here omitted it and failed silently under this same catch,
@@ -182,14 +204,20 @@ export async function recordMerge(rec: RecRow, opts: { actingUserId: string | nu
       deployed_by: opts.actingUserId ? `user:${opts.actingUserId}` : 'PAAQ AI',
       status: 'success',
       git_commit: branch,
+      branch,
+      commit_sha: opts.commitSha ?? null,
       release_notes: `AI Fix: ${rec.title}`,
       changed_features: changedFiles.map((f) => f.path),
       ai_fix: true,
       recommendation_id: rec.id,
+      investigation_id: rec.investigation_id ?? null,
       pr_url: rec.fix_pr_url,
       pr_number: rec.fix_pr_number,
       ai_summary: rec.description,
       changed_files: changedFiles,
+      duration_ms: durationMs,
+      validation_passed: opts.validationPassed ?? null,
+      validation_results: opts.validationResults ?? null,
     })
   } catch { /* non-fatal — don't fail the caller's response */ }
 }

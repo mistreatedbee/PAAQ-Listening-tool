@@ -116,6 +116,31 @@ async function handleSelectRepo(projectId: string, provider: GitProvider, body: 
   const repo = body.repo as RepoRef
   if (!repo?.fullName) return respond({ ok: false, error: 'repo is required' }, 400)
 
+  // Auto-register a real webhook on the provider side so every push/deploy
+  // on this repo is reported back automatically — no manual CI/CD webhook
+  // setup required. Best-effort: a failure here doesn't block connecting
+  // the repo, it just means automatic tracking isn't live for it yet.
+  let webhookId: string | null = null
+  const token = await getDecryptedToken(projectId, provider)
+  if (token) {
+    try {
+      const { data: project } = await supabase
+        .from('tenant_projects')
+        .select('project_id_key')
+        .eq('id', projectId)
+        .maybeSingle()
+      if (project?.project_id_key) {
+        const callbackUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/deployment-webhook?projectKey=${project.project_id_key}`
+        const adapter = await loadGitAdapter(provider)
+        const hookResult = await adapter.createWebhook(token, repo, callbackUrl)
+        if (hookResult.ok) webhookId = hookResult.webhookId
+        else console.error(`repo-connector: webhook registration failed for ${repo.fullName}`, hookResult.error)
+      }
+    } catch (e) {
+      console.error(`repo-connector: webhook registration threw for ${repo.fullName}`, e)
+    }
+  }
+
   await supabase.from('project_repositories').upsert(
     {
       project_id: projectId,
@@ -124,10 +149,11 @@ async function handleSelectRepo(projectId: string, provider: GitProvider, body: 
       repo_url: repo.url,
       default_branch: repo.defaultBranch,
       status: 'active',
+      webhook_id: webhookId,
     },
     { onConflict: 'project_id,provider' },
   )
-  return respond({ ok: true })
+  return respond({ ok: true, webhookRegistered: webhookId !== null })
 }
 
 async function handleStatus(projectId: string, provider: GitProvider) {
@@ -155,8 +181,29 @@ async function handleStatus(projectId: string, provider: GitProvider) {
 }
 
 async function handleDisconnect(projectId: string, provider: GitProvider) {
+  // Best-effort: remove the webhook we registered so disconnecting doesn't
+  // leave an orphaned hook pointing at PAAQ on the customer's repo.
+  try {
+    const { data: proj } = await supabase
+      .from('project_repositories')
+      .select('repo_name, repo_url, default_branch, webhook_id')
+      .eq('project_id', projectId)
+      .eq('provider', provider)
+      .maybeSingle()
+    if (proj?.webhook_id) {
+      const token = await getDecryptedToken(projectId, provider)
+      if (token) {
+        const repo: RepoRef = { fullName: proj.repo_name, url: proj.repo_url, defaultBranch: proj.default_branch ?? 'main', private: true }
+        const adapter = await loadGitAdapter(provider)
+        await adapter.deleteWebhook(token, repo, proj.webhook_id)
+      }
+    }
+  } catch (e) {
+    console.error(`repo-connector: webhook cleanup failed on disconnect for project ${projectId}`, e)
+  }
+
   await supabase.from('repository_credentials').update({ status: 'disabled', updated_at: new Date().toISOString() }).eq('project_id', projectId).eq('provider', provider)
-  await supabase.from('project_repositories').update({ status: 'inactive' }).eq('project_id', projectId).eq('provider', provider)
+  await supabase.from('project_repositories').update({ status: 'inactive', webhook_id: null }).eq('project_id', projectId).eq('provider', provider)
   return respond({ ok: true })
 }
 

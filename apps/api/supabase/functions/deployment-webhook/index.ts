@@ -32,6 +32,9 @@ type DeployRow = {
   changed_features: string[] | null
   source: string
   build_log: string | null
+  branch?: string | null
+  commit_sha?: string | null
+  changed_files?: { path: string }[] | null
 }
 
 // ── Source parsers ──────────────────────────────────────────────────────────
@@ -136,6 +139,126 @@ function parseGeneric(body: Record<string, unknown>): Partial<DeployRow> {
   }
 }
 
+// A plain `git push` with no CI attached never produces a Vercel/Netlify/
+// GitHub-Actions/Docker event — these four parsers read each provider's
+// native push-webhook payload directly (registered automatically on repo
+// connect, see repo-connector's handleSelectRepo/createWebhook) so a
+// manual/non-AI-fix commit still shows up here with no CI required.
+
+function parseGitHubPush(body: Record<string, unknown>): Partial<DeployRow> {
+  const ref = String(body.ref ?? '')
+  const branch = ref.replace(/^refs\/heads\//, '')
+  const headCommit = body.head_commit as Record<string, unknown> | null
+  const commits = (body.commits as Record<string, unknown>[] | undefined) ?? []
+  const changedFiles = new Set<string>()
+  for (const c of commits) {
+    for (const key of ['added', 'removed', 'modified'] as const) {
+      for (const path of (c[key] as string[] | undefined) ?? []) changedFiles.add(path)
+    }
+  }
+  const author = (headCommit?.author as Record<string, unknown> | undefined)?.name
+    ?? (body.pusher as Record<string, unknown> | undefined)?.name
+
+  return {
+    version: String(headCommit?.id ?? body.after ?? 'push').toString().slice(0, 7),
+    environment: 'production',
+    deployed_at: String(headCommit?.timestamp ?? new Date().toISOString()),
+    deployed_by: author?.toString() ?? null,
+    status: 'success',
+    branch: branch || null,
+    commit_sha: (body.after as string | undefined) ?? (headCommit?.id as string | undefined) ?? null,
+    git_commit: ((body.after as string | undefined) ?? (headCommit?.id as string | undefined) ?? '').slice(0, 7) || null,
+    release_notes: headCommit?.message?.toString() ?? null,
+    changed_files: changedFiles.size > 0 ? Array.from(changedFiles).map((path) => ({ path })) : null,
+    changed_features: changedFiles.size > 0 ? Array.from(changedFiles) : null,
+    build_log: null,
+    source: 'github-push',
+  }
+}
+
+function parseGitLabPush(body: Record<string, unknown>): Partial<DeployRow> {
+  const ref = String(body.ref ?? '')
+  const branch = ref.replace(/^refs\/heads\//, '')
+  const commits = (body.commits as Record<string, unknown>[] | undefined) ?? []
+  const last = commits[commits.length - 1] as Record<string, unknown> | undefined
+  const changedFiles = new Set<string>()
+  for (const c of commits) {
+    for (const key of ['added', 'removed', 'modified'] as const) {
+      for (const path of (c[key] as string[] | undefined) ?? []) changedFiles.add(path)
+    }
+  }
+
+  return {
+    version: String(body.checkout_sha ?? 'push').toString().slice(0, 7),
+    environment: 'production',
+    deployed_at: String(last?.timestamp ?? new Date().toISOString()),
+    deployed_by: (body.user_name as string | undefined) ?? null,
+    status: 'success',
+    branch: branch || null,
+    commit_sha: (body.checkout_sha as string | undefined) ?? null,
+    git_commit: (body.checkout_sha as string | undefined)?.slice(0, 7) ?? null,
+    release_notes: last?.message?.toString() ?? null,
+    changed_files: changedFiles.size > 0 ? Array.from(changedFiles).map((path) => ({ path })) : null,
+    changed_features: changedFiles.size > 0 ? Array.from(changedFiles) : null,
+    build_log: null,
+    source: 'gitlab-push',
+  }
+}
+
+function parseAzurePush(body: Record<string, unknown>): Partial<DeployRow> {
+  const resource = (body.resource as Record<string, unknown>) ?? {}
+  const refUpdates = (resource.refUpdates as Record<string, unknown>[] | undefined) ?? []
+  const branch = String(refUpdates[0]?.name ?? '').replace(/^refs\/heads\//, '')
+  const commits = (resource.commits as Record<string, unknown>[] | undefined) ?? []
+  const last = commits[commits.length - 1] as Record<string, unknown> | undefined
+  const pushedBy = (resource.pushedBy as Record<string, unknown> | undefined)?.displayName
+
+  return {
+    version: String(refUpdates[0]?.newObjectId ?? 'push').toString().slice(0, 7),
+    environment: 'production',
+    deployed_at: String(resource.date ?? new Date().toISOString()),
+    deployed_by: pushedBy?.toString() ?? null,
+    status: 'success',
+    branch: branch || null,
+    commit_sha: (refUpdates[0]?.newObjectId as string | undefined) ?? null,
+    git_commit: (refUpdates[0]?.newObjectId as string | undefined)?.slice(0, 7) ?? null,
+    release_notes: last?.comment?.toString() ?? null,
+    // Azure's push service-hook payload doesn't include per-commit changed
+    // file lists without a follow-up API call — left null rather than guessed.
+    changed_files: null,
+    changed_features: null,
+    build_log: null,
+    source: 'azure-push',
+  }
+}
+
+function parseBitbucketPush(body: Record<string, unknown>): Partial<DeployRow> {
+  const push = (body.push as Record<string, unknown>) ?? {}
+  const changes = (push.changes as Record<string, unknown>[] | undefined) ?? []
+  const change = changes[0] ?? {}
+  const target = ((change.new as Record<string, unknown> | undefined)?.target as Record<string, unknown> | undefined) ?? {}
+  const branch = (change.new as Record<string, unknown> | undefined)?.name as string | undefined
+  const actor = (body.actor as Record<string, unknown> | undefined)?.display_name
+
+  return {
+    version: String(target.hash ?? 'push').toString().slice(0, 7),
+    environment: 'production',
+    deployed_at: String(target.date ?? new Date().toISOString()),
+    deployed_by: actor?.toString() ?? null,
+    status: 'success',
+    branch: branch ?? null,
+    commit_sha: (target.hash as string | undefined) ?? null,
+    git_commit: (target.hash as string | undefined)?.slice(0, 7) ?? null,
+    release_notes: (target.message as string | undefined) ?? null,
+    // Same as Azure — Bitbucket's push payload doesn't enumerate changed
+    // files without an extra diffstat call — left null, not guessed.
+    changed_files: null,
+    changed_features: null,
+    build_log: null,
+    source: 'bitbucket-push',
+  }
+}
+
 // ── Main handler ────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
@@ -168,6 +291,8 @@ Deno.serve(async (req) => {
   // Detect source from headers
   const vercelSig   = req.headers.get('x-vercel-signature')
   const githubEvent = req.headers.get('x-github-event')
+  const gitlabEvent = req.headers.get('x-gitlab-event')
+  const bitbucketKey = req.headers.get('x-event-key')
   const netlifyHdr  = req.headers.get('x-netlify-signature') ?? req.headers.get('x-netlify-event')
   const dockerHdr   = req.headers.get('x-docker-event')
 
@@ -175,8 +300,16 @@ Deno.serve(async (req) => {
 
   if (vercelSig) {
     parsed = parseVercel(body)
+  } else if (githubEvent === 'push') {
+    parsed = parseGitHubPush(body)
   } else if (githubEvent) {
     parsed = parseGitHubActions(body, githubEvent)
+  } else if (gitlabEvent === 'Push Hook' || body.object_kind === 'push') {
+    parsed = parseGitLabPush(body)
+  } else if (bitbucketKey === 'repo:push') {
+    parsed = parseBitbucketPush(body)
+  } else if (body.eventType === 'git.push') {
+    parsed = parseAzurePush(body)
   } else if (netlifyHdr || body.deploy_id) {
     parsed = parseNetlify(body)
   } else if (dockerHdr || body.callback_url?.toString().includes('hub.docker')) {
@@ -208,6 +341,9 @@ Deno.serve(async (req) => {
     changed_features: parsed.changed_features ?? null,
     source:       parsed.source ?? 'webhook',
     build_log,
+    branch:       parsed.branch ?? null,
+    commit_sha:   parsed.commit_sha ?? null,
+    changed_files: parsed.changed_files ?? null,
   }
 
   const { data: inserted, error } = await withRetryResult(() =>
@@ -232,7 +368,7 @@ Deno.serve(async (req) => {
 function cors() {
   return {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'content-type, x-vercel-signature, x-hub-signature-256, x-github-event, x-netlify-signature',
+    'Access-Control-Allow-Headers': 'content-type, x-vercel-signature, x-hub-signature-256, x-github-event, x-netlify-signature, x-gitlab-event, x-gitlab-token, x-event-key, x-docker-event',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
   }
 }

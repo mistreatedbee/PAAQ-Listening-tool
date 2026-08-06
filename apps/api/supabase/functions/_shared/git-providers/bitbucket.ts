@@ -3,6 +3,7 @@
 // treat as beta/unverified until smoke-tested with real credentials.
 import type {
   GitAdapter, RepoRef, RepoFile, TestResult, ListReposResult, GetFileResult, OpenPrResult, PrStatusResult, TreeEntry, ListTreeResult,
+  MergePrResult, CreateWebhookResult,
 } from './types.ts'
 
 const API = 'https://api.bitbucket.org/2.0'
@@ -139,16 +140,37 @@ async function getPRStatus(token: string, repo: RepoRef, prNumber: number): Prom
   return { ok: true, state, mergeable: null, checksPassed: null, checksSupported: false }
 }
 
-async function mergePR(token: string, repo: RepoRef, prNumber: number): Promise<TestResult> {
+async function mergePR(token: string, repo: RepoRef, prNumber: number): Promise<MergePrResult> {
   const res = await bbFetch(`/repositories/${repo.fullName}/pullrequests/${prNumber}/merge`, token, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ merge_strategy: 'squash' }),
   })
   if (!res.ok) return { ok: false, error: res.body?.error?.message ?? `Bitbucket merge failed (${res.status})` }
+  return { ok: true, commitSha: res.body.merge_commit?.hash ?? null }
+}
+
+async function createWebhook(token: string, repo: RepoRef, callbackUrl: string): Promise<CreateWebhookResult> {
+  const res = await bbFetch(`/repositories/${repo.fullName}/hooks`, token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      description: 'PAAQ Deployment Tracking',
+      url: callbackUrl,
+      active: true,
+      events: ['repo:push'],
+    }),
+  })
+  if (!res.ok) return { ok: false, error: res.body?.error?.message ?? `Bitbucket webhook creation failed (${res.status})` }
+  return { ok: true, webhookId: res.body.uuid }
+}
+
+async function deleteWebhook(token: string, repo: RepoRef, webhookId: string): Promise<TestResult> {
+  const res = await bbFetch(`/repositories/${repo.fullName}/hooks/${webhookId}`, token, { method: 'DELETE' })
+  if (!res.ok && res.status !== 404) return { ok: false, error: res.body?.error?.message ?? `Bitbucket webhook deletion failed (${res.status})` }
   return { ok: true }
 }
 
 export const bitbucketAdapter: GitAdapter = {
-  verifyToken, listRepos, getFileContent, listTree, createBranch, commitFiles, openPR, getPRStatus, mergePR,
+  verifyToken, listRepos, getFileContent, listTree, createBranch, commitFiles, openPR, getPRStatus, mergePR, createWebhook, deleteWebhook,
 }

@@ -7,6 +7,10 @@ export type GetFileResult = { ok: true; content: string; sha?: string } | { ok: 
 export type TreeEntry = { path: string; type: 'file' | 'dir'; size?: number }
 export type ListTreeResult = { ok: true; entries: TreeEntry[] } | { ok: false; error: string }
 export type OpenPrResult = { ok: true; prUrl: string; prNumber: number } | { ok: false; error: string }
+/** commitSha is the real merge-commit SHA where the provider's API returns
+ * one; null for providers/responses that don't surface it — never guessed. */
+export type MergePrResult = { ok: true; commitSha: string | null } | { ok: false; error: string }
+export type CreateWebhookResult = { ok: true; webhookId: string } | { ok: false; error: string }
 export type PrStatusResult =
   | {
       ok: true
@@ -34,7 +38,13 @@ export interface GitAdapter {
   openPR(token: string, repo: RepoRef, branch: string, baseBranch: string, title: string, body: string): Promise<OpenPrResult>
   getPRStatus(token: string, repo: RepoRef, prNumber: number): Promise<PrStatusResult>
   /** A rejection here (branch protection, missing reviews, failing checks) is a correct, expected outcome — never bypassed. */
-  mergePR(token: string, repo: RepoRef, prNumber: number): Promise<TestResult>
+  mergePR(token: string, repo: RepoRef, prNumber: number): Promise<MergePrResult>
+  /** Registers a real webhook on the provider side so every push/deploy on
+   * this repo is reported back automatically — called once on repo connect. */
+  createWebhook(token: string, repo: RepoRef, callbackUrl: string): Promise<CreateWebhookResult>
+  /** Removes a webhook created by createWebhook — called on repo disconnect
+   * so no orphaned hook is left on the customer's repo. */
+  deleteWebhook(token: string, repo: RepoRef, webhookId: string): Promise<TestResult>
 }
 
 export type GitErrorCategory = 'invalid_auth' | 'not_found' | 'blocked_by_protection' | 'rate_limited' | 'unknown'
