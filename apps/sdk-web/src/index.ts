@@ -493,12 +493,34 @@ let _recordingSequence = 0
 let _recordingFlushTimer: ReturnType<typeof setInterval> | null = null
 let _recordingStop: (() => void) | null = null
 
+// rrweb event types that carry a full DOM snapshot rather than an
+// incremental delta — type 4 (Meta) always precedes type 2 (FullSnapshot)
+// at recording start and at every checkoutEveryNms checkout. Without at
+// least one of these actually reaching storage, the replay player has no
+// base DOM to reconstruct onto and cannot render anything at all — losing
+// one of these is far worse than losing an incremental-delta chunk.
+const RECORDING_SNAPSHOT_EVENT_TYPES = new Set([2, 4])
+
 function installDomRecording(): void {
   if (typeof document === 'undefined' || _recordingStop) return
   _recordingStop = record({
     emit(event) {
       _recordingBuffer.push(event)
-      if (_recordingBuffer.length >= RECORDING_MAX_BUFFERED_EVENTS) void flushRecording()
+      const e = event as { type?: number }
+      if (e.type != null && RECORDING_SNAPSHOT_EVENT_TYPES.has(e.type)) {
+        // Flush immediately, without keepalive: keepalive fetches are capped
+        // at 64KB combined body size across all in-flight keepalive requests
+        // (spec limit), and a full DOM snapshot routinely exceeds that on a
+        // real page — a keepalive flush of this chunk fails outright, which
+        // is exactly why every surviving chunk in production turned out to
+        // be tiny mouse-move deltas and none carried a snapshot. A normal
+        // (non-keepalive) fetch has no such size cap, at the cost of being
+        // killable if the page unloads before it completes — an acceptable
+        // trade since the alternative is a snapshot that's guaranteed to fail.
+        void flushRecording({ keepalive: false })
+      } else if (_recordingBuffer.length >= RECORDING_MAX_BUFFERED_EVENTS) {
+        void flushRecording()
+      }
     },
     maskAllInputs: true,
     blockClass: 'paaq-block',
@@ -512,7 +534,7 @@ function installDomRecording(): void {
   _recordingFlushTimer = setInterval(() => void flushRecording(), RECORDING_FLUSH_INTERVAL_MS)
 }
 
-async function flushRecording(): Promise<void> {
+async function flushRecording(opts: { keepalive?: boolean } = {}): Promise<void> {
   if (_recordingBuffer.length === 0 || !_sdkToken || !_sessionId) return
   const batch = _recordingBuffer.splice(0)
   const sequence = _recordingSequence++
@@ -522,19 +544,26 @@ async function flushRecording(): Promise<void> {
     sequence: String(sequence),
     captured_at: new Date().toISOString(),
   })
-  try {
-    await fetch(`${BASE_URL}/session-recording-upload?${params}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${_sdkToken}`,
-        'X-Project-ID': _projectKey,
-      },
-      body: JSON.stringify(batch),
-      keepalive: true,
-    })
-  } catch {
-    // fire-and-forget — a missed chunk just leaves a gap in playback
+  const keepalive = opts.keepalive ?? true
+  // One retry for a transient failure — a snapshot-bearing chunk in
+  // particular is worth a second attempt rather than silently giving up,
+  // since losing it breaks playback entirely rather than just leaving a gap.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(`${BASE_URL}/session-recording-upload?${params}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${_sdkToken}`,
+          'X-Project-ID': _projectKey,
+        },
+        body: JSON.stringify(batch),
+        keepalive,
+      })
+      if (res.ok) return
+    } catch {
+      // fall through to retry
+    }
   }
 }
 
