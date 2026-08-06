@@ -6,7 +6,7 @@ const BASE_URL = 'https://mookyonwpovxscsbqwwl.supabase.co/functions/v1'
 // every install of this SDK has been wrong the entire time, which made
 // "is a customer actually running the new build" impossible to answer
 // from server-side logs alone. Now kept in lockstep with package.json.
-const SDK_VERSION = '1.2.3'
+const SDK_VERSION = '1.2.4'
 
 type ErrorPayload = {
   error_type: string
@@ -426,8 +426,22 @@ function installAutoPageTracking(): void {
 // endSession() explicitly — the SDK cannot infer a logout on its own.
 function installSessionEndHandlers(): void {
   if (typeof window === 'undefined') return
+  // visibilitychange firing 'hidden' does NOT mean the user left — it fires
+  // on every ordinary tab switch, alt-tab, or window-minimize, which happens
+  // constantly during completely normal use. Treating it as a real exit
+  // signal was ending a session (marked 'completed', even though nothing
+  // was actually finished) every time the tab lost focus, then starting a
+  // brand new, unlinked, empty session the moment it came back — one real
+  // 20-minute visit was fracturing into a dozen ~20-second "sessions,"
+  // which is also why identity/page counts looked broken: most of those
+  // fragments never lived long enough for identify() or a page view to
+  // land. Only flush pending data here, in case the tab really is about to
+  // be killed — pagehide (below) is the real, reliable "user actually
+  // navigated away or closed the tab" signal, and is the only thing that
+  // should end the session client-side. Anything left genuinely idle
+  // forever is session-sweep-cron's job, server-side, on a real timeout.
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') endOnce(_hadFatalError ? 'crashed' : 'completed')
+    if (document.visibilityState === 'hidden') void flush()
   })
   window.addEventListener('pagehide', () => endOnce(_hadFatalError ? 'crashed' : 'completed'))
   // beforeunload is unreliable as a primary signal (especially mobile Safari) —
