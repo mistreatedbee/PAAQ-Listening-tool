@@ -43,13 +43,21 @@ export async function checkAndRecordDbHeartbeat(
   projectId: string,
   minIntervalMs = 20 * 60 * 1000,
 ): Promise<void> {
-  const { data: row } = await supabase
+  const { data: row, error: selectError } = await supabase
     .from('database_connectors')
     .select('project_id, engine, ciphertext, iv, consecutive_failures, last_test_at, tenant_projects!inner(tenant_id)')
     .eq('project_id', projectId)
     .eq('status', 'connected')
     .maybeSingle()
 
+  // A failed select (e.g. a column that doesn't actually exist live) must
+  // not be treated the same as "this project has no connected database" —
+  // that exact silent conflation is why this heartbeat never advanced for
+  // months despite constant real traffic. Log it loudly instead.
+  if (selectError) {
+    console.error(`db-heartbeat: select failed for project ${projectId}`, selectError)
+    return
+  }
   if (!row) return
   if (row.last_test_at && Date.now() - new Date(row.last_test_at).getTime() < minIntervalMs) return
 
