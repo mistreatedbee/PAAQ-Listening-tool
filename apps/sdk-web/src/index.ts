@@ -152,7 +152,6 @@ async function init(
     const data: InitResult = await res.json()
     if (data.ok && data.sessionId) {
       _sessionId = data.sessionId
-      _currentUserId = null
       _sessionStartedAt = Date.now()
       _sessionEnded = false
       _hadFatalError = false
@@ -171,13 +170,29 @@ async function init(
       installUploadTracking()
       installHoverTracking()
       installDomRecording()
-      // Handles the common race where the host app calls identify() (e.g.
-      // reacting to its own auth state) before this init() round-trip has
-      // resolved: identify()'s /users call can finish and resolve a real
-      // user_id while _sessionId is still null, silently skipping the link
-      // step. If identify() set a pending user_id in the meantime, link it
-      // now that a session actually exists.
-      if (_pendingIdentifyUserId) void linkSessionToUser()
+      // A fresh session does NOT mean a new, unknown user — this init() runs
+      // again every time a new session starts (page reload, a previous
+      // session timing out/ending, a new tab), which on a real SPA happens
+      // far more often than the user actually logging in again. Previously
+      // this unconditionally reset _currentUserId to null here, silently
+      // un-identifying the user the moment their very first session ended —
+      // every session after that stayed "Anonymous" until the host app
+      // happened to call identify() again, which most apps only do once,
+      // right after login. If a user is already known from earlier in this
+      // page's lifecycle, carry that identity onto the new session instead
+      // of forgetting it; only an explicit identify() call with a different
+      // id should ever actually change who the current user is.
+      if (_currentUserId) {
+        _pendingIdentifyUserId = _currentUserId
+        void linkSessionToUser()
+      } else if (_pendingIdentifyUserId) {
+        // Handles the common race where the host app calls identify() (e.g.
+        // reacting to its own auth state) before this init() round-trip has
+        // resolved: identify()'s /users call can finish and resolve a real
+        // user_id while _sessionId is still null, silently skipping the
+        // link step. Link it now that a session actually exists.
+        void linkSessionToUser()
+      }
     }
     return data
   } catch (err) {
