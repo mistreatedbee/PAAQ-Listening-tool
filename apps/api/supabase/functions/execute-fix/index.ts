@@ -11,7 +11,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import Anthropic from 'npm:@anthropic-ai/sdk'
 import { loadGitAdapter } from '../_shared/git-providers/load-adapter.ts'
 import type { RepoRef } from '../_shared/git-providers/types.ts'
-import { getRepoAndToken, getApprovalMode, markFailed, performMerge, type RecRow } from '../_shared/fix-engine.ts'
+import { getRepoAndToken, getApprovalMode, markFailed, performMerge, recordMerge, type RecRow } from '../_shared/fix-engine.ts'
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -466,8 +466,14 @@ async function handleStatus(rec: RecRow) {
     })
   }
 
-  // Keep the DB row in sync if the PR was merged/closed outside PAAQ.
-  if (status.state !== 'open' && status.state !== rec.fix_pr_state) {
+  // Keep the DB row in sync if the PR was merged/closed outside PAAQ. A
+  // merge specifically needs the full completion flow (recommendation
+  // status, deployment_registry) — not just flipping fix_pr_state — or the
+  // rec sits in 'pending' forever and Deployment Intelligence never learns
+  // the change shipped, even once GitHub confirms it did.
+  if (status.state === 'merged' && rec.fix_pr_state !== 'merged') {
+    await recordMerge(rec, { actingUserId: null })
+  } else if (status.state !== 'open' && status.state !== rec.fix_pr_state) {
     await supabase.from('recommendations').update({ fix_pr_state: status.state }).eq('id', rec.id)
   }
 

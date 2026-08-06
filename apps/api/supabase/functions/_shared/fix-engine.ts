@@ -130,6 +130,23 @@ export async function performMerge(
     return { ok: false, blockedByProtection: category === 'blocked_by_protection', error: mergeResult.error }
   }
 
+  await recordMerge(rec, { actingUserId: opts.actingUserId })
+  return { ok: true, merged: true }
+}
+
+/**
+ * Marks a recommendation as merged and writes its deployment_registry row —
+ * the completion step both a PAAQ-initiated merge (performMerge, above) and
+ * a merge PAAQ only *detects* after the fact need to run. Without this,
+ * a PR merged manually on GitHub (rather than through PAAQ's merge button)
+ * only ever gets fix_pr_state flipped to 'merged' by the status-poll in
+ * execute-fix's handleStatus — recommendations.status stays 'pending'
+ * forever and Deployment Intelligence never learns the change shipped,
+ * even though it demonstrably did (confirmed against real PR status).
+ * actingUserId is left null for a detected-not-performed merge — never
+ * attribute an approval to nobody actually gave through PAAQ.
+ */
+export async function recordMerge(rec: RecRow, opts: { actingUserId: string | null }): Promise<void> {
   const now = new Date().toISOString()
   await supabase.from('recommendations').update({
     status: 'approved',
@@ -144,7 +161,20 @@ export async function performMerge(
   const branch = rec.fix_branch ?? `paaq-fix-${rec.id.slice(0, 8)}`
   const changedFiles = (rec.fix_changeset ?? []).map((c) => ({ path: c.path }))
   try {
+    // tenant_id is NOT NULL on this table with no default — every prior
+    // insert here omitted it and failed silently under this same catch,
+    // which is the real reason Deployment Intelligence has been missing
+    // nearly every AI-fix merge (confirmed: 11 recommendations merged,
+    // only 2 pre-existing deployment_registry rows, neither from a fix).
+    const { data: project } = await supabase
+      .from('tenant_projects')
+      .select('tenant_id')
+      .eq('id', rec.project_id)
+      .maybeSingle()
+    if (!project) throw new Error('project not found for tenant_id lookup')
+
     await supabase.from('deployment_registry').insert({
+      tenant_id: project.tenant_id,
       project_id: rec.project_id,
       version: branch,
       environment: 'production',
@@ -161,7 +191,5 @@ export async function performMerge(
       ai_summary: rec.description,
       changed_files: changedFiles,
     })
-  } catch { /* non-fatal — don't fail the merge response */ }
-
-  return { ok: true, merged: true }
+  } catch { /* non-fatal — don't fail the caller's response */ }
 }
