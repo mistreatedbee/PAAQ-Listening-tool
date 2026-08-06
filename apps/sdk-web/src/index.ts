@@ -39,6 +39,11 @@ let _projectKey = ''
 let _platform = 'react'
 let _sessionId: string | null = null
 let _currentUserId: string | null = null
+// Set by identify() whenever it resolves a real user_id but no session
+// exists yet to link it to (host app called identify() before init()
+// resolved). NOT reset by init() — unlike _currentUserId, this survives
+// across the reset so init() can finish the link once a session exists.
+let _pendingIdentifyUserId: string | null = null
 let _sessionStartedAt = 0
 let _sessionEnded = false
 let _hadFatalError = false
@@ -166,6 +171,13 @@ async function init(
       installUploadTracking()
       installHoverTracking()
       installDomRecording()
+      // Handles the common race where the host app calls identify() (e.g.
+      // reacting to its own auth state) before this init() round-trip has
+      // resolved: identify()'s /users call can finish and resolve a real
+      // user_id while _sessionId is still null, silently skipping the link
+      // step. If identify() set a pending user_id in the meantime, link it
+      // now that a session actually exists.
+      if (_pendingIdentifyUserId) void linkSessionToUser()
     }
     return data
   } catch (err) {
@@ -206,17 +218,32 @@ async function identify(userId: string, traits: Record<string, unknown> = {}): P
     if (!data.ok || !data.user_id) return
 
     _currentUserId = data.user_id
-
-    if (_sessionId) {
-      await fetch(`${BASE_URL}/sessions`, {
-        method: 'POST',
-        headers: buildHeaders(),
-        body: JSON.stringify({ action: 'identify', session_id: _sessionId, user_id: data.user_id }),
-      })
-    }
+    _pendingIdentifyUserId = data.user_id
+    await linkSessionToUser()
   } catch {
     // fire-and-forget — a failed identify just leaves the session unlinked,
     // it never blocks tracking
+  }
+}
+
+// Shared by identify() (once /users resolves) and init() (once a session
+// exists) — whichever of the two finishes second is the one that actually
+// performs the link, closing the race between "app already knows who the
+// user is" and "SDK still hasn't gotten a session back from sdk-init."
+async function linkSessionToUser(): Promise<void> {
+  if (!_sessionId || !_pendingIdentifyUserId) return
+  const userId = _pendingIdentifyUserId
+  try {
+    await fetch(`${BASE_URL}/sessions`, {
+      method: 'POST',
+      headers: buildHeaders(),
+      body: JSON.stringify({ action: 'identify', session_id: _sessionId, user_id: userId }),
+    })
+    _pendingIdentifyUserId = null
+  } catch {
+    // leave _pendingIdentifyUserId set — a later call (e.g. a subsequent
+    // track()) doesn't retry this automatically, but the session isn't
+    // permanently unlinkable either; a follow-up identify() call will retry it
   }
 }
 
