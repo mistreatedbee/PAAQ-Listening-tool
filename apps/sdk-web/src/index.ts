@@ -1,7 +1,12 @@
 import { record } from 'rrweb'
 
 const BASE_URL = 'https://mookyonwpovxscsbqwwl.supabase.co/functions/v1'
-const SDK_VERSION = '1.0.0'
+// Was hardcoded '1.0.0' since the very first release and never updated
+// across every version bump since — every X-SDK-Version header sent by
+// every install of this SDK has been wrong the entire time, which made
+// "is a customer actually running the new build" impossible to answer
+// from server-side logs alone. Now kept in lockstep with package.json.
+const SDK_VERSION = '1.2.3'
 
 type ErrorPayload = {
   error_type: string
@@ -229,15 +234,20 @@ async function identify(userId: string, traits: Record<string, unknown> = {}): P
       headers: buildHeaders(),
       body: JSON.stringify({ external_user_id: userId, email }),
     })
-    const data: { ok?: boolean; user_id?: string } = await res.json().catch(() => ({}))
-    if (!data.ok || !data.user_id) return
+    const data: { ok?: boolean; user_id?: string; error?: string } = await res.json().catch(() => ({}))
+    if (!data.ok || !data.user_id) {
+      console.warn('[paaq] identify() failed to resolve a user', data.error ?? res.status)
+      return
+    }
 
     _currentUserId = data.user_id
     _pendingIdentifyUserId = data.user_id
     await linkSessionToUser()
-  } catch {
+  } catch (err) {
     // fire-and-forget — a failed identify just leaves the session unlinked,
-    // it never blocks tracking
+    // it never blocks tracking — but it's now at least visible in devtools
+    // instead of a silent, undiagnosable "why is this session Anonymous."
+    console.warn('[paaq] identify() failed', err)
   }
 }
 
@@ -249,16 +259,25 @@ async function linkSessionToUser(): Promise<void> {
   if (!_sessionId || !_pendingIdentifyUserId) return
   const userId = _pendingIdentifyUserId
   try {
-    await fetch(`${BASE_URL}/sessions`, {
+    const res = await fetch(`${BASE_URL}/sessions`, {
       method: 'POST',
       headers: buildHeaders(),
       body: JSON.stringify({ action: 'identify', session_id: _sessionId, user_id: userId }),
     })
+    // A non-throwing fetch is not the same as a successful link — this
+    // previously cleared _pendingIdentifyUserId on ANY response, including a
+    // real server-side failure, silently giving up on linking the session
+    // forever with no way to tell from the outside that it had happened.
+    if (!res.ok) {
+      console.warn(`[paaq] failed to link session to user (${res.status}) — will retry on next identify/session`)
+      return
+    }
     _pendingIdentifyUserId = null
-  } catch {
-    // leave _pendingIdentifyUserId set — a later call (e.g. a subsequent
-    // track()) doesn't retry this automatically, but the session isn't
-    // permanently unlinkable either; a follow-up identify() call will retry it
+  } catch (err) {
+    // Network-level failure — leave _pendingIdentifyUserId set so the next
+    // init() (new session) or identify() call retries it; log it so a
+    // persistently-unlinked session is debuggable instead of a silent mystery.
+    console.warn('[paaq] failed to link session to user', err)
   }
 }
 
@@ -849,5 +868,10 @@ function scheduleFlush() {
   if (_flushTimer) clearInterval(_flushTimer)
   _flushTimer = setInterval(() => void flush(), _config.syncIntervalSeconds * 1000)
 }
+
+// Real installed version, for host apps that want to report/verify which
+// build is actually live (e.g. in a "sdk_connected" diagnostic event)
+// instead of hand-copying a version string that immediately goes stale.
+export const SDK_VERSION_STRING = SDK_VERSION
 
 export const paaq = { init, track, identify, page, flush, trackError, endSession }
