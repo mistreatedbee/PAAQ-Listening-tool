@@ -319,6 +319,48 @@ function installGlobalHandlers(): void {
       severity: 'error',
     })
   })
+  installConsoleCapture()
+}
+
+// window.onerror/unhandledrejection only ever see thrown exceptions — an app
+// that calls console.error('something broke', details) without throwing was
+// previously invisible to PAAQ entirely. Wrap console.error/warn to report
+// through the same real sendError() pipeline, while still calling the
+// original console method so devtools output is completely unaffected.
+// _inConsoleCapture guards against sendError (or anything it triggers)
+// itself logging via console.error and recursing forever.
+let _inConsoleCapture = false
+function installConsoleCapture(): void {
+  if (typeof console === 'undefined') return
+
+  const wrap = (method: 'error' | 'warn', severity: ErrorPayload['severity']) => {
+    const original = console[method].bind(console)
+    console[method] = (...args: unknown[]) => {
+      original(...args)
+      if (_inConsoleCapture) return
+      _inConsoleCapture = true
+      try {
+        const message = args.map((a) => {
+          if (a instanceof Error) return a.message
+          if (typeof a === 'string') return a
+          try { return JSON.stringify(a) } catch { return String(a) }
+        }).join(' ')
+        const errArg = args.find((a): a is Error => a instanceof Error)
+        void sendError({
+          error_type: method === 'error' ? 'ConsoleError' : 'ConsoleWarning',
+          message: message || `console.${method} called with no message`,
+          stack_trace: errArg?.stack ?? null,
+          screen: typeof window !== 'undefined' ? window.location.pathname : null,
+          severity,
+        })
+      } finally {
+        _inConsoleCapture = false
+      }
+    }
+  }
+
+  wrap('error', 'error')
+  wrap('warn', 'warning')
 }
 
 // History API has no native "navigated" event — pushState/replaceState are
@@ -718,6 +760,17 @@ function fieldHasError(el: Element): boolean {
   return false
 }
 
+// Real, standard browser API — the same text the browser itself would show
+// in its native validation bubble (e.g. "Please fill out this field."). Only
+// meaningful once the field is actually invalid; empty string otherwise.
+function fieldValidationMessage(el: Element): string | null {
+  if ('validationMessage' in el) {
+    const msg = (el as HTMLInputElement).validationMessage
+    return msg ? msg : null
+  }
+  return null
+}
+
 function installFormTracking(): void {
   if (typeof document === 'undefined') return
 
@@ -749,6 +802,7 @@ function installFormTracking(): void {
       timeSpentMs: Date.now() - state.startedAt,
       backspaceCount: state.backspaces,
       hadError: fieldHasError(el),
+      validationMessage: fieldValidationMessage(el),
       completed: el.value.trim().length > 0,
     })
   })

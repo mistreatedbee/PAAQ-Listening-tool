@@ -1,8 +1,11 @@
+'use client'
+
+import { useState } from 'react'
 import { Card, CardHead, ToneBadge } from '@/components/kit'
 import type { Tone } from '@/lib/data'
-import { Clock, Bug, MousePointerClick, FileText } from 'lucide-react'
+import { Clock, Bug, MousePointerClick, FileText, Video, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { ReplayThumbnail } from './replay-thumbnail'
+import { ReplayMomentModal } from './replay-moment-modal'
 import type { SessionRecordingState } from '@/lib/use-session-recording'
 
 export type SessionEvent = {
@@ -31,12 +34,33 @@ const severityTone: Record<string, Tone> = {
   fatal: 'critical', error: 'critical', warning: 'warning', info: 'intel',
 }
 
+function isFormFieldError(e: SessionEvent): boolean {
+  return e.event_name === '$form_field' && e.properties?.hadError === true
+}
+
+function isIncompleteField(e: SessionEvent): boolean {
+  return e.event_name === '$form_field' && e.properties?.completed === false
+}
+
+// Friction signals worth a "watch this moment" replay — real problems, not
+// every ordinary click/hover. $rage_click/$dead_click are the SDK's own
+// existing friction detectors; $form_abandon fires when a touched form was
+// left without submitting — a real drop-off signal, not inferred.
+const FRICTION_EVENTS = new Set(['$rage_click', '$dead_click', '$form_abandon'])
+function isFrictionEvent(e: SessionEvent): boolean {
+  return FRICTION_EVENTS.has(e.event_name) || isFormFieldError(e) || isIncompleteField(e)
+}
+
 function describeEvent(e: SessionEvent): string {
   if (e.event_name === '$page_view' || e.event_name === '$screen') {
     const page = (e.properties?.page ?? e.properties?.name ?? e.screen_name) as string | undefined
     return `Viewed ${page ?? 'page'}`
   }
   if (e.event_name === '$identify') return 'User identified'
+  if (e.event_name === '$form_field') {
+    const field = (e.properties?.fieldName as string | undefined) ?? 'field'
+    return isFormFieldError(e) ? `Form field error — ${field}` : `Form field — ${field}`
+  }
   return e.event_name.replace(/^\$/, '').replace(/_/g, ' ')
 }
 
@@ -55,14 +79,14 @@ export function InteractionTimeline({
   errors,
   cutoffTime,
   recording,
-  onSeek,
 }: {
   events: SessionEvent[]
   errors: SessionError[]
   cutoffTime: string | null
   recording?: SessionRecordingState
-  onSeek?: (iso: string) => void
 }) {
+  const [openMomentIso, setOpenMomentIso] = useState<string | null>(null)
+
   const items: TimelineItem[] = [
     ...events.map((e): TimelineItem => ({ kind: 'event', id: e.id, timestamp: e.timestamp, data: e })),
     ...errors.map((e): TimelineItem => ({ kind: 'error', id: e.id, timestamp: e.created_at, data: e })),
@@ -90,6 +114,7 @@ export function InteractionTimeline({
   }
 
   const cutoffMs = cutoffTime ? new Date(cutoffTime).getTime() : null
+  const hasRecording = !!recording && recording.kind !== 'none'
 
   return (
     <Card>
@@ -103,16 +128,20 @@ export function InteractionTimeline({
               const isFuture = cutoffMs != null && new Date(item.timestamp).getTime() > cutoffMs
               const page = pageContext.get(`${item.kind}-${item.id}`)
               const isPageViewRow = item.kind === 'event' && (item.data.event_name === '$page_view' || item.data.event_name === '$screen')
-              // Only worth a thumbnail for rows a user would actually want a
-              // visual for — a new page landing, or an error — not every
-              // single behavior event, to keep real-rasterization cost bounded.
-              const showThumbnail = recording && recording.kind !== 'none' && (isPageViewRow || item.kind === 'error')
+              const isFieldError = item.kind === 'event' && isFormFieldError(item.data)
+              const isErrorish = item.kind === 'error' || isFieldError
+              const validationMessage = item.kind === 'event' ? (item.data.properties?.validationMessage as string | undefined) : undefined
+              // Only offer a replay link on rows that represent a real
+              // problem — errors and friction signals — not every ordinary
+              // click/hover/page-view. Watching "what happened here" only
+              // matters when something actually went wrong.
+              const showWatchButton = hasRecording && (item.kind === 'error' || (item.kind === 'event' && isFrictionEvent(item.data)))
               return (
                 <li
                   key={`${item.kind}-${item.id}-${i}`}
                   className={cn(
                     'flex items-start gap-3 border-l-2 py-2 pl-3 transition-opacity',
-                    item.kind === 'error' ? 'border-critical/40' : 'border-border/50',
+                    isErrorish ? 'border-critical/40' : 'border-border/50',
                     isFuture && 'opacity-25',
                   )}
                 >
@@ -122,6 +151,8 @@ export function InteractionTimeline({
                   <span className="mt-0.5 shrink-0">
                     {item.kind === 'error'
                       ? <Bug className="h-3.5 w-3.5 text-critical" />
+                      : isFieldError
+                      ? <AlertTriangle className="h-3.5 w-3.5 text-critical" />
                       : item.data.event_name === '$page_view' || item.data.event_name === '$screen'
                       ? <FileText className="h-3.5 w-3.5 text-intel" />
                       : <MousePointerClick className="h-3.5 w-3.5 text-muted-foreground" />}
@@ -137,15 +168,26 @@ export function InteractionTimeline({
                         <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">{item.data.message}</p>
                       </>
                     ) : (
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm text-foreground">{describeEvent(item.data)}</p>
-                        {/* Page-view rows already say the page in their own text */}
-                        {page && !isPageViewRow && <span className="truncate font-mono text-[10px] text-muted-foreground/70">on {page}</span>}
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <p className={cn('text-sm', isFieldError ? 'font-medium text-critical' : 'text-foreground')}>{describeEvent(item.data)}</p>
+                          {/* Page-view rows already say the page in their own text */}
+                          {page && !isPageViewRow && <span className="truncate font-mono text-[10px] text-muted-foreground/70">on {page}</span>}
+                        </div>
+                        {isFieldError && validationMessage && (
+                          <p className="mt-0.5 truncate font-mono text-xs text-critical/80">{validationMessage}</p>
+                        )}
                       </div>
                     )}
                   </div>
-                  {showThumbnail && recording && (
-                    <ReplayThumbnail recording={recording} targetIso={item.timestamp} onOpen={onSeek} />
+                  {showWatchButton && (
+                    <button
+                      onClick={() => setOpenMomentIso(item.timestamp)}
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-critical/30 bg-critical/5 text-critical hover:bg-critical/10 transition-colors"
+                      title="Watch this moment in the replay"
+                    >
+                      <Video className="h-3 w-3" />
+                    </button>
                   )}
                 </li>
               )
@@ -153,6 +195,10 @@ export function InteractionTimeline({
           </ol>
         )}
       </div>
+
+      {openMomentIso && recording && (
+        <ReplayMomentModal recording={recording} targetIso={openMomentIso} onClose={() => setOpenMomentIso(null)} />
+      )}
     </Card>
   )
 }
