@@ -83,9 +83,13 @@ export function KpiGrid() {
           pulse: health >= 80 ? 'healthy' : undefined,
         },
         {
+          // Always show the real count, including a real zero — masking it
+          // behind '—' whenever there was event traffic but no *identified*
+          // user made this look broken/inconsistent with AI Summary right
+          // above it, which shows the same stat as a plain 0.
           label: 'Active Users',
           sub: 'last 24h',
-          value: dau > 0 ? dau.toLocaleString() : ev > 0 ? '—' : '0',
+          value: dau.toLocaleString(),
           tone: 'intel',
           spark: [0, 0, 0, 0, 0, 0, 0, dau],
         },
