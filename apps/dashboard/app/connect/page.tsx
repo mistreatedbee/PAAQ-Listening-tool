@@ -10,6 +10,17 @@ import { Sparkles, ArrowUp, Loader2, ChevronRight } from 'lucide-react'
 
 type InProgressRun = { id: string; status: string }
 
+// Ready-made prompts covering the most common stacks — click one to fill the
+// box (and still edit it before sending), so the user isn't stuck staring at
+// a blank "describe your app" textarea with no idea what a good answer
+// looks like.
+const EXAMPLE_PROMPTS = [
+  { label: 'React + Node + Postgres, on GitHub', text: 'Connect my production React frontend, Node.js backend and PostgreSQL database hosted on GitHub.' },
+  { label: 'Next.js full-stack, on GitHub', text: 'Connect my Next.js app (frontend and API routes together) with a PostgreSQL database, hosted on GitHub.' },
+  { label: 'Vue + Python/FastAPI + MySQL', text: 'Connect my Vue frontend, Python FastAPI backend, and MySQL database, hosted on GitHub.' },
+  { label: 'Frontend only, no backend/DB', text: 'Connect just my React frontend on GitHub — no backend or database to connect yet.' },
+]
+
 export default function ConnectPage() {
   const { app } = useConnectedApp()
   const router = useRouter()
@@ -91,18 +102,31 @@ export default function ConnectPage() {
         </div>
         <h1 className="text-2xl font-bold text-foreground">Connect Application</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Describe your app in plain language and the onboarding agent will connect your repository,
-          generate the SDK, and wire up monitoring for you.
+          Pick the example closest to your stack below (or write your own), then edit any details before sending —
+          the agent will connect your repository, generate the SDK, and wire up monitoring for you.
         </p>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          {EXAMPLE_PROMPTS.map((ex) => (
+            <button
+              key={ex.label}
+              type="button"
+              onClick={() => setPrompt(ex.text)}
+              className="rounded-full border border-border/60 bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground hover:border-ai/40 hover:bg-ai/5 hover:text-foreground transition-colors"
+            >
+              {ex.label}
+            </button>
+          ))}
+        </div>
 
         <form
           onSubmit={(e) => { e.preventDefault(); submit() }}
-          className="mt-5 rounded-2xl border border-border/70 bg-card p-4 focus-within:border-ai/40"
+          className="mt-3 rounded-2xl border border-border/70 bg-card p-4 focus-within:border-ai/40"
         >
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Connect my production React frontend, Node.js backend and PostgreSQL database hosted on GitHub"
+            placeholder="Click an example above, or describe your own stack — e.g. Connect my production React frontend, Node.js backend and PostgreSQL database hosted on GitHub"
             rows={4}
             className="w-full resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
           />

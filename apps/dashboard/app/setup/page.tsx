@@ -797,9 +797,9 @@ export default function SetupPage() {
         <div className="rounded-2xl border border-border/70 bg-card p-5 space-y-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold text-foreground">Connect methods</h2>
+              <h2 className="text-sm font-semibold text-foreground">Connect an app</h2>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Use MCP, CLI, or an agent prompt to connect any app automatically.
+                Describe your stack in one prompt and the onboarding agent connects it for you.
               </p>
             </div>
             <Link
@@ -809,29 +809,17 @@ export default function SetupPage() {
               Full guide <ExternalLink className="h-3 w-3" />
             </Link>
           </div>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <Link
-              href="/connect?tab=mcp"
+              href="/connect"
               className="flex flex-col gap-2 rounded-xl border border-border/50 bg-background/40 p-4 hover:border-ai/40 hover:bg-ai/5 transition-all group"
             >
               <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-ai/25 bg-ai/8 text-ai group-hover:bg-ai/15 transition-colors">
-                <Zap className="h-4 w-4" />
+                <Sparkles className="h-4 w-4" />
               </div>
               <div>
-                <p className="text-xs font-semibold text-foreground">MCP Server</p>
-                <p className="text-[10px] text-muted-foreground mt-0.5">AI agents connect automatically</p>
-              </div>
-            </Link>
-            <Link
-              href="/connect?tab=cli"
-              className="flex flex-col gap-2 rounded-xl border border-border/50 bg-background/40 p-4 hover:border-border hover:bg-accent/30 transition-all group"
-            >
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-border/50 bg-muted/50 text-muted-foreground group-hover:text-foreground transition-colors">
-                <Terminal className="h-4 w-4" />
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-foreground">CLI</p>
-                <p className="text-[10px] text-muted-foreground mt-0.5">One command in your terminal</p>
+                <p className="text-xs font-semibold text-foreground">Connect Application</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">One prompt — the agent does the rest</p>
               </div>
             </Link>
             <Link
@@ -843,7 +831,7 @@ export default function SetupPage() {
               </div>
               <div>
                 <p className="text-xs font-semibold text-foreground">Agent Prompt</p>
-                <p className="text-[10px] text-muted-foreground mt-0.5">Paste into any AI chat</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">Paste into any AI chat yourself</p>
               </div>
             </Link>
           </div>

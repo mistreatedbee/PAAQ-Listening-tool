@@ -1,21 +1,15 @@
 'use client'
 
-// Power-user connection path — MCP / CLI / Agent-Prompt / Manual snippet tabs
-// plus the credentials strip. This is the entire content of the old
-// `/connect` page, moved here verbatim (function renamed, standalone page
-// header removed) so it can live inside a collapsed <details> disclosure on
-// the new one-prompt `/connect` page rather than being deleted.
+// Power-user connection path — just the Agent Prompt method now (MCP/CLI/
+// Manual tabs were dropped per request: one clear fallback path instead of
+// four overlapping ones) plus the credentials strip. Lives inside a
+// collapsed <details> disclosure on the one-prompt `/connect` page.
 
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { cn } from '@/lib/utils'
-import {
-  Copy, Check, Terminal, Bot, Code2, Zap,
-  ChevronRight, Sparkles, Globe, Server,
-  Eye, EyeOff, Loader2,
-} from 'lucide-react'
+import { Copy, Check, Bot, Globe, Server, ChevronRight, Eye, EyeOff, Loader2 } from 'lucide-react'
 
 // ── Copy button ────────────────────────────────────────────────────────
 function CopyBtn({ text, label = 'Copy', className }: { text: string; label?: string; className?: string }) {
@@ -37,56 +31,6 @@ function CopyBtn({ text, label = 'Copy', className }: { text: string; label?: st
   )
 }
 
-// ── Code block ────────────────────────────────────────────────────────
-function CodeBlock({ code, language = 'bash', label }: { code: string; language?: string; label?: string }) {
-  return (
-    <div className="rounded-xl border border-border/60 bg-[#0d1117] overflow-hidden">
-      {label && (
-        <div className="flex items-center justify-between border-b border-border/40 px-4 py-2">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">{label}</span>
-          <CopyBtn text={code} />
-        </div>
-      )}
-      {!label && (
-        <div className="flex justify-end px-3 pt-2">
-          <CopyBtn text={code} />
-        </div>
-      )}
-      <pre className="overflow-x-auto p-4 font-mono text-[12px] leading-relaxed text-[#e6edf3] whitespace-pre">
-        {code}
-      </pre>
-    </div>
-  )
-}
-
-// ── Step card ─────────────────────────────────────────────────────────
-function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
-  return (
-    <div className="flex gap-4">
-      <div className="flex flex-col items-center gap-1 shrink-0">
-        <div className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-ai/40 bg-ai/10 text-xs font-bold text-ai">
-          {n}
-        </div>
-        <div className="w-px flex-1 bg-border/40" />
-      </div>
-      <div className="pb-8 min-w-0 flex-1">
-        <p className="mb-3 text-sm font-semibold text-foreground">{title}</p>
-        {children}
-      </div>
-    </div>
-  )
-}
-
-// ── Tab types ─────────────────────────────────────────────────────────
-type TabId = 'mcp' | 'cli' | 'prompt' | 'manual'
-
-const TABS: { id: TabId; label: string; icon: typeof Bot; desc: string }[] = [
-  { id: 'mcp',    label: 'MCP Server',    icon: Zap,      desc: 'AI agents connect automatically' },
-  { id: 'cli',    label: 'CLI',           icon: Terminal, desc: 'One command in your terminal' },
-  { id: 'prompt', label: 'Agent Prompt',  icon: Bot,      desc: 'Copy + paste into any AI chat' },
-  { id: 'manual', label: 'Manual',        icon: Code2,    desc: 'Generate a code snippet yourself' },
-]
-
 const FRAMEWORKS = ['nextjs', 'react', 'vue', 'vanilla', 'nodejs', 'python'] as const
 type Framework = typeof FRAMEWORKS[number]
 const FRAMEWORK_LABELS: Record<Framework, string> = {
@@ -96,16 +40,11 @@ const FRAMEWORK_LABELS: Record<Framework, string> = {
 // ── Main panel ──────────────────────────────────────────────────────────
 export function ManualConnectPanel() {
   const { app } = useConnectedApp()
-  const searchParams = useSearchParams()
-  const initialTab = (searchParams.get('tab') as TabId | null) ?? 'mcp'
-  const [tab, setTab] = useState<TabId>(initialTab)
   const [framework, setFramework] = useState<Framework>('nextjs')
   const [sdkToken, setSdkToken] = useState<string | null>(null)
   const [projectKey, setProjectKey] = useState<string | null>(null)
   const [showToken, setShowToken] = useState(false)
   const [loading, setLoading] = useState(true)
-
-  const PAAQ_BASE = 'https://mookyonwpovxscsbqwwl.supabase.co/functions/v1'
 
   useEffect(() => {
     if (app.id === '__loading__') return
@@ -130,25 +69,6 @@ export function ManualConnectPanel() {
 
   const tok = sdkToken  ?? 'sdk_live_••••••••••••••••••••••••••••••••'
   const key = projectKey ?? 'proj_••••••••'
-
-  // ── Generated content ──────────────────────────────────────────────
-
-  const mcpJson = `{
-  "mcpServers": {
-    "paaq": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "@paaq/mcp-server"]
-    }
-  }
-}`
-
-  const cliCommand = `node packages/cli/index.js connect`
-
-  const cliNonInteractive = `node packages/cli/index.js snippet \\
-  --sdk-token   ${tok} \\
-  --project-key ${key} \\
-  --framework   ${framework}`
 
   const agentPrompt = `Connect my ${FRAMEWORK_LABELS[framework]} app to PAAQ Intelligence.
 
@@ -222,7 +142,7 @@ Generate the integration code directly. The API endpoints are:
 Auth headers for BOTH endpoints:
   Authorization: Bearer ${tok}
   X-Project-ID:  ${key}
-  X-SDK-Version: 1.0.0
+  X-SDK-Version: 1.1.0
   X-Platform:    <framework name>
   X-Environment: production
 
@@ -240,550 +160,6 @@ DONE WHEN
 ✓ Init call added to the app entry point
 ✓ paaq_send_test_event returned ok: true (or manual test event sent)
 ✓ You have told me the project name returned by the API`
-
-  const snippets: Record<Framework, string> = {
-    nextjs: `// lib/paaq.ts — create this file in your Next.js project
-function getDeviceMeta() {
-  if (typeof window === 'undefined') return {}
-  const nav = navigator as any
-  return {
-    userAgent:      navigator.userAgent,
-    screenWidth:    screen.width,         screenHeight:   screen.height,
-    viewportWidth:  window.innerWidth,    viewportHeight: window.innerHeight,
-    timezone:       Intl.DateTimeFormat().resolvedOptions().timeZone,
-    locale:         navigator.language,
-    connectionType: nav?.connection?.effectiveType ?? null,
-    referrer:       document.referrer || null,
-    entryUrl:       window.location.href,
-    pixelRatio:     window.devicePixelRatio,
-    orientation:    window.innerWidth >= window.innerHeight ? 'landscape' : 'portrait',
-    touchSupport:   'ontouchstart' in window,
-    cpuCores:       navigator.hardwareConcurrency ?? null,
-    memoryGb:       nav?.deviceMemory ?? null,
-  }
-}
-
-export const paaq = {
-  sdkToken:   '${tok}',
-  projectKey: '${key}',
-  base:       '${PAAQ_BASE}',
-  sessionId:  null as string | null,
-  appVersion: null as string | null, // optional: set to your app's version string
-
-  _headers(): Record<string, string> {
-    return { 'Content-Type': 'application/json', 'Authorization': \`Bearer \${this.sdkToken}\`, 'X-Project-ID': this.projectKey }
-  },
-
-  async init() {
-    if (typeof window === 'undefined') return
-    const res = await fetch(\`\${this.base}/sdk-init\`, {
-      method: 'POST',
-      headers: { ...this._headers(), 'X-SDK-Version': '1.0.0', 'X-Platform': 'nextjs', 'X-Environment': process.env.NODE_ENV ?? 'production' },
-      body: JSON.stringify({ appVersion: this.appVersion || undefined, deviceMetadata: getDeviceMeta() }),
-    }).catch(() => null)
-    const data = await res?.json().catch(() => null)
-    if (data?.ok) {
-      this.sessionId = data.sessionId
-      this._install()
-      console.log('[PAAQ] Connected', this.sessionId)
-    }
-  },
-
-  async track(event: string, props: Record<string, unknown> = {}) {
-    if (!this.sessionId || typeof window === 'undefined') return
-    await fetch(\`\${this.base}/events\`, {
-      method: 'POST', headers: this._headers(),
-      body: JSON.stringify([{ event_name: event, session_id: this.sessionId,
-        screen_name: window.location.pathname, properties: props, timestamp: new Date().toISOString() }]),
-    }).catch(() => null)
-  },
-
-  trackError(err: unknown) {
-    if (!this.sessionId) return
-    const e = err instanceof Error ? err : { name: 'Error', message: String(err), stack: undefined }
-    void fetch(\`\${this.base}/errors\`, {
-      method: 'POST', headers: this._headers(),
-      body: JSON.stringify({ error_type: (e as Error).name || 'Error', message: (e as Error).message,
-        stack_trace: (e as Error).stack || null, screen: window.location.pathname, severity: 'error', session_id: this.sessionId }),
-    }).catch(() => null)
-  },
-
-  _install() {
-    if (typeof window === 'undefined') return
-    const trackPage = () => this.track('page_view', { path: window.location.pathname, title: document.title })
-    const _push = history.pushState.bind(history); history.pushState = (...a: Parameters<History['pushState']>) => { _push(...a); trackPage() }
-    const _rep  = history.replaceState.bind(history); history.replaceState = (...a: Parameters<History['replaceState']>) => { _rep(...a); trackPage() }
-    window.addEventListener('popstate', trackPage)
-    trackPage()
-
-    window.addEventListener('error', (e) => this.trackError(e.error ?? new Error(e.message)))
-    window.addEventListener('unhandledrejection', (e) => this.trackError(e.reason instanceof Error ? e.reason : new Error(String(e.reason))))
-
-    const _t = new WeakMap<Element, number>()
-    document.addEventListener('focusin', (e) => {
-      const el = e.target as Element
-      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) _t.set(el, Date.now())
-    })
-    document.addEventListener('focusout', (e) => {
-      const el = e.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
-      if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) return
-      const start = _t.get(el); if (!start) return; _t.delete(el)
-      void this.track('$form_field', { page: window.location.pathname,
-        formName: el.closest('form')?.getAttribute('name') || el.closest('form')?.id || null,
-        fieldName: el.name || el.id || el.type || 'unknown',
-        timeSpentMs: Date.now() - start,
-        hadError: el.getAttribute('aria-invalid') === 'true' || el.classList.contains('error'),
-        completed: el.value?.trim().length > 0 })
-    })
-
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') this._end() })
-    window.addEventListener('pagehide', () => this._end())
-  },
-
-  _end() {
-    if (!this.sessionId) return
-    void fetch(\`\${this.base}/sessions\`, { method: 'POST', headers: this._headers(),
-      body: JSON.stringify({ action: 'end', session_id: this.sessionId, outcome: 'completed' }), keepalive: true }).catch(() => null)
-  },
-}
-
-// app/providers.tsx — wrap your layout with this
-// 'use client'
-// import { useEffect } from 'react'
-// import { paaq } from '@/lib/paaq'
-// export function PaaqProvider({ children }: { children: React.ReactNode }) {
-//   useEffect(() => { paaq.init() }, [])
-//   return <>{children}</>
-// }`,
-
-    react: `// src/paaq.js — create this file in your React project
-function getDeviceMeta() {
-  return {
-    userAgent:      navigator.userAgent,
-    screenWidth:    screen.width,         screenHeight:   screen.height,
-    viewportWidth:  window.innerWidth,    viewportHeight: window.innerHeight,
-    timezone:       Intl.DateTimeFormat().resolvedOptions().timeZone,
-    locale:         navigator.language,
-    connectionType: navigator.connection?.effectiveType ?? null,
-    referrer:       document.referrer || null,
-    entryUrl:       window.location.href,
-    pixelRatio:     window.devicePixelRatio,
-    orientation:    window.innerWidth >= window.innerHeight ? 'landscape' : 'portrait',
-    touchSupport:   'ontouchstart' in window,
-    cpuCores:       navigator.hardwareConcurrency ?? null,
-    memoryGb:       navigator.deviceMemory ?? null,
-  }
-}
-
-export const paaq = {
-  sdkToken:   '${tok}',
-  projectKey: '${key}',
-  base:       '${PAAQ_BASE}',
-  sessionId:  null,
-  appVersion: null, // optional: set to your app's version string
-
-  _headers() {
-    return { 'Content-Type': 'application/json', 'Authorization': \`Bearer \${this.sdkToken}\`, 'X-Project-ID': this.projectKey }
-  },
-
-  async init() {
-    const res = await fetch(\`\${this.base}/sdk-init\`, {
-      method: 'POST',
-      headers: { ...this._headers(), 'X-SDK-Version': '1.0.0', 'X-Platform': 'react', 'X-Environment': import.meta.env?.MODE ?? 'production' },
-      body: JSON.stringify({ appVersion: this.appVersion || undefined, deviceMetadata: getDeviceMeta() }),
-    }).catch(() => null)
-    const data = await res?.json().catch(() => null)
-    if (data?.ok) {
-      this.sessionId = data.sessionId  // always use the server-assigned ID
-      this._install()
-      console.log('[PAAQ] Connected', this.sessionId)
-    }
-  },
-
-  async track(event, props = {}) {
-    if (!this.sessionId) return
-    await fetch(\`\${this.base}/events\`, {
-      method: 'POST', headers: this._headers(),
-      body: JSON.stringify([{ event_name: event, session_id: this.sessionId,
-        screen_name: window.location.pathname, properties: props, timestamp: new Date().toISOString() }]),
-    }).catch(() => null)
-  },
-
-  trackError(err) {
-    if (!this.sessionId) return
-    fetch(\`\${this.base}/errors\`, {
-      method: 'POST', headers: this._headers(),
-      body: JSON.stringify({ error_type: err?.name || 'Error', message: err?.message || String(err),
-        stack_trace: err?.stack || null, screen: window.location.pathname, severity: 'error', session_id: this.sessionId }),
-    }).catch(() => null)
-  },
-
-  _install() {
-    // Page tracking — fires on every SPA route change
-    const trackPage = () => this.track('page_view', { path: window.location.pathname, title: document.title })
-    const _push = history.pushState.bind(history); history.pushState = (...a) => { _push(...a); trackPage() }
-    const _rep  = history.replaceState.bind(history); history.replaceState = (...a) => { _rep(...a); trackPage() }
-    window.addEventListener('popstate', trackPage)
-    trackPage()
-
-    // Global error capture
-    window.addEventListener('error', (e) => this.trackError(e.error ?? { name: 'Error', message: e.message }))
-    window.addEventListener('unhandledrejection', (e) => this.trackError(e.reason instanceof Error ? e.reason : { name: 'UnhandledRejection', message: String(e.reason) }))
-
-    // Form field tracking
-    const _t = new WeakMap()
-    document.addEventListener('focusin', (e) => {
-      const el = e.target
-      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) _t.set(el, Date.now())
-    })
-    document.addEventListener('focusout', (e) => {
-      const el = e.target
-      if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) return
-      const start = _t.get(el); if (!start) return; _t.delete(el)
-      this.track('$form_field', { page: window.location.pathname,
-        formName: el.closest('form')?.name || el.closest('form')?.id || null,
-        fieldName: el.name || el.id || el.type || 'unknown',
-        timeSpentMs: Date.now() - start,
-        hadError: el.getAttribute('aria-invalid') === 'true' || el.classList.contains('error'),
-        completed: (el.value?.trim().length ?? 0) > 0 })
-    })
-
-    // Session end
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') this._end()
-    })
-    window.addEventListener('pagehide', () => this._end())
-  },
-
-  _end() {
-    if (!this.sessionId) return
-    const payload = JSON.stringify({ action: 'end', session_id: this.sessionId, outcome: 'completed' })
-    fetch(\`\${this.base}/sessions\`, { method: 'POST', headers: this._headers(), body: payload, keepalive: true }).catch(() => null)
-  },
-}
-
-// src/main.jsx: import { paaq } from './paaq'; paaq.init()`,
-
-    vue: `// src/paaq.js — create this file in your Vue 3 project
-function getDeviceMeta() {
-  return {
-    userAgent:      navigator.userAgent,
-    screenWidth:    screen.width,         screenHeight:   screen.height,
-    viewportWidth:  window.innerWidth,    viewportHeight: window.innerHeight,
-    timezone:       Intl.DateTimeFormat().resolvedOptions().timeZone,
-    locale:         navigator.language,
-    connectionType: navigator.connection?.effectiveType ?? null,
-    referrer:       document.referrer || null,
-    entryUrl:       window.location.href,
-    pixelRatio:     window.devicePixelRatio,
-    orientation:    window.innerWidth >= window.innerHeight ? 'landscape' : 'portrait',
-    touchSupport:   'ontouchstart' in window,
-    cpuCores:       navigator.hardwareConcurrency ?? null,
-    memoryGb:       navigator.deviceMemory ?? null,
-  }
-}
-
-export const paaq = {
-  sdkToken:   '${tok}',
-  projectKey: '${key}',
-  base:       '${PAAQ_BASE}',
-  sessionId:  null,
-  appVersion: null, // optional: set to your app's version string
-
-  _headers() {
-    return { 'Content-Type': 'application/json', 'Authorization': \`Bearer \${this.sdkToken}\`, 'X-Project-ID': this.projectKey }
-  },
-
-  async init() {
-    const res = await fetch(\`\${this.base}/sdk-init\`, {
-      method: 'POST',
-      headers: { ...this._headers(), 'X-SDK-Version': '1.0.0', 'X-Platform': 'vue', 'X-Environment': import.meta.env?.MODE ?? 'production' },
-      body: JSON.stringify({ appVersion: this.appVersion || undefined, deviceMetadata: getDeviceMeta() }),
-    }).catch(() => null)
-    const data = await res?.json().catch(() => null)
-    if (data?.ok) {
-      this.sessionId = data.sessionId
-      this._install()
-      console.log('[PAAQ] Connected', this.sessionId)
-    }
-  },
-
-  async track(event, props = {}) {
-    if (!this.sessionId) return
-    await fetch(\`\${this.base}/events\`, {
-      method: 'POST', headers: this._headers(),
-      body: JSON.stringify([{ event_name: event, session_id: this.sessionId,
-        screen_name: window.location.pathname, properties: props, timestamp: new Date().toISOString() }]),
-    }).catch(() => null)
-  },
-
-  trackError(err) {
-    if (!this.sessionId) return
-    fetch(\`\${this.base}/errors\`, {
-      method: 'POST', headers: this._headers(),
-      body: JSON.stringify({ error_type: err?.name || 'Error', message: err?.message || String(err),
-        stack_trace: err?.stack || null, screen: window.location.pathname, severity: 'error', session_id: this.sessionId }),
-    }).catch(() => null)
-  },
-
-  _install() {
-    const trackPage = () => this.track('page_view', { path: window.location.pathname, title: document.title })
-    const _push = history.pushState.bind(history); history.pushState = (...a) => { _push(...a); trackPage() }
-    const _rep  = history.replaceState.bind(history); history.replaceState = (...a) => { _rep(...a); trackPage() }
-    window.addEventListener('popstate', trackPage)
-    trackPage()
-
-    window.addEventListener('error', (e) => this.trackError(e.error ?? { name: 'Error', message: e.message }))
-    window.addEventListener('unhandledrejection', (e) => this.trackError(e.reason instanceof Error ? e.reason : { name: 'UnhandledRejection', message: String(e.reason) }))
-
-    const _t = new WeakMap()
-    document.addEventListener('focusin', (e) => {
-      const el = e.target
-      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) _t.set(el, Date.now())
-    })
-    document.addEventListener('focusout', (e) => {
-      const el = e.target
-      if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) return
-      const start = _t.get(el); if (!start) return; _t.delete(el)
-      this.track('$form_field', { page: window.location.pathname,
-        formName: el.closest('form')?.name || el.closest('form')?.id || null,
-        fieldName: el.name || el.id || el.type || 'unknown',
-        timeSpentMs: Date.now() - start,
-        hadError: el.getAttribute('aria-invalid') === 'true' || el.classList.contains('error'),
-        completed: (el.value?.trim().length ?? 0) > 0 })
-    })
-
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') this._end()
-    })
-    window.addEventListener('pagehide', () => this._end())
-  },
-
-  _end() {
-    if (!this.sessionId) return
-    fetch(\`\${this.base}/sessions\`, { method: 'POST', headers: this._headers(),
-      body: JSON.stringify({ action: 'end', session_id: this.sessionId, outcome: 'completed' }), keepalive: true }).catch(() => null)
-  },
-}
-
-// src/main.ts: import { paaq } from './paaq'; paaq.init()`,
-
-    vanilla: `<!-- Add before </body> in your HTML page -->
-<script>
-function getDeviceMeta() {
-  return {
-    userAgent:      navigator.userAgent,
-    screenWidth:    screen.width,         screenHeight:   screen.height,
-    viewportWidth:  window.innerWidth,    viewportHeight: window.innerHeight,
-    timezone:       Intl.DateTimeFormat().resolvedOptions().timeZone,
-    locale:         navigator.language,
-    connectionType: navigator.connection?.effectiveType ?? null,
-    referrer:       document.referrer || null,
-    entryUrl:       window.location.href,
-    pixelRatio:     window.devicePixelRatio,
-    orientation:    window.innerWidth >= window.innerHeight ? 'landscape' : 'portrait',
-    touchSupport:   'ontouchstart' in window,
-    cpuCores:       navigator.hardwareConcurrency ?? null,
-    memoryGb:       navigator.deviceMemory ?? null,
-  }
-}
-
-const paaq = {
-  sdkToken:   '${tok}',
-  projectKey: '${key}',
-  base:       '${PAAQ_BASE}',
-  sessionId:  null,
-  appVersion: null, // optional: set to your app's version string
-
-  _h() {
-    return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.sdkToken, 'X-Project-ID': this.projectKey }
-  },
-
-  async init() {
-    const res = await fetch(this.base + '/sdk-init', {
-      method: 'POST',
-      headers: Object.assign(this._h(), { 'X-SDK-Version': '1.0.0', 'X-Platform': 'vanilla', 'X-Environment': 'production' }),
-      body: JSON.stringify({ appVersion: this.appVersion || undefined, deviceMetadata: getDeviceMeta() }),
-    }).catch(() => null)
-    const data = await res?.json().catch(() => null)
-    if (data?.ok) { this.sessionId = data.sessionId; this._install(); console.log('[PAAQ] Connected', this.sessionId) }
-  },
-
-  async track(event, props) {
-    if (!this.sessionId) return
-    await fetch(this.base + '/events', {
-      method: 'POST', headers: this._h(),
-      body: JSON.stringify([{ event_name: event, session_id: this.sessionId,
-        screen_name: location.pathname, properties: props ?? {}, timestamp: new Date().toISOString() }]),
-    }).catch(() => null)
-  },
-
-  trackError(err) {
-    if (!this.sessionId) return
-    fetch(this.base + '/errors', {
-      method: 'POST', headers: this._h(),
-      body: JSON.stringify({ error_type: err?.name || 'Error', message: err?.message || String(err),
-        stack_trace: err?.stack || null, screen: location.pathname, severity: 'error', session_id: this.sessionId }),
-    }).catch(() => null)
-  },
-
-  _install() {
-    const trackPage = () => this.track('page_view', { path: location.pathname, title: document.title })
-    const _push = history.pushState.bind(history); history.pushState = (...a) => { _push(...a); trackPage() }
-    const _rep  = history.replaceState.bind(history); history.replaceState = (...a) => { _rep(...a); trackPage() }
-    window.addEventListener('popstate', trackPage)
-    trackPage()
-
-    window.addEventListener('error', (e) => this.trackError(e.error ?? { name: 'Error', message: e.message }))
-    window.addEventListener('unhandledrejection', (e) => this.trackError(e.reason instanceof Error ? e.reason : { name: 'UnhandledRejection', message: String(e.reason) }))
-
-    const _t = new WeakMap()
-    document.addEventListener('focusin', (e) => {
-      const el = e.target
-      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) _t.set(el, Date.now())
-    })
-    document.addEventListener('focusout', (e) => {
-      const el = e.target
-      if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) return
-      const start = _t.get(el); if (!start) return; _t.delete(el)
-      this.track('$form_field', { page: location.pathname,
-        formName: el.closest('form')?.name || el.closest('form')?.id || null,
-        fieldName: el.name || el.id || el.type || 'unknown',
-        timeSpentMs: Date.now() - start,
-        hadError: el.getAttribute('aria-invalid') === 'true' || el.classList.contains('error'),
-        completed: (el.value?.trim().length ?? 0) > 0 })
-    })
-
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') this._end()
-    })
-    window.addEventListener('pagehide', () => this._end())
-  },
-
-  _end() {
-    if (!this.sessionId) return
-    fetch(this.base + '/sessions', { method: 'POST', headers: this._h(),
-      body: JSON.stringify({ action: 'end', session_id: this.sessionId, outcome: 'completed' }), keepalive: true }).catch(() => null)
-  },
-}
-
-paaq.init().then(() => paaq.track('page_view', { title: document.title }))
-</script>`,
-
-    nodejs: `// paaq.js — create this file in your Node.js project
-export const paaq = {
-  sdkToken:   '${tok}',
-  projectKey: '${key}',
-  base:       '${PAAQ_BASE}',
-
-  async init(platform = 'nodejs') {
-    const res = await fetch(\`\${this.base}/sdk-init\`, {
-      method: 'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': \`Bearer \${this.sdkToken}\`,
-        'X-Project-ID':  this.projectKey,
-        'X-SDK-Version': '1.0.0',
-        'X-Platform':    platform,
-        'X-Environment': process.env.NODE_ENV ?? 'production',
-      },
-      body: JSON.stringify({}),
-    }).catch(() => null)
-    const data = await res?.json().catch(() => null)
-    if (data?.ok) console.log('[PAAQ] Connected —', data.meta?.projectName)
-    return data
-  },
-
-  async track(event, props = {}) {
-    await fetch(\`\${this.base}/events\`, {
-      method: 'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': \`Bearer \${this.sdkToken}\`,
-        'X-Project-ID':  this.projectKey,
-      },
-      body: JSON.stringify([{ event_name: event, properties: props,
-        timestamp: new Date().toISOString() }]),
-    }).catch(() => null)
-  },
-
-  // Express / Fastify / Hono middleware
-  middleware() {
-    return (req, res, next) => {
-      const t = Date.now()
-      res.on('finish', () => {
-        fetch(\`\${this.base}/events\`, {
-          method: 'POST',
-          headers: {
-            'Content-Type':  'application/json',
-            'Authorization': \`Bearer \${this.sdkToken}\`,
-            'X-Project-ID':  this.projectKey,
-          },
-          body: JSON.stringify([{ event_name: 'api_request', properties: {
-            method: req.method, path: req.path ?? req.url,
-            status: res.statusCode, duration_ms: Date.now() - t,
-          }, timestamp: new Date().toISOString() }]),
-        }).catch(() => null)
-      })
-      if (next) next()
-    }
-  },
-}
-
-// server.js: import { paaq } from './paaq.js'
-// await paaq.init(); app.use(paaq.middleware())`,
-
-    python: `# paaq.py — create this file in your Python project
-import httpx, uuid
-
-class PAAQ:
-    SDK_TOKEN   = '${tok}'
-    PROJECT_KEY = '${key}'
-    BASE        = '${PAAQ_BASE}'
-    session_id  = str(uuid.uuid4())
-
-    @classmethod
-    def _headers(cls, platform='python'):
-        return {
-            'Content-Type':  'application/json',
-            'Authorization': f'Bearer {cls.SDK_TOKEN}',
-            'X-Project-ID':  cls.PROJECT_KEY,
-            'X-SDK-Version': '1.0.0',
-            'X-Platform':    platform,
-            'X-Environment': 'production',
-        }
-
-    @classmethod
-    def init(cls, platform='python'):
-        r = httpx.post(f'{cls.BASE}/sdk-init',
-            headers=cls._headers(platform),
-            json={'sessionId': cls.session_id}, timeout=5)
-        data = r.json()
-        if data.get('ok'): print(f"[PAAQ] Connected — {data.get('meta', {}).get('projectName')}")
-
-    @classmethod
-    def track(cls, event_name: str, properties: dict = {}):
-        httpx.post(f'{cls.BASE}/events',
-            headers=cls._headers(),
-            json=[{'event_name': event_name, 'session_id': cls.session_id,
-                   'properties': properties}], timeout=5)
-
-    @classmethod
-    def fastapi_middleware(cls):
-        from starlette.middleware.base import BaseHTTPMiddleware
-        import time
-        class _M(BaseHTTPMiddleware):
-            async def dispatch(inner, request, call_next):
-                t = time.time()
-                response = await call_next(request)
-                cls.track('api_request', {'path': request.url.path,
-                    'status': response.status_code, 'ms': round((time.time()-t)*1000)})
-                return response
-        return _M
-
-# main.py: from paaq import PAAQ; PAAQ.init()
-# app.add_middleware(PAAQ.fastapi_middleware())`,
-  }
 
   if (loading || app.id === '__loading__') {
     return (
@@ -835,226 +211,56 @@ class PAAQ:
         </div>
       </div>
 
-      {/* Method tabs */}
-      <div className="space-y-6">
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {TABS.map((t) => {
-            const Icon = t.icon
-            return (
-              <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
-                className={cn(
-                  'flex flex-col items-start gap-1 rounded-xl border px-3 py-3 text-left transition-all',
-                  tab === t.id
-                    ? 'border-ai/40 bg-ai/8 ring-1 ring-ai/20'
-                    : 'border-border/50 bg-card hover:border-border hover:bg-accent/30',
-                )}
-              >
-                <div className="flex items-center gap-1.5">
-                  <Icon className={cn('h-3.5 w-3.5', tab === t.id ? 'text-ai' : 'text-muted-foreground')} />
-                  <span className={cn('text-xs font-semibold', tab === t.id ? 'text-ai' : 'text-foreground')}>{t.label}</span>
-                </div>
-                <p className="text-[10px] text-muted-foreground leading-tight">{t.desc}</p>
-              </button>
-            )
-          })}
+      {/* Agent Prompt */}
+      <div className="space-y-5">
+        <div className="flex items-start gap-3 rounded-xl border border-ai/20 bg-ai/5 px-4 py-3">
+          <Bot className="h-4 w-4 text-ai shrink-0 mt-0.5" />
+          <p className="text-xs text-muted-foreground">
+            Copy this prompt and paste it into any AI coding assistant — Claude, ChatGPT, Cursor, Copilot, or any other.
+            The agent will generate and add the integration code to your project.
+          </p>
         </div>
 
-        {/* ── MCP Tab ──────────────────────────────────────────────── */}
-        {tab === 'mcp' && (
-          <div className="space-y-0">
-            <div className="mb-5 flex items-start gap-3 rounded-xl border border-ai/20 bg-ai/5 px-4 py-3">
-              <Zap className="h-4 w-4 text-ai shrink-0 mt-0.5" />
-              <p className="text-xs text-muted-foreground">
-                The MCP server lets AI agents (Claude Code, Cursor, Windsurf) connect any app automatically.
-                Once set up, just describe what you want — the agent does the rest.
-              </p>
-            </div>
-
-            <Step n={1} title="Add .mcp.json to your project root">
-              <p className="mb-2 text-[11px] text-muted-foreground">
-                Create this file in the root of the project you want to connect. No download or install required — it runs via <code className="font-mono bg-muted/60 px-1 rounded">npx</code>:
-              </p>
-              <CodeBlock code={mcpJson} label=".mcp.json — create this at your project root" language="json" />
-            </Step>
-
-            <Step n={2} title="Restart Claude Code (or your AI agent)">
-              <p className="text-[11px] text-muted-foreground">
-                After adding <code className="font-mono bg-muted/60 px-1 rounded text-[10px]">.mcp.json</code>, restart Claude Code or your AI agent so it picks up the PAAQ tools.
-                You should see <code className="font-mono bg-muted/60 px-1 rounded text-[10px]">paaq</code> appear in the MCP tools list.
-              </p>
-            </Step>
-
-            <Step n={3} title="Paste this prompt into your AI agent">
-              <p className="mb-2 text-[11px] text-muted-foreground">
-                The agent will detect your framework, verify credentials, write the integration file, and send a test event — all automatically:
-              </p>
-              <div className="rounded-xl border border-border/60 bg-[#0d1117] overflow-hidden">
-                <div className="flex items-center justify-between border-b border-border/40 px-4 py-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Paste into Claude Code, Cursor, or any agent</span>
-                  <CopyBtn text={agentPrompt} label="Copy full prompt" />
-                </div>
-                <div className="p-4 text-[12px] text-[#e6edf3] font-mono leading-relaxed whitespace-pre overflow-x-auto">{`Connect my ${FRAMEWORK_LABELS[framework]} app to PAAQ Intelligence.
-
-SDK Token:   ${tok}
-Project Key: ${key}
-
-Steps (use PAAQ MCP tools):
-1. paaq_detect_framework  — read package.json, pass its contents
-2. paaq_verify_credentials — confirm credentials before writing code
-3. paaq_generate_snippet  — get the exact integration file
-4. Write the file         — use your file tools (see snippet for path)
-5. Add init call          — follow the comments in the snippet
-6. paaq_send_test_event   — confirm connection end-to-end
-
-The copy button above has the full detailed prompt with all instructions.`}</div>
-              </div>
-              <p className="mt-2 text-[11px] text-muted-foreground">
-                Tools available: <code className="font-mono bg-muted/60 px-1 rounded text-[10px]">paaq_detect_framework</code> · <code className="font-mono bg-muted/60 px-1 rounded text-[10px]">paaq_verify_credentials</code> · <code className="font-mono bg-muted/60 px-1 rounded text-[10px]">paaq_generate_snippet</code> · <code className="font-mono bg-muted/60 px-1 rounded text-[10px]">paaq_send_test_event</code>
-              </p>
-            </Step>
+        {/* Framework selector */}
+        <div>
+          <p className="mb-2 text-xs font-semibold text-muted-foreground">Choose your framework:</p>
+          <div className="flex flex-wrap gap-2">
+            {FRAMEWORKS.map((f) => (
+              <button
+                key={f}
+                onClick={() => setFramework(f)}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors',
+                  framework === f ? 'border-ai/40 bg-ai/10 text-ai' : 'border-border/50 text-muted-foreground hover:border-border hover:text-foreground',
+                )}
+              >
+                {(f === 'nodejs' || f === 'python') ? <Server className="h-3 w-3" /> : <Globe className="h-3 w-3" />}
+                {FRAMEWORK_LABELS[f]}
+              </button>
+            ))}
           </div>
-        )}
+        </div>
 
-        {/* ── CLI Tab ───────────────────────────────────────────────── */}
-        {tab === 'cli' && (
-          <div className="space-y-0">
-            <div className="mb-5 flex items-start gap-3 rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
-              <Terminal className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-              <p className="text-xs text-muted-foreground">
-                Run the PAAQ CLI from your terminal. It detects your framework automatically, verifies your credentials, and outputs the ready-to-paste integration code.
-              </p>
-            </div>
-
-            <Step n={1} title="Open your terminal in your project directory">
-              <CodeBlock code={`cd /path/to/your-project`} />
-            </Step>
-
-            <Step n={2} title="Run the interactive connect wizard">
-              <CodeBlock code={`node /path/to/paaq-listening-platform/packages/cli/index.js connect`} label="Terminal" />
-              <p className="mt-2 text-[11px] text-muted-foreground">
-                The wizard will detect your framework, ask for your credentials, verify them, and output the snippet.
-              </p>
-            </Step>
-
-            <Step n={3} title="Or run non-interactively with your credentials pre-filled">
-              <div className="mb-2 flex flex-wrap gap-2">
-                {FRAMEWORKS.map((f) => (
-                  <button
-                    key={f}
-                    onClick={() => setFramework(f)}
-                    className={cn(
-                      'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition-colors',
-                      framework === f ? 'border-ai/40 bg-ai/10 text-ai' : 'border-border/50 text-muted-foreground hover:border-border hover:text-foreground',
-                    )}
-                  >
-                    {FRAMEWORK_LABELS[f]}
-                  </button>
-                ))}
-              </div>
-              <CodeBlock code={cliNonInteractive} label="Terminal — pre-filled with your credentials" />
-            </Step>
+        {/* The prompt */}
+        <div className="rounded-xl border border-border/60 bg-[#0d1117] overflow-hidden">
+          <div className="flex items-center justify-between border-b border-border/40 px-4 py-2">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              Copy this prompt → paste into your AI agent
+            </span>
+            <CopyBtn text={agentPrompt} label="Copy prompt" />
           </div>
-        )}
-
-        {/* ── Agent Prompt Tab ──────────────────────────────────────── */}
-        {tab === 'prompt' && (
-          <div className="space-y-5">
-            <div className="flex items-start gap-3 rounded-xl border border-ai/20 bg-ai/5 px-4 py-3">
-              <Bot className="h-4 w-4 text-ai shrink-0 mt-0.5" />
-              <p className="text-xs text-muted-foreground">
-                Copy this prompt and paste it into any AI coding assistant — Claude, ChatGPT, Cursor, Copilot, or any other.
-                The agent will generate and add the integration code to your project.
-              </p>
-            </div>
-
-            {/* Framework selector */}
-            <div>
-              <p className="mb-2 text-xs font-semibold text-muted-foreground">Choose your framework:</p>
-              <div className="flex flex-wrap gap-2">
-                {FRAMEWORKS.map((f) => (
-                  <button
-                    key={f}
-                    onClick={() => setFramework(f)}
-                    className={cn(
-                      'flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors',
-                      framework === f ? 'border-ai/40 bg-ai/10 text-ai' : 'border-border/50 text-muted-foreground hover:border-border hover:text-foreground',
-                    )}
-                  >
-                    {f === 'nextjs' && <Globe className="h-3 w-3" />}
-                    {f === 'react' && <Globe className="h-3 w-3" />}
-                    {(f === 'nodejs' || f === 'python') && <Server className="h-3 w-3" />}
-                    {(f === 'vue' || f === 'vanilla') && <Globe className="h-3 w-3" />}
-                    {FRAMEWORK_LABELS[f]}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* The prompt */}
-            <div className="rounded-xl border border-border/60 bg-[#0d1117] overflow-hidden">
-              <div className="flex items-center justify-between border-b border-border/40 px-4 py-2">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-                  Copy this prompt → paste into your AI agent
-                </span>
-                <CopyBtn text={agentPrompt} label="Copy prompt" />
-              </div>
-              <pre className="p-4 font-mono text-[12px] leading-relaxed text-[#e6edf3] whitespace-pre">
+          <pre className="p-4 font-mono text-[12px] leading-relaxed text-[#e6edf3] whitespace-pre overflow-x-auto">
 {agentPrompt}
-              </pre>
-            </div>
+          </pre>
+        </div>
 
-            <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-muted/20 p-4">
-              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-              <p className="text-xs text-muted-foreground">
-                If the agent has the PAAQ MCP server configured, it will use the <code className="font-mono bg-muted/60 px-1 rounded text-[10px]">paaq_generate_snippet</code> tool automatically.
-                Otherwise it will generate the integration code directly from the credentials in the prompt.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* ── Manual Tab ────────────────────────────────────────────── */}
-        {tab === 'manual' && (
-          <div className="space-y-5">
-            <div className="flex items-start gap-3 rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
-              <Code2 className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-              <p className="text-xs text-muted-foreground">
-                Choose your framework and copy the snippet below. Add it to your app's entry point — your credentials are already filled in.
-              </p>
-            </div>
-
-            {/* Framework selector */}
-            <div className="flex flex-wrap gap-2">
-              {FRAMEWORKS.map((f) => (
-                <button
-                  key={f}
-                  onClick={() => setFramework(f)}
-                  className={cn(
-                    'rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors',
-                    framework === f ? 'border-ai/40 bg-ai/10 text-ai' : 'border-border/50 text-muted-foreground hover:border-border hover:text-foreground',
-                  )}
-                >
-                  {FRAMEWORK_LABELS[f]}
-                </button>
-              ))}
-            </div>
-
-            <CodeBlock
-              code={snippets[framework]}
-              label={`${FRAMEWORK_LABELS[framework]} — copy and paste into your project`}
-              language={framework === 'python' ? 'python' : 'javascript'}
-            />
-
-            <div className="flex items-start gap-2.5 rounded-xl border border-healthy/25 bg-healthy/5 px-4 py-3">
-              <Sparkles className="h-4 w-4 text-healthy shrink-0 mt-0.5" />
-              <p className="text-xs text-muted-foreground">
-                After adding the snippet and starting your app, your PAAQ Intelligence dashboard will automatically detect the connection and begin monitoring.
-              </p>
-            </div>
-          </div>
-        )}
+        <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-muted/20 p-4">
+          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+          <p className="text-xs text-muted-foreground">
+            If the agent has the PAAQ MCP server configured, it will use the <code className="font-mono bg-muted/60 px-1 rounded text-[10px]">paaq_generate_snippet</code> tool automatically.
+            Otherwise it will generate the integration code directly from the credentials in the prompt.
+          </p>
+        </div>
       </div>
     </div>
   )
