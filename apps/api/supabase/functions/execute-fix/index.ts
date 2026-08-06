@@ -12,7 +12,7 @@ import Anthropic from 'npm:@anthropic-ai/sdk'
 import { loadGitAdapter } from '../_shared/git-providers/load-adapter.ts'
 import type { RepoRef } from '../_shared/git-providers/types.ts'
 import { getRepoAndToken, getApprovalMode, markFailed, performMerge, recordMerge, type RecRow } from '../_shared/fix-engine.ts'
-import { exploreAndPlan, executePlan } from '../_shared/agentic-fix.ts'
+import { exploreAndPlan, executeNextStep } from '../_shared/agentic-fix.ts'
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -57,6 +57,7 @@ Deno.serve(async (req) => {
     if (action === 'status') return await handleStatus(rec as RecRow)
     if (action === 'start_run') return await handleStartRun(rec as RecRow, body.filePath as string | undefined)
     if (action === 'approve_plan') return await handleApprovePlan(body.runId as string, rec as RecRow)
+    if (action === 'continue_run') return await handleContinueRun(body.runId as string, rec as RecRow)
     if (action === 'get_run') return await handleGetRun(body.runId as string)
     if (action === 'reject_plan') {
       await supabase.from('fix_runs').update({ status: 'failed', error: 'Rejected by user', updated_at: new Date().toISOString() }).eq('id', body.runId as string)
@@ -546,6 +547,29 @@ async function handleApprovePlan(runId: string, rec: RecRow) {
   if (!run) return respond({ ok: false, error: 'Fix run not found' }, 404)
   if (run.status !== 'awaiting_plan_approval') return respond({ ok: false, error: `Run is not awaiting approval (status: ${run.status})` }, 400)
 
+  await supabase.from('fix_runs').update({ status: 'running', updated_at: new Date().toISOString() }).eq('id', runId)
+  return await runOneStep(runId, rec)
+}
+
+/** Executes exactly one step of an already-running plan and returns —
+ * never the whole plan in one request. A real multi-step plan (each step
+ * costing several sequential Claude calls) reliably exceeded the edge
+ * function's execution limit when run as a single request, leaving the run
+ * stuck 'running' forever with nothing surfaced to the user ("I click
+ * approve and nothing happens"). The dashboard calls this repeatedly,
+ * driven by the fix_runs row it's already subscribed to via Realtime,
+ * until `done` comes back true. */
+async function handleContinueRun(runId: string, rec: RecRow) {
+  if (!runId) return respond({ ok: false, error: 'runId is required' }, 400)
+
+  const { data: run } = await supabase.from('fix_runs').select('status').eq('id', runId).maybeSingle()
+  if (!run) return respond({ ok: false, error: 'Fix run not found' }, 404)
+  if (run.status !== 'running') return respond({ ok: true, run, done: run.status === 'completed' || run.status === 'failed' })
+
+  return await runOneStep(runId, rec)
+}
+
+async function runOneStep(runId: string, rec: RecRow) {
   const repoResult = await getRepoAndToken(rec.project_id)
   if (!repoResult.ok) return respond({ ok: false, error: repoResult.error })
   const { provider, repo, token } = repoResult
@@ -553,11 +577,10 @@ async function handleApprovePlan(runId: string, rec: RecRow) {
   const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
   if (!apiKey) return respond({ ok: false, error: 'ANTHROPIC_API_KEY not set' }, 500)
 
-  await supabase.from('fix_runs').update({ status: 'running', updated_at: new Date().toISOString() }).eq('id', runId)
-  await executePlan(runId, rec, provider, repo, token, apiKey)
+  const { done } = await executeNextStep(runId, rec, provider, repo, token, apiKey)
 
   const { data: finalRun } = await supabase.from('fix_runs').select('*').eq('id', runId).maybeSingle()
-  return respond({ ok: true, run: finalRun })
+  return respond({ ok: true, run: finalRun, done })
 }
 
 async function handleGetRun(runId: string) {

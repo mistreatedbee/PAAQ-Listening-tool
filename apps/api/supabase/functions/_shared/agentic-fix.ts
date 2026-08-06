@@ -221,108 +221,127 @@ ${treeListing || '(tree unavailable — call read_file to probe likely paths dir
 }
 
 /**
- * Phase 2: execute an already-approved plan, one step at a time, persisting
- * each step's status live. Still writes nothing to the repo itself — the
- * result is a changeset ready for the existing handleOpenPr action.
+ * Phase 2: execute an already-approved plan — but ONE STEP PER CALL, not the
+ * whole plan in one request. A plan of any real size (multi-file, each step
+ * costing 2-3 sequential Claude calls) reliably blew past the edge
+ * function's execution time limit when run as a single synchronous loop —
+ * confirmed live: a real 6-step plan got stuck 'running' forever with no
+ * error surfaced, which is exactly what "I click approve and nothing
+ * happens" was. The dashboard now calls this repeatedly (same proven
+ * resumable pattern as onboard-agent's start/continue) until it reports
+ * done — each call bounded to one step, safely inside any timeout, with
+ * live progress visible via the same Realtime subscription throughout.
  */
-export async function executePlan(
+export async function executeNextStep(
   runId: string,
   rec: RecRow,
   provider: GitProvider,
   repo: RepoRef,
   token: string,
   apiKey: string,
-): Promise<void> {
+): Promise<{ done: boolean }> {
   const { data: run } = await supabase.from('fix_runs').select('*').eq('id', runId).maybeSingle()
-  if (!run) return
+  if (!run) return { done: true }
   const plan = (run.plan ?? []) as PlanStep[]
   if (plan.length === 0) {
     await updateRun(runId, { status: 'failed', error: 'No plan to execute.' })
-    return
+    return { done: true }
   }
 
+  // Reconstruct working state from what earlier calls already persisted —
+  // each invocation is a fresh function instance, nothing survives in memory
+  // between calls.
+  const working = new Map<string, string>(((run.changeset ?? []) as { path: string; newContent: string }[]).map((c) => [c.path, c.newContent]))
+  const original = new Map<string, string>(((run.original ?? []) as { path: string; content: string }[]).map((o) => [o.path, o.content]))
+
+  // 'running' is included so a step interrupted mid-call by a prior timeout
+  // (rare now, but the whole point of this design is to never trust that it
+  // can't happen) gets retried rather than stuck forever.
+  const stepIdx = plan.findIndex((s) => s.status === 'pending' || s.status === 'running')
+
+  if (stepIdx === -1) {
+    // Every step has a terminal status — finalize.
+    const changeset = Array.from(working.entries()).map(([path, newContent]) => ({ path, newContent }))
+    const failedSteps = plan.filter((s) => s.status === 'error').length
+
+    if (changeset.length === 0) {
+      await appendLog(runId, 'All steps failed — no changeset produced.')
+      await updateRun(runId, { status: 'failed', error: 'Every step in the plan failed — see step details above.' })
+      return { done: true }
+    }
+
+    await supabase.from('recommendations').update({ fix_changeset: changeset }).eq('id', rec.id)
+    const note = failedSteps > 0 ? ` (${failedSteps} of ${plan.length} steps failed — review before opening a PR)` : ''
+    await appendLog(runId, `Done${note}.`)
+    await updateRun(runId, {
+      status: 'completed',
+      changeset,
+      original: Array.from(original.entries()).map(([path, content]) => ({ path, content })),
+      error: failedSteps > 0 ? `${failedSteps} of ${plan.length} steps failed` : null,
+    })
+    return { done: true }
+  }
+
+  const step = plan[stepIdx]
   const adapter = await loadGitAdapter(provider)
   const anthropic = new Anthropic({ apiKey })
 
-  // path -> current content, seeded from the repo and updated as steps land,
-  // so a later step touching the same file builds on the earlier step's
-  // real output instead of clobbering it.
-  const working = new Map<string, string>()
-  const original = new Map<string, string>()
-  let failedSteps = 0
+  plan[stepIdx] = { ...step, status: 'running' }
+  await updateRun(runId, { plan })
+  await appendLog(runId, `Step ${step.step}/${plan.length}: ${step.description}`)
 
-  for (let i = 0; i < plan.length; i++) {
-    const step = plan[i]
-    plan[i] = { ...step, status: 'running' }
-    await updateRun(runId, { plan })
-    await appendLog(runId, `Step ${step.step}/${plan.length}: ${step.description}`)
-
-    if (!step.path) {
-      plan[i] = { ...step, status: 'error', detail: 'No file path given for this step.' }
-      await updateRun(runId, { plan })
-      failedSteps++
-      continue
-    }
-
-    try {
-      if (!working.has(step.path)) {
-        const fileResult = await adapter.getFileContent(token, repo, step.path, repo.defaultBranch)
-        if (!fileResult.ok) {
-          plan[i] = { ...step, status: 'error', detail: `Could not read ${step.path}: ${fileResult.error}` }
-          await updateRun(runId, { plan })
-          failedSteps++
-          continue
-        }
-        working.set(step.path, fileResult.content)
-        original.set(step.path, fileResult.content)
-      }
-
-      const currentContent = working.get(step.path)!
-      const generated = await generateStepChange(anthropic, rec, run.summary as string | null, plan, step, currentContent)
-      if (!generated.ok) {
-        plan[i] = { ...step, status: 'error', detail: generated.error }
-        await updateRun(runId, { plan })
-        failedSteps++
-        continue
-      }
-
-      const review = await reviewStepChange(anthropic, step, currentContent, generated.newContent)
-      let finalContent = generated.newContent
-      let detail = review.passed ? 'Applied and self-reviewed.' : `Applied — self-review flagged: ${review.note}`
-
-      if (!review.passed) {
-        const retry = await generateStepChange(anthropic, rec, run.summary as string | null, plan, step, currentContent, review.note)
-        if (retry.ok) {
-          finalContent = retry.newContent
-          detail = 'Applied after one self-review retry.'
-        }
-      }
-
-      working.set(step.path, finalContent)
-      plan[i] = { ...step, status: 'done', detail }
-      await updateRun(runId, { plan })
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      plan[i] = { ...step, status: 'error', detail: message }
-      await updateRun(runId, { plan })
-      failedSteps++
-    }
+  const persistProgress = async (patch: Partial<PlanStep>) => {
+    plan[stepIdx] = { ...plan[stepIdx], ...patch }
+    await updateRun(runId, {
+      plan,
+      changeset: Array.from(working.entries()).map(([path, newContent]) => ({ path, newContent })),
+      original: Array.from(original.entries()).map(([path, content]) => ({ path, content })),
+    })
   }
 
-  const changeset = Array.from(working.entries()).map(([path, newContent]) => ({ path, newContent }))
-  const originalList = Array.from(original.entries()).map(([path, content]) => ({ path, content }))
-
-  if (changeset.length === 0) {
-    await appendLog(runId, 'All steps failed — no changeset produced.')
-    await updateRun(runId, { status: 'failed', error: 'Every step in the plan failed — see step details above.' })
-    return
+  if (!step.path) {
+    await persistProgress({ status: 'error', detail: 'No file path given for this step.' })
+    return { done: false }
   }
 
-  await supabase.from('recommendations').update({ fix_changeset: changeset }).eq('id', rec.id)
+  try {
+    if (!working.has(step.path)) {
+      const fileResult = await adapter.getFileContent(token, repo, step.path, repo.defaultBranch)
+      if (!fileResult.ok) {
+        await persistProgress({ status: 'error', detail: `Could not read ${step.path}: ${fileResult.error}` })
+        return { done: false }
+      }
+      working.set(step.path, fileResult.content)
+      original.set(step.path, fileResult.content)
+    }
 
-  const note = failedSteps > 0 ? ` (${failedSteps} of ${plan.length} steps failed — review before opening a PR)` : ''
-  await appendLog(runId, `Done${note}.`)
-  await updateRun(runId, { status: 'completed', changeset, original: originalList, error: failedSteps > 0 ? `${failedSteps} of ${plan.length} steps failed` : null })
+    const currentContent = working.get(step.path)!
+    const generated = await generateStepChange(anthropic, rec, run.summary as string | null, plan, step, currentContent)
+    if (!generated.ok) {
+      await persistProgress({ status: 'error', detail: generated.error })
+      return { done: false }
+    }
+
+    const review = await reviewStepChange(anthropic, step, currentContent, generated.newContent)
+    let finalContent = generated.newContent
+    let detail = review.passed ? 'Applied and self-reviewed.' : `Applied — self-review flagged: ${review.note}`
+
+    if (!review.passed) {
+      const retry = await generateStepChange(anthropic, rec, run.summary as string | null, plan, step, currentContent, review.note)
+      if (retry.ok) {
+        finalContent = retry.newContent
+        detail = 'Applied after one self-review retry.'
+      }
+    }
+
+    working.set(step.path, finalContent)
+    await persistProgress({ status: 'done', detail })
+    return { done: false }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    await persistProgress({ status: 'error', detail: message })
+    return { done: false }
+  }
 }
 
 async function generateStepChange(

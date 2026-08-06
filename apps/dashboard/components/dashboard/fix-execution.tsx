@@ -182,6 +182,26 @@ export function FixExecution({
     setApproving(false)
     if (!res.ok) { setError(res.error ?? 'Failed to approve plan'); setPhase('failed'); return }
     if (res.run) applyRun(res.run as FixRun)
+    // Each call executes exactly one step and returns — a real multi-step
+    // plan done in a single request reliably exceeded the edge function's
+    // time limit and left runs stuck 'running' forever. Drive it forward
+    // one bounded step at a time instead, same run id throughout.
+    void driveExecution(run.id)
+  }
+
+  async function driveExecution(runId: string) {
+    for (let i = 0; i < 60; i++) {
+      const res = await fetch('/api/fix/continue-run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId, recommendationId, runId }),
+      }).then((r) => r.json()).catch(() => ({ ok: false, error: 'Network error' }))
+      if (!res.ok) { setError(res.error ?? 'Failed to continue the fix run'); setPhase('failed'); return }
+      if (res.run) applyRun(res.run as FixRun)
+      if (res.done) return
+    }
+    setError('This plan is taking unusually long — it may need a narrower scope.')
+    setPhase('failed')
   }
 
   async function rejectPlan() {
