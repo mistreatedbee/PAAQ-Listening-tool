@@ -7,12 +7,14 @@ import { createClient } from '@/utils/supabase/client'
 import { PageHeader, Card, CardHead, ToneBadge } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import { toneText, toneBg } from '@/lib/tones'
-import { ArrowLeft, Bug, Terminal, CheckCircle2, EyeOff, Sparkles } from 'lucide-react'
+import { ArrowLeft, Bug, Terminal, CheckCircle2, EyeOff, Sparkles, Wrench, Loader2 } from 'lucide-react'
 import { GenerateFix } from '@/components/dashboard/generate-fix'
+import { FixExecution } from '@/components/dashboard/fix-execution'
 import type { Tone } from '@/lib/data'
 
 type DbError = {
   id: string
+  project_id: string
   error_type: string
   message: string
   severity: string
@@ -36,6 +38,10 @@ export default function ErrorDetailPage() {
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const [canMerge, setCanMerge] = useState(false)
+  const [startingFix, setStartingFix] = useState(false)
+  const [fixError, setFixError] = useState<string | null>(null)
+  const [executing, setExecuting] = useState<{ recommendationId: string; title: string } | null>(null)
 
   const showToast = (msg: string) => {
     setToast(msg)
@@ -45,7 +51,7 @@ export default function ErrorDetailPage() {
   useEffect(() => {
     const sb = createClient()
     sb.from('errors')
-      .select('id, error_type, message, severity, status, screen, stack_trace, context, created_at')
+      .select('id, project_id, error_type, message, severity, status, screen, stack_trace, context, created_at')
       .eq('id', id)
       .single()
       .then(({ data }) => {
@@ -53,6 +59,32 @@ export default function ErrorDetailPage() {
         setLoading(false)
       })
   }, [id])
+
+  useEffect(() => {
+    if (!error?.project_id) return
+    fetch('/api/tenant/role', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId: error.project_id }),
+    })
+      .then((r) => r.json())
+      .then((data) => setCanMerge(data.role === 'owner' || data.role === 'admin'))
+      .catch(() => {})
+  }, [error?.project_id])
+
+  async function handleFixWithAgent() {
+    if (!error) return
+    setStartingFix(true)
+    setFixError(null)
+    const res = await fetch('/api/fix/from-error', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId: error.project_id, errorId: error.id }),
+    }).then((r) => r.json()).catch(() => ({ ok: false, error: 'Network error' }))
+    setStartingFix(false)
+    if (!res.ok) { setFixError(res.error ?? 'Failed to start the fix agent'); return }
+    setExecuting({ recommendationId: res.recommendationId, title: res.title })
+  }
 
   const handleUpdateStatus = async (newStatus: string) => {
     if (!error || error.status === newStatus) return
@@ -87,6 +119,16 @@ export default function ErrorDetailPage() {
 
   return (
     <div className="space-y-6">
+      {executing && (
+        <FixExecution
+          projectId={error.project_id}
+          recommendationId={executing.recommendationId}
+          title={executing.title}
+          canMerge={canMerge}
+          onClose={() => setExecuting(null)}
+        />
+      )}
+
       {toast && (
         <div className="fixed bottom-4 right-4 z-50 rounded-lg bg-foreground px-4 py-2.5 text-sm font-medium text-background shadow-lg">
           {toast}
@@ -148,10 +190,10 @@ export default function ErrorDetailPage() {
         <Card>
           <CardHead
             title="Generate Fix"
-            desc="AI agent analyses the error and returns root cause, fix steps, and a code example"
+            desc="Quick diagnosis, or hand it to the same real fix agent used for recommendations — explores the repo, proposes a plan for your approval, then opens a real PR"
             icon={<Sparkles className="h-4 w-4 text-ai" />}
           />
-          <div className="px-5 pb-5">
+          <div className="space-y-4 px-5 pb-5">
             <GenerateFix
               payload={{
                 errorId: error.id,
@@ -163,6 +205,19 @@ export default function ErrorDetailPage() {
                 context: error.context,
               }}
             />
+
+            <div className="border-t border-border/50 pt-4">
+              <button
+                onClick={handleFixWithAgent}
+                disabled={startingFix}
+                className="inline-flex items-center gap-2 rounded-lg border border-ai/30 bg-ai px-3.5 py-2 text-sm font-semibold text-ai-foreground transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {startingFix ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wrench className="h-4 w-4" />}
+                Fix with AI Agent
+              </button>
+              <p className="mt-1.5 text-xs text-muted-foreground">Real repo exploration, a plan you approve, then a real branch and PR — same pipeline as Recommendations.</p>
+              {fixError && <p className="mt-1.5 text-xs text-critical">{fixError}</p>}
+            </div>
           </div>
         </Card>
       )}

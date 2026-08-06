@@ -12,6 +12,7 @@ import Anthropic from 'npm:@anthropic-ai/sdk'
 import { loadGitAdapter } from '../_shared/git-providers/load-adapter.ts'
 import type { RepoRef } from '../_shared/git-providers/types.ts'
 import { getRepoAndToken, getApprovalMode, markFailed, performMerge, recordMerge, type RecRow } from '../_shared/fix-engine.ts'
+import { exploreAndPlan, executePlan } from '../_shared/agentic-fix.ts'
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -54,6 +55,13 @@ Deno.serve(async (req) => {
     if (action === 'open_pr') return await handleOpenPr(rec as RecRow, body.changeset)
     if (action === 'merge') return await handleMergeAction(rec as RecRow, actingUserId ?? null, !!body.allowUnknownChecks)
     if (action === 'status') return await handleStatus(rec as RecRow)
+    if (action === 'start_run') return await handleStartRun(rec as RecRow, body.filePath as string | undefined)
+    if (action === 'approve_plan') return await handleApprovePlan(body.runId as string, rec as RecRow)
+    if (action === 'get_run') return await handleGetRun(body.runId as string)
+    if (action === 'reject_plan') {
+      await supabase.from('fix_runs').update({ status: 'failed', error: 'Rejected by user', updated_at: new Date().toISOString() }).eq('id', body.runId as string)
+      return respond({ ok: true })
+    }
     return respond({ error: 'Unknown action' }, 400)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -495,6 +503,68 @@ async function handleStatus(rec: RecRow) {
     checksSupported: status.checksSupported,
     mergeable: status.mergeable,
   })
+}
+
+/**
+ * Real, persisted, agentic fix generation — replaces the old single-shot
+ * `handleGenerate` heuristic-file-guess-then-flat-prompt flow. Explores the
+ * repo, proposes a concrete plan, and stops for human approval before
+ * writing anything. Runs synchronously within this request (same proven
+ * pattern as onboard-agent's runLoop) — the explore phase is bounded to a
+ * small number of Claude turns, so it comfortably finishes within one
+ * invocation; the dashboard subscribes to the fix_runs row via Realtime for
+ * live progress rather than waiting on this response alone.
+ */
+async function handleStartRun(rec: RecRow, explicitPath?: string) {
+  const repoResult = await getRepoAndToken(rec.project_id)
+  if (!repoResult.ok) return respond({ ok: false, error: repoResult.error })
+  const { provider, repo, token } = repoResult
+
+  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
+  if (!apiKey) return respond({ ok: false, error: 'ANTHROPIC_API_KEY not set' }, 500)
+
+  const { data: run, error: insertError } = await supabase
+    .from('fix_runs')
+    .insert({ recommendation_id: rec.id, project_id: rec.project_id, status: 'exploring' })
+    .select('*')
+    .single()
+  if (insertError || !run) return respond({ ok: false, error: insertError?.message ?? 'Failed to create fix run' }, 500)
+
+  await exploreAndPlan(run.id, rec, provider, repo, token, apiKey, explicitPath)
+
+  const { data: finalRun } = await supabase.from('fix_runs').select('*').eq('id', run.id).maybeSingle()
+  return respond({ ok: true, run: finalRun })
+}
+
+/** Executes an already-approved plan step by step — the only action in this
+ * whole pipeline that actually generates code, and only after a human has
+ * seen and approved the specific plan being executed. */
+async function handleApprovePlan(runId: string, rec: RecRow) {
+  if (!runId) return respond({ ok: false, error: 'runId is required' }, 400)
+
+  const { data: run } = await supabase.from('fix_runs').select('status').eq('id', runId).maybeSingle()
+  if (!run) return respond({ ok: false, error: 'Fix run not found' }, 404)
+  if (run.status !== 'awaiting_plan_approval') return respond({ ok: false, error: `Run is not awaiting approval (status: ${run.status})` }, 400)
+
+  const repoResult = await getRepoAndToken(rec.project_id)
+  if (!repoResult.ok) return respond({ ok: false, error: repoResult.error })
+  const { provider, repo, token } = repoResult
+
+  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
+  if (!apiKey) return respond({ ok: false, error: 'ANTHROPIC_API_KEY not set' }, 500)
+
+  await supabase.from('fix_runs').update({ status: 'running', updated_at: new Date().toISOString() }).eq('id', runId)
+  await executePlan(runId, rec, provider, repo, token, apiKey)
+
+  const { data: finalRun } = await supabase.from('fix_runs').select('*').eq('id', runId).maybeSingle()
+  return respond({ ok: true, run: finalRun })
+}
+
+async function handleGetRun(runId: string) {
+  if (!runId) return respond({ ok: false, error: 'runId is required' }, 400)
+  const { data: run } = await supabase.from('fix_runs').select('*').eq('id', runId).maybeSingle()
+  if (!run) return respond({ ok: false, error: 'Fix run not found' }, 404)
+  return respond({ ok: true, run })
 }
 
 function cors() {

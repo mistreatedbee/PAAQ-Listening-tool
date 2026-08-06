@@ -86,6 +86,6 @@ Be direct and specific. Reference actual error messages and file paths from the 
 function respond(body: unknown, status = 200) {
   return new Response(body === null ? '' : JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'content-type, authorization' },
+    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'content-type, authorization, apikey, x-client-info' },
   })
 }

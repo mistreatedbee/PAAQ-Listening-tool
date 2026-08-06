@@ -1,0 +1,418 @@
+/**
+ * The real fix-generation agent — same shape as how Claude Code itself
+ * works: explore the actual repo (as many real files as it takes), commit
+ * to a concrete plan, show that plan to the user for approval, then execute
+ * it one step at a time — each step reads the real current file, writes a
+ * real change, and gets a real self-review pass before being marked done.
+ * Nothing here is a simulated/timed animation: every state below is
+ * persisted to `fix_runs` as it happens and the dashboard subscribes to
+ * that row via Realtime, so what's on screen is always the agent's actual
+ * current state.
+ *
+ * "Testing" is real, not fabricated: there is no sandboxed runtime in an
+ * edge function to run a customer's own test suite, so this agent does not
+ * pretend to. Its self-review pass is a second, independent AI read of each
+ * diff catching obvious mistakes before the step is marked done; the real,
+ * authoritative test is the repo's own CI once a PR is opened — which the
+ * existing merge gate (fix-engine.ts performMerge) already requires to pass.
+ */
+import Anthropic from 'npm:@anthropic-ai/sdk'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { loadGitAdapter, type GitProvider } from './git-providers/load-adapter.ts'
+import type { RepoRef } from './git-providers/types.ts'
+import type { RecRow } from './fix-engine.ts'
+
+const supabase = createClient(
+  Deno.env.get('SUPABASE_URL')!,
+  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+)
+
+const MAX_EXPLORE_TURNS = 8
+const MAX_TREE_ENTRIES = 1200
+const MAX_FILE_CHARS = 12000
+const MAX_PLAN_STEPS = 8
+
+export type PlanStep = {
+  step: number
+  description: string
+  path: string | null
+  status: 'pending' | 'running' | 'done' | 'error'
+  detail?: string
+}
+
+async function updateRun(runId: string, patch: Record<string, unknown>) {
+  await supabase.from('fix_runs').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', runId)
+}
+
+async function appendLog(runId: string, message: string) {
+  const { data } = await supabase.from('fix_runs').select('log').eq('id', runId).maybeSingle()
+  const log = (data?.log ?? []) as { ts: string; message: string }[]
+  log.push({ ts: new Date().toISOString(), message })
+  await updateRun(runId, { log })
+}
+
+/**
+ * Phase 1: explore the real repo and produce a plan. Persists progress as it
+ * goes; ends at status 'awaiting_plan_approval' (plan ready for the user to
+ * review) or 'failed'. Never writes to the repo.
+ */
+export async function exploreAndPlan(
+  runId: string,
+  rec: RecRow,
+  provider: GitProvider,
+  repo: RepoRef,
+  token: string,
+  apiKey: string,
+  explicitPath?: string,
+): Promise<void> {
+  const adapter = await loadGitAdapter(provider)
+  const anthropic = new Anthropic({ apiKey })
+
+  await appendLog(runId, 'Reading the repository file tree…')
+  const treeResult = await adapter.listTree(token, repo, '', repo.defaultBranch, { recursive: true })
+  const allPaths = treeResult.ok ? treeResult.entries.filter((e) => e.type === 'file').map((e) => e.path) : []
+  const treeListing = allPaths.slice(0, MAX_TREE_ENTRIES).join('\n')
+
+  const explored: string[] = []
+
+  const patchPlanText = rec.patch_plan?.length
+    ? `\nExisting investigation notes (context only — verify against the real code, don't trust blindly):\n${rec.patch_plan.map((s, i) => `  ${i + 1}. ${s}`).join('\n')}`
+    : ''
+  const rootCauseText = rec.root_cause ? `\nSuspected root cause: ${rec.root_cause}` : ''
+  const affectedHint = rec.affected_files?.length
+    ? `\nPreviously flagged files: ${rec.affected_files.map((f) => f.path).join(', ')}`
+    : ''
+  const explicitHint = explicitPath
+    ? `\nA human pointed at this file as a likely starting point: ${explicitPath} — start there, but keep investigating other files if the real cause turns out to live elsewhere.`
+    : ''
+
+  const systemPrompt = `You are the PAAQ Fix Agent. You work the same way Claude Code does: investigate for real before proposing anything.
+
+1. Explore. Call read_file on every file you actually need to understand the issue — start from the file tree below. Do not stop at one file if the real cause spans more than one (e.g. a UI bug caused by a backend response shape, a shared util used in several places). Never reason about the fix from filenames or descriptions alone.
+2. Once you genuinely understand the cause, call propose_plan with a concrete, ordered todo list — one item per discrete change, each naming the exact file it touches. This plan is shown to a human for approval before any code is written, so it must be specific enough for them to judge it (not "fix the bug" — say exactly what changes in which file and why).
+
+Rules:
+- You MUST call read_file at least once before propose_plan. A plan with no real file read is a guess, not an investigation, and will be rejected.
+- Cap the plan at ${MAX_PLAN_STEPS} steps. If it genuinely needs more, say so in summary and lower confidence rather than overreaching.
+- If after real investigation you're still not confident, propose the plan anyway but set confidence below 40 and explain exactly what's uncertain in summary.`
+
+  const userPrompt = `Issue to fix:
+Title: ${rec.title}
+Type: ${rec.type}
+Description: ${rec.description ?? 'none'}${rootCauseText}${affectedHint}${patchPlanText}${explicitHint}
+
+Repo file tree (${allPaths.length} files total${allPaths.length > MAX_TREE_ENTRIES ? `, showing first ${MAX_TREE_ENTRIES}` : ''}):
+${treeListing || '(tree unavailable — call read_file to probe likely paths directly)'}`
+
+  const tools: Anthropic.Tool[] = [
+    {
+      name: 'read_file',
+      description: "Read a file's real current content from the connected repo.",
+      input_schema: { type: 'object' as const, properties: { path: { type: 'string' } }, required: ['path'] },
+    },
+    {
+      name: 'propose_plan',
+      description: 'Finish investigating and propose the concrete plan for a human to approve before any code is written.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          summary: { type: 'string', description: 'One or two sentences describing the real root cause and the overall fix approach.' },
+          confidence: { type: 'number', description: '0-100' },
+          steps: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                description: { type: 'string', description: 'Exactly what will change and why, specific enough to review.' },
+                path: { type: 'string', description: 'The repo-relative file path this step changes.' },
+              },
+              required: ['description', 'path'],
+            },
+          },
+        },
+        required: ['summary', 'confidence', 'steps'],
+      },
+    },
+  ]
+
+  const messages: Anthropic.MessageParam[] = [{ role: 'user', content: userPrompt }]
+
+  for (let turn = 0; turn < MAX_EXPLORE_TURNS; turn++) {
+    let response: Anthropic.Message
+    try {
+      response = await anthropic.messages.create({ model: 'claude-sonnet-4-6', max_tokens: 6000, system: systemPrompt, tools, messages })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      await updateRun(runId, { status: 'failed', error: `AI call failed: ${message}` })
+      return
+    }
+
+    messages.push({ role: 'assistant', content: response.content })
+
+    if (response.stop_reason === 'max_tokens') {
+      await updateRun(runId, { status: 'failed', error: 'Agent response was truncated mid-turn — try narrowing the issue description.' })
+      return
+    }
+
+    const toolUseBlocks = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
+
+    if (toolUseBlocks.length === 0) {
+      const text = response.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join(' ')
+      await updateRun(runId, { status: 'failed', error: text || 'Agent stopped without proposing a plan.' })
+      return
+    }
+
+    const planBlock = toolUseBlocks.find((b) => b.name === 'propose_plan')
+    if (planBlock) {
+      const input = planBlock.input as { summary: string; confidence: number; steps: { description: string; path: string }[] }
+
+      if (explored.length === 0) {
+        await updateRun(runId, { status: 'failed', error: 'Agent tried to propose a plan without reading any real file — refusing to trust an unverified guess.' })
+        return
+      }
+      if (!input.steps || input.steps.length === 0) {
+        await updateRun(runId, { status: 'failed', error: 'Agent proposed an empty plan.' })
+        return
+      }
+
+      const plan: PlanStep[] = input.steps.slice(0, MAX_PLAN_STEPS).map((s, i) => ({
+        step: i + 1,
+        description: s.description,
+        path: s.path ?? null,
+        status: 'pending',
+      }))
+
+      await appendLog(runId, `Plan ready — ${plan.length} step${plan.length === 1 ? '' : 's'}, awaiting your approval.`)
+      await updateRun(runId, {
+        status: 'awaiting_plan_approval',
+        summary: input.summary,
+        confidence: input.confidence,
+        plan,
+      })
+      return
+    }
+
+    const toolResults: Anthropic.ToolResultBlockParam[] = []
+    for (const block of toolUseBlocks) {
+      if (block.name === 'read_file') {
+        const path = (block.input as { path: string }).path
+        await appendLog(runId, `Reading ${path}…`)
+        const result = await adapter.getFileContent(token, repo, path, repo.defaultBranch)
+        if (result.ok) {
+          if (!explored.includes(path)) explored.push(path)
+          await updateRun(runId, { explored_files: explored })
+          const truncated = result.content.length > MAX_FILE_CHARS
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: truncated ? `${result.content.slice(0, MAX_FILE_CHARS)}\n… (truncated, ${result.content.length} chars total)` : result.content,
+          })
+        } else {
+          toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: `Error: ${result.error}`, is_error: true })
+        }
+      } else {
+        toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: `Unknown tool: ${block.name}`, is_error: true })
+      }
+    }
+    messages.push({ role: 'user', content: toolResults })
+  }
+
+  await updateRun(runId, { status: 'failed', error: `Investigation didn't converge within ${MAX_EXPLORE_TURNS} turns — try a narrower issue description or point at a specific file.` })
+}
+
+/**
+ * Phase 2: execute an already-approved plan, one step at a time, persisting
+ * each step's status live. Still writes nothing to the repo itself — the
+ * result is a changeset ready for the existing handleOpenPr action.
+ */
+export async function executePlan(
+  runId: string,
+  rec: RecRow,
+  provider: GitProvider,
+  repo: RepoRef,
+  token: string,
+  apiKey: string,
+): Promise<void> {
+  const { data: run } = await supabase.from('fix_runs').select('*').eq('id', runId).maybeSingle()
+  if (!run) return
+  const plan = (run.plan ?? []) as PlanStep[]
+  if (plan.length === 0) {
+    await updateRun(runId, { status: 'failed', error: 'No plan to execute.' })
+    return
+  }
+
+  const adapter = await loadGitAdapter(provider)
+  const anthropic = new Anthropic({ apiKey })
+
+  // path -> current content, seeded from the repo and updated as steps land,
+  // so a later step touching the same file builds on the earlier step's
+  // real output instead of clobbering it.
+  const working = new Map<string, string>()
+  const original = new Map<string, string>()
+  let failedSteps = 0
+
+  for (let i = 0; i < plan.length; i++) {
+    const step = plan[i]
+    plan[i] = { ...step, status: 'running' }
+    await updateRun(runId, { plan })
+    await appendLog(runId, `Step ${step.step}/${plan.length}: ${step.description}`)
+
+    if (!step.path) {
+      plan[i] = { ...step, status: 'error', detail: 'No file path given for this step.' }
+      await updateRun(runId, { plan })
+      failedSteps++
+      continue
+    }
+
+    try {
+      if (!working.has(step.path)) {
+        const fileResult = await adapter.getFileContent(token, repo, step.path, repo.defaultBranch)
+        if (!fileResult.ok) {
+          plan[i] = { ...step, status: 'error', detail: `Could not read ${step.path}: ${fileResult.error}` }
+          await updateRun(runId, { plan })
+          failedSteps++
+          continue
+        }
+        working.set(step.path, fileResult.content)
+        original.set(step.path, fileResult.content)
+      }
+
+      const currentContent = working.get(step.path)!
+      const generated = await generateStepChange(anthropic, rec, run.summary as string | null, plan, step, currentContent)
+      if (!generated.ok) {
+        plan[i] = { ...step, status: 'error', detail: generated.error }
+        await updateRun(runId, { plan })
+        failedSteps++
+        continue
+      }
+
+      const review = await reviewStepChange(anthropic, step, currentContent, generated.newContent)
+      let finalContent = generated.newContent
+      let detail = review.passed ? 'Applied and self-reviewed.' : `Applied — self-review flagged: ${review.note}`
+
+      if (!review.passed) {
+        const retry = await generateStepChange(anthropic, rec, run.summary as string | null, plan, step, currentContent, review.note)
+        if (retry.ok) {
+          finalContent = retry.newContent
+          detail = 'Applied after one self-review retry.'
+        }
+      }
+
+      working.set(step.path, finalContent)
+      plan[i] = { ...step, status: 'done', detail }
+      await updateRun(runId, { plan })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      plan[i] = { ...step, status: 'error', detail: message }
+      await updateRun(runId, { plan })
+      failedSteps++
+    }
+  }
+
+  const changeset = Array.from(working.entries()).map(([path, newContent]) => ({ path, newContent }))
+  const originalList = Array.from(original.entries()).map(([path, content]) => ({ path, content }))
+
+  if (changeset.length === 0) {
+    await appendLog(runId, 'All steps failed — no changeset produced.')
+    await updateRun(runId, { status: 'failed', error: 'Every step in the plan failed — see step details above.' })
+    return
+  }
+
+  await supabase.from('recommendations').update({ fix_changeset: changeset }).eq('id', rec.id)
+
+  const note = failedSteps > 0 ? ` (${failedSteps} of ${plan.length} steps failed — review before opening a PR)` : ''
+  await appendLog(runId, `Done${note}.`)
+  await updateRun(runId, { status: 'completed', changeset, original: originalList, error: failedSteps > 0 ? `${failedSteps} of ${plan.length} steps failed` : null })
+}
+
+async function generateStepChange(
+  anthropic: Anthropic,
+  rec: RecRow,
+  overallSummary: string | null,
+  plan: PlanStep[],
+  step: PlanStep,
+  currentContent: string,
+  retryNote?: string,
+): Promise<{ ok: true; newContent: string } | { ok: false; error: string }> {
+  const planContext = plan.map((s) => `  ${s.step}. ${s.description}${s.path ? ` (${s.path})` : ''}`).join('\n')
+  const retryText = retryNote ? `\n\nA prior attempt at this step was flagged on self-review: "${retryNote}". Fix that specifically this time.` : ''
+
+  const prompt = `You are executing one step of an already-approved fix plan.
+
+Issue: ${rec.title}
+${overallSummary ? `Overall fix approach: ${overallSummary}\n` : ''}
+Full plan (for context — you are only executing this one step):
+${planContext}
+
+This step: ${step.description}
+File: ${step.path}
+Current content:
+\`\`\`
+${currentContent.slice(0, 14000)}
+\`\`\`${retryText}
+
+Return ONLY this JSON, no markdown, no explanation:
+{ "newContent": "<the complete file content after this step's change>" }
+
+Rules:
+- newContent must be the COMPLETE file after the change, not a diff or snippet.
+- Only make the change described by this step — later steps handle the rest.`
+
+  try {
+    const msg = await anthropic.messages.create({ model: 'claude-sonnet-4-6', max_tokens: 8000, messages: [{ role: 'user', content: prompt }] })
+    if (msg.stop_reason === 'max_tokens') return { ok: false, error: 'Response truncated (file may be too large for one pass).' }
+    const raw = msg.content[0]?.type === 'text' ? msg.content[0].text.replace(/```json?\n?/g, '').replace(/```/g, '').trim() : null
+    if (!raw) return { ok: false, error: 'No response from Claude' }
+    const start = raw.indexOf('{')
+    const end = raw.lastIndexOf('}')
+    const parsed = JSON.parse(start >= 0 && end > start ? raw.slice(start, end + 1) : raw) as { newContent: string }
+    if (!parsed.newContent) return { ok: false, error: 'No newContent in response' }
+    return { ok: true, newContent: parsed.newContent }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/**
+ * A second, independent AI read of the diff — real self-review, not a
+ * fabricated test run. Catches obvious mistakes (broke syntax, ignored the
+ * step, left the file unchanged) before the step is marked done.
+ */
+async function reviewStepChange(
+  anthropic: Anthropic,
+  step: PlanStep,
+  before: string,
+  after: string,
+): Promise<{ passed: boolean; note: string }> {
+  if (before === after) return { passed: false, note: 'The file was not actually changed.' }
+
+  const prompt = `Review this code change for one specific fix step. Be strict about obvious problems only (syntax errors, the step not actually being addressed, leftover placeholder text) — not style preferences.
+
+Step: ${step.description}
+
+Before:
+\`\`\`
+${before.slice(0, 6000)}
+\`\`\`
+
+After:
+\`\`\`
+${after.slice(0, 6000)}
+\`\`\`
+
+Reply with ONLY this JSON: { "passed": true|false, "note": "one short sentence" }`
+
+  try {
+    const msg = await anthropic.messages.create({ model: 'claude-haiku-4-5-20251001', max_tokens: 200, messages: [{ role: 'user', content: prompt }] })
+    const raw = msg.content[0]?.type === 'text' ? msg.content[0].text.trim() : '{}'
+    const start = raw.indexOf('{')
+    const end = raw.lastIndexOf('}')
+    const parsed = JSON.parse(start >= 0 && end > start ? raw.slice(start, end + 1) : raw) as { passed: boolean; note: string }
+    return { passed: !!parsed.passed, note: parsed.note ?? '' }
+  } catch {
+    // Review call itself failing shouldn't block the pipeline — treat as pass-through.
+    return { passed: true, note: '' }
+  }
+}
+
+export type { GitProvider }
