@@ -41,8 +41,13 @@ export function LiveUsers() {
       const todayStr   = midnight.toISOString()
 
       Promise.all([
-        // Distinct user_ids in last 5 min (proxy for "online now")
-        sb.from('events').select('user_id, properties').eq('project_id', app.id).gte('timestamp', fiveMinAgo),
+        // Distinct real session_id in last 5 min = "online now". events.session_id
+        // is a real FK to the sessions table set on every event — there is no
+        // properties._session field (no SDK anywhere writes one), so the old
+        // code's dedup key never matched anything and silently fell back to
+        // the raw event count instead, i.e. one active user clicking around
+        // for 5 minutes showed up as N "online" users.
+        sb.from('events').select('session_id').eq('project_id', app.id).gte('timestamp', fiveMinAgo),
         // Distinct user_ids today
         sb.from('events').select('user_id').eq('project_id', app.id).gte('timestamp', todayStr),
         // Events today total
@@ -52,13 +57,10 @@ export function LiveUsers() {
       ]).then(([recent, todayRaw, todayCount, lastMinCount]) => {
         if (cancelled) return
 
-        const recentData = recent.data ?? []
-        // Count distinct sessions from properties._session or user_id
-        const sessions = new Set(recentData.map((e) => {
-          const p = e.properties as Record<string, unknown> | null
-          return p?._session ?? e.user_id
-        }).filter(Boolean))
-        const onlineNow = sessions.size > 0 ? sessions.size : recentData.length
+        const onlineNow = new Set(
+          ((recent.data ?? []) as { session_id: string | null }[])
+            .map((e) => e.session_id).filter(Boolean),
+        ).size
 
         const todayUserSet = new Set(
           ((todayRaw.data ?? []) as { user_id: string | null }[])

@@ -23,19 +23,41 @@ export function Sidebar({
   const [openIncidents, setOpenIncidents] = useState(0)
   const [openErrors, setOpenErrors] = useState(0)
   const [aiInsights, setAiInsights] = useState(0)
+  const [pendingRecommendations, setPendingRecommendations] = useState(0)
 
   useEffect(() => {
     if (app.id === '__loading__') return
     const sb = createClient()
-    Promise.all([
+
+    const load = () => Promise.all([
       sb.from('incidents').select('*', { count: 'exact', head: true }).eq('project_id', app.id).neq('status', 'resolved'),
       sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', app.id).eq('status', 'open'),
       sb.from('ai_insights').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
-    ]).then(([{ count: inc }, { count: err }, { count: ai }]) => {
+      // Same status the Recommendations page itself counts as "pending
+      // approval" (app/recommendations/page.tsx) — was previously just
+      // reusing the ai_insights count here, which is a different table
+      // entirely and could never match the real number on that page.
+      sb.from('recommendations').select('*', { count: 'exact', head: true }).eq('project_id', app.id).eq('status', 'pending'),
+    ]).then(([{ count: inc }, { count: err }, { count: ai }, { count: rec }]) => {
       setOpenIncidents(inc ?? 0)
       setOpenErrors(err ?? 0)
       setAiInsights(ai ?? 0)
+      setPendingRecommendations(rec ?? 0)
     })
+
+    load()
+
+    // Keep badges live without a full page refresh — mirrors the pattern
+    // already used for sdk_installations in connected-app-context.tsx.
+    const channel = sb
+      .channel(`sidebar-badges:${app.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'incidents', filter: `project_id=eq.${app.id}` }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'errors', filter: `project_id=eq.${app.id}` }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_insights', filter: `project_id=eq.${app.id}` }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'recommendations', filter: `project_id=eq.${app.id}` }, load)
+      .subscribe()
+
+    return () => { sb.removeChannel(channel) }
   }, [app.id])
 
   function liveBadge(href: string) {
@@ -45,8 +67,8 @@ export function Sidebar({
       return { value: String(openErrors), tone: 'warning' as const }
     if (href === '/ai-insights' && aiInsights > 0)
       return { value: String(aiInsights), tone: 'ai' as const }
-    if (href === '/recommendations' && aiInsights > 0)
-      return { value: String(aiInsights), tone: 'ai' as const }
+    if (href === '/recommendations' && pendingRecommendations > 0)
+      return { value: String(pendingRecommendations), tone: 'ai' as const }
     return null
   }
 
