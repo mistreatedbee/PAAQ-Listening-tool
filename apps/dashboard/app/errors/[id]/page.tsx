@@ -67,7 +67,13 @@ export default function ErrorDetailPage() {
   const [precedingEvents, setPrecedingEvents] = useState<PrecedingItem[]>([])
   const [contextLoaded, setContextLoaded] = useState(false)
   const [showReplay, setShowReplay] = useState(false)
-  const recording = useSessionRecording(error?.session_id ?? null)
+  // Deferred until the user actually clicks "View replay" — a session's DOM
+  // recording can be several MB across many chunks (real snapshots run
+  // 100-700KB each), and fetching/parsing all of that unconditionally on
+  // every error page load, just in case someone clicks replay, was real,
+  // unnecessary main-thread and network pressure on a page that opens with
+  // an AI call already in flight.
+  const recording = useSessionRecording(showReplay ? error?.session_id ?? null : null)
 
   const showToast = (msg: string) => {
     setToast(msg)
