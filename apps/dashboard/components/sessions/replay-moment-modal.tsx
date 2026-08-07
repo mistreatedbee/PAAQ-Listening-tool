@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import 'rrweb-player/dist/style.css'
-import { X, Loader2, Video, Camera, AlertTriangle } from 'lucide-react'
+import { X, Loader2, Video, Camera, AlertTriangle, Play, SkipForward } from 'lucide-react'
 import type { SessionRecordingState } from '@/lib/use-session-recording'
 
 type RrwebEvent = { type?: number; timestamp?: number }
@@ -70,6 +70,9 @@ export function ReplayMomentModal({
   onClose: () => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
+  // deno-lint-ignore no-explicit-any
+  const playerRef = useRef<any>(null)
+  const errorOffsetMsRef = useRef(0)
   const [state, setState] = useState<'loading' | 'ready' | 'unavailable'>('loading')
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null)
 
@@ -111,9 +114,14 @@ export function ReplayMomentModal({
           // deno-lint-ignore no-explicit-any
         }) as any
         // Seeks to the real moment and pauses there — that paused frame IS
-        // the screenshot; the player's own controls below it play the ~20s
-        // clip (15s before, 5s after) start to finish.
+        // the screenshot. Left there, the player's OWN play button only
+        // resumes forward from this exact point — it never rewinds to show
+        // the lead-up, which looked exactly like "it skipped the error"
+        // when the goal is watching the full 15s-before/5s-after clip. The
+        // explicit "Play full clip" button below seeks back to 0 first.
         player.goto(offsetMs, false)
+        playerRef.current = player
+        errorOffsetMsRef.current = offsetMs
         if (!cancelled) setState('ready')
       } catch {
         if (!cancelled) setState('unavailable')
@@ -147,12 +155,28 @@ export function ReplayMomentModal({
             {isScreenshot ? `Screenshot near ${time}` : `Recording at ${time}`}
           </div>
           {!isScreenshot && (
-            <p className="mb-3 text-[11px] text-muted-foreground">
-              The frame below is the real screen state at this moment — press play to watch 15s before through 5s after.
+            <p className="mb-2 text-[11px] text-muted-foreground">
+              The frame below is the real screen state at this moment — the clip covers 15s before through 5s after it.
             </p>
           )}
           {currentLabel && (
             <p className="mb-3 text-xs font-medium text-foreground">{currentLabel}</p>
+          )}
+          {!isScreenshot && state === 'ready' && (
+            <div className="mb-3 flex gap-2">
+              <button
+                onClick={() => playerRef.current?.goto(0, true)}
+                className="flex items-center gap-1.5 rounded-lg bg-ai px-3 py-1.5 text-xs font-semibold text-ai-foreground hover:opacity-90"
+              >
+                <Play className="h-3 w-3" /> Play full clip from start
+              </button>
+              <button
+                onClick={() => playerRef.current?.goto(errorOffsetMsRef.current, false)}
+                className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-card/60 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+              >
+                <SkipForward className="h-3 w-3" /> Jump to this moment
+              </button>
+            </div>
           )}
 
           {state === 'loading' && (
