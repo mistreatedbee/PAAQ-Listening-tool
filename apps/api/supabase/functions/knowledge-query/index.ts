@@ -1,5 +1,5 @@
-import Anthropic from 'npm:@anthropic-ai/sdk'
 import { createClient } from 'npm:@supabase/supabase-js'
+import { getAiConfig, askModel } from '../_shared/ai.ts'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -45,19 +45,22 @@ Deno.serve(async (req) => {
       }), { headers: { ...cors, 'Content-Type': 'application/json' } })
     }
 
-    const anthropic = new Anthropic({ apiKey: Deno.env.get('ANTHROPIC_API_KEY') })
+    const aiConfig = getAiConfig()
+    if (!aiConfig) {
+      return new Response(JSON.stringify({ error: 'No AI API key configured. Set GEMINI_API_KEY or ANTHROPIC_API_KEY in Supabase secrets.' }), {
+        status: 500,
+        headers: { ...cors, 'Content-Type': 'application/json' },
+      })
+    }
 
-    const message = await anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 600,
+    const answer = await askModel({
       system: `You are a Staff Engineer AI assistant embedded in the PAAQ Intelligence Platform. You have deep knowledge of the application architecture described below. Answer questions accurately, concisely, and in plain English. Reference specific features, APIs, services, or documentation when relevant. If the answer cannot be determined from the available knowledge, say so clearly — never guess or hallucinate.
 
 APPLICATION KNOWLEDGE:
 ${context}`,
-      messages: [{ role: 'user', content: query }],
+      prompt: query,
+      maxTokens: 600,
     })
-
-    const answer = (message.content[0] as { type: string; text: string }).text
 
     return new Response(JSON.stringify({ answer }), {
       headers: { ...cors, 'Content-Type': 'application/json' },

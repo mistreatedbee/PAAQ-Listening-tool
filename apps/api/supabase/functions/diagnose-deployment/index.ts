@@ -8,18 +8,20 @@
  * that include a build_log, and also callable manually from the dashboard.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { getAiConfig } from '../_shared/ai.ts'
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
 )
 
-const ANTHROPIC_KEY = Deno.env.get('ANTHROPIC_API_KEY')!
-
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return respond(null, 204)
   }
+
+  const aiConfig = getAiConfig()
+  if (!aiConfig) return respond({ error: 'No AI API key configured. Set GEMINI_API_KEY or ANTHROPIC_API_KEY in Supabase secrets.' }, 500)
 
   const { deployment_id } = await req.json().catch(() => ({})) as { deployment_id?: string }
   if (!deployment_id) return respond({ error: 'deployment_id required' }, 400)
@@ -53,27 +55,48 @@ Provide a concise diagnosis:
 
 Be direct and specific. Reference actual error messages and file paths from the log.`
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': ANTHROPIC_KEY,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 600,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  })
+  let diagnosis = ''
 
-  if (!res.ok) {
-    const err = await res.text()
-    return respond({ error: `AI request failed: ${err}` }, 502)
+  if (aiConfig.provider === 'gemini') {
+    const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${aiConfig.model}:generateContent?key=${aiConfig.apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { maxOutputTokens: 600, temperature: 0.2 },
+      }),
+    })
+
+    if (!geminiRes.ok) {
+      const err = await geminiRes.text()
+      return respond({ error: `AI request failed: ${err}` }, 502)
+    }
+
+    const ai = await geminiRes.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }
+    diagnosis = ai.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? ''
+  } else {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': aiConfig.apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 600,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    })
+
+    if (!res.ok) {
+      const err = await res.text()
+      return respond({ error: `AI request failed: ${err}` }, 502)
+    }
+
+    const ai = await res.json() as { content: { text: string }[] }
+    diagnosis = ai.content?.[0]?.text ?? ''
   }
-
-  const ai = await res.json() as { content: { text: string }[] }
-  const diagnosis = ai.content?.[0]?.text ?? ''
 
   await supabase
     .from('deployment_registry')

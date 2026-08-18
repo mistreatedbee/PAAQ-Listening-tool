@@ -1,5 +1,5 @@
-import Anthropic from 'npm:@anthropic-ai/sdk'
 import { createClient } from 'npm:@supabase/supabase-js'
+import { getAiConfig, askModel } from '../_shared/ai.ts'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -20,7 +20,13 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     )
 
-    const anthropic = new Anthropic({ apiKey: Deno.env.get('ANTHROPIC_API_KEY') })
+    const aiConfig = getAiConfig()
+    if (!aiConfig) {
+      return new Response(JSON.stringify({ error: 'No AI API key configured. Set GEMINI_API_KEY or ANTHROPIC_API_KEY in Supabase secrets.' }), {
+        status: 500,
+        headers: cors,
+      })
+    }
 
     const prompt = method === 'features'
       ? `Parse this feature list and return a JSON array of feature objects. Each line is: "Name | Description | Criticality | Team". Return: { features: [{name, description, business_purpose, criticality, owning_team}] }`
@@ -37,13 +43,11 @@ Deno.serve(async (req) => {
 
     // Structured extraction for bulk methods
     if (prompt) {
-      const extractMsg = await anthropic.messages.create({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2000,
+      const raw = await askModel({
         system: 'You are a structured data extractor. Return only valid JSON, no markdown fences.',
-        messages: [{ role: 'user', content: `${prompt}\n\nINPUT:\n${content.slice(0, 4000)}` }],
+        prompt: `${prompt}\n\nINPUT:\n${content.slice(0, 4000)}`,
+        maxTokens: 2000,
       })
-      const raw = (extractMsg.content[0] as { type: string; text: string }).text
       try {
         extractedItems = JSON.parse(raw.replace(/```json|```/g, '').trim())
       } catch { /* ignore parse errors — still store the doc */ }
@@ -73,13 +77,11 @@ Deno.serve(async (req) => {
     }
 
     // Generate AI summary
-    const summaryMsg = await anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 300,
+    summary = await askModel({
       system: 'You are a technical documentation analyst. Summarise the provided content in 2-3 concise sentences, focusing on the key architectural or business insights an AI monitoring system would need.',
-      messages: [{ role: 'user', content: `Title: ${title}\n\n${content.slice(0, 3000)}` }],
+      prompt: `Title: ${title}\n\n${content.slice(0, 3000)}`,
+      maxTokens: 300,
     })
-    summary = (summaryMsg.content[0] as { type: string; text: string }).text
 
     // Update document with AI summary and mark as processed
     if (documentId) {

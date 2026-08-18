@@ -8,7 +8,7 @@
  * Actions: generate | open_pr | merge | status
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import Anthropic from 'npm:@anthropic-ai/sdk'
+import { askModel, getAiConfig } from '../_shared/ai.ts'
 import { loadGitAdapter } from '../_shared/git-providers/load-adapter.ts'
 import type { RepoRef } from '../_shared/git-providers/types.ts'
 import { getRepoAndToken, getApprovalMode, markFailed, performMerge, recordMerge, type RecRow } from '../_shared/fix-engine.ts'
@@ -192,13 +192,8 @@ async function aiPickBestFile(
   ].filter(Boolean).join('\n')
 
   try {
-    const anthropic = new Anthropic({ apiKey })
-    const msg = await anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 120,
-      messages: [{
-        role: 'user',
-        content: `You are selecting which source file a code fix should be applied to.
+    const picked = await askModel({
+      prompt: `You are selecting which source file a code fix should be applied to.
 
 ${context}
 
@@ -206,10 +201,10 @@ Candidate files:
 ${candidates.map((c, i) => `${i + 1}. ${c}`).join('\n')}
 
 Reply with ONLY the exact file path of the best match — nothing else, no explanation.`,
-      }],
+      maxTokens: 120,
     })
-    const picked = msg.content[0]?.type === 'text' ? msg.content[0].text.trim() : ''
-    return candidates.find((c) => c === picked) ?? candidates[0]
+    const trimmed = picked.trim()
+    return candidates.find((c) => c === trimmed) ?? candidates[0]
   } catch {
     return candidates[0]
   }
@@ -220,8 +215,9 @@ async function handleGenerate(rec: RecRow, explicitPath?: string) {
   if (!repoResult.ok) return respond({ ok: false, error: repoResult.error })
   const { provider, repo, token } = repoResult
 
-  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
-  if (!apiKey) return respond({ ok: false, error: 'ANTHROPIC_API_KEY not set' }, 500)
+  const aiConfig = getAiConfig()
+  if (!aiConfig) return respond({ ok: false, error: 'No AI API key configured. Set GEMINI_API_KEY or ANTHROPIC_API_KEY in Supabase secrets.' }, 500)
+  const apiKey = aiConfig.apiKey
 
   let filePath = explicitPath
 
@@ -322,18 +318,11 @@ Rules:
 - Only change what is necessary to address the recommendation — minimal surgical change
 - If you cannot confidently produce a fix, set confidence below 40 and explain why in summary`
 
-  const anthropic = new Anthropic({ apiKey })
-  const msg = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: isLargeFile ? 8000 : 16000,
-    messages: [{ role: 'user', content: prompt }],
+  const raw = await askModel({
+    prompt,
+    maxTokens: isLargeFile ? 8000 : 16000,
   })
-  const raw = msg.content[0]?.type === 'text' ? msg.content[0].text.replace(/```json?\n?/g, '').replace(/```/g, '').trim() : null
-  if (!raw) return respond({ ok: false, error: 'No response from Claude' }, 500)
-
-  if (msg.stop_reason === 'max_tokens') {
-    return respond({ ok: false, error: 'Claude response was truncated (hit max_tokens) — try a smaller file or narrower fix.' }, 500)
-  }
+  if (!raw) return respond({ ok: false, error: 'No response from AI' }, 500)
 
   let parsed: {
     summary: string
@@ -521,8 +510,9 @@ async function handleStartRun(rec: RecRow, explicitPath?: string) {
   if (!repoResult.ok) return respond({ ok: false, error: repoResult.error })
   const { provider, repo, token } = repoResult
 
-  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
-  if (!apiKey) return respond({ ok: false, error: 'ANTHROPIC_API_KEY not set' }, 500)
+  const aiConfig = getAiConfig()
+  if (!aiConfig) return respond({ ok: false, error: 'No AI API key configured. Set GEMINI_API_KEY or ANTHROPIC_API_KEY in Supabase secrets.' }, 500)
+  const apiKey = aiConfig.apiKey
 
   const { data: run, error: insertError } = await supabase
     .from('fix_runs')
@@ -574,8 +564,9 @@ async function runOneStep(runId: string, rec: RecRow) {
   if (!repoResult.ok) return respond({ ok: false, error: repoResult.error })
   const { provider, repo, token } = repoResult
 
-  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
-  if (!apiKey) return respond({ ok: false, error: 'ANTHROPIC_API_KEY not set' }, 500)
+  const aiConfig = getAiConfig()
+  if (!aiConfig) return respond({ ok: false, error: 'No AI API key configured. Set GEMINI_API_KEY or ANTHROPIC_API_KEY in Supabase secrets.' }, 500)
+  const apiKey = aiConfig.apiKey
 
   const { done } = await executeNextStep(runId, rec, provider, repo, token, apiKey)
 

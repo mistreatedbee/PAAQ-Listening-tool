@@ -8,7 +8,7 @@
  * Writes to: investigations, agent_tasks, recommendations, product_memory
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import Anthropic from 'npm:@anthropic-ai/sdk'
+import { getAiConfig, askModel } from '../_shared/ai.ts'
 import { decryptSecret } from '../_shared/crypto.ts'
 
 const supabase = createClient(
@@ -25,8 +25,8 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders() })
   if (req.method !== 'POST') return respond({ error: 'Method not allowed' }, 405)
 
-  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
-  if (!apiKey) return respond({ error: 'ANTHROPIC_API_KEY not set' }, 500)
+  const aiConfig = getAiConfig()
+  if (!aiConfig) return respond({ error: 'No AI API key configured. Set GEMINI_API_KEY or ANTHROPIC_API_KEY in Supabase secrets.' }, 500)
 
   const body = await req.json().catch(() => ({}))
   const { project_id, incident_id } = body
@@ -218,14 +218,9 @@ Use these exact paths when identifying affected_files in recommendations.`
     const investigationStart = Date.now()
 
     // ── 4. Run AI Engineering Investigation ───────────────────────────────
-    const anthropic = new Anthropic({ apiKey })
-
-    const aiMessage = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 6000,
-      messages: [{
-        role: 'user',
-        content: `You are the PAAQ AI Engineering Investigation System. You are a senior software engineer and incident commander.
+    const rawText = await askModel({
+      system: 'You are the PAAQ AI Engineering Investigation System. You are a senior software engineer and incident commander.',
+      prompt: `You are the PAAQ AI Engineering Investigation System. You are a senior software engineer and incident commander.
 
 Your job is to correlate production telemetry with source code to identify exactly what is broken, where it is, and how to fix it.
 
@@ -323,14 +318,11 @@ Critical rules:
   recommendation out of it.
 - confidence and impact_score must be 0.0-1.0
 - Do not invent metrics — only use numbers from the provided data`,
-      }],
+      maxTokens: 6000,
     })
 
     const totalDuration = Date.now() - investigationStart
-
-    const rawText = aiMessage.content[0]?.type === 'text'
-      ? aiMessage.content[0].text.replace(/```json?\n?/g, '').replace(/```/g, '').trim()
-      : null
+    const cleanText = rawText.replace(/```json?\n?/g, '').replace(/```/g, '').trim()
 
     let result: {
       investigation?: Record<string, unknown>
@@ -339,19 +331,18 @@ Critical rules:
       memory_entry?: Record<string, unknown>
     } = {}
 
-    if (rawText) {
+    if (cleanText) {
       try {
-        result = JSON.parse(rawText)
+        result = JSON.parse(cleanText)
       } catch (parseErr) {
         await supabase.from('admin_audit_log').insert({
           action: 'investigate_parse_failed',
           resource_type: 'investigation',
           resource_name: investigationId ?? 'unknown',
           details: {
-            stopReason: aiMessage.stop_reason,
-            rawTextLength: rawText.length,
-            rawTextHead: rawText.slice(0, 500),
-            rawTextTail: rawText.slice(-500),
+            rawTextLength: cleanText.length,
+            rawTextHead: cleanText.slice(0, 500),
+            rawTextTail: cleanText.slice(-500),
             error: String(parseErr),
           },
         }).then(() => {}, () => {})
@@ -361,7 +352,7 @@ Critical rules:
         action: 'investigate_empty_response',
         resource_type: 'investigation',
         resource_name: investigationId ?? 'unknown',
-        details: { stopReason: aiMessage.stop_reason },
+        details: { rawTextLength: 0 },
       }).then(() => {}, () => {})
     }
 

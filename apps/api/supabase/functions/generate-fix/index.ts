@@ -4,14 +4,14 @@
  * Accepts an error payload, sends it to Claude, and returns a structured fix:
  *   rootCause, fix, codeExample, confidence, affectedArea, prevention
  */
-import Anthropic from 'npm:@anthropic-ai/sdk'
+import { getAiConfig, askModel } from '../_shared/ai.ts'
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: cors() })
   if (req.method !== 'POST') return respond({ error: 'Method not allowed' }, 405)
 
-  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
-  if (!apiKey) return respond({ error: 'ANTHROPIC_API_KEY not set' }, 500)
+  const aiConfig = getAiConfig()
+  if (!aiConfig) return respond({ error: 'No AI API key configured. Set GEMINI_API_KEY or ANTHROPIC_API_KEY in Supabase secrets.' }, 500)
 
   let body: {
     errorId?: string
@@ -79,21 +79,17 @@ Rules:
 - confidence is 0-100 integer based on how much signal is in the error data
 - If the stack trace or context is missing, lower confidence accordingly`
 
-  const anthropic = new Anthropic({ apiKey })
-
   let raw: string | null = null
   try {
-    const msg = await anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1024,
-      messages: [{ role: 'user', content: prompt }],
-    })
-    raw = msg.content[0]?.type === 'text' ? msg.content[0].text.replace(/```json?\n?/g, '').replace(/```/g, '').trim() : null
+    raw = (await askModel({
+      prompt,
+      maxTokens: 1024,
+    })).replace(/```json?\n?/g, '').replace(/```/g, '').trim()
   } catch (err) {
-    return respond({ error: `Claude error: ${err instanceof Error ? err.message : String(err)}` }, 500)
+    return respond({ error: `AI error: ${err instanceof Error ? err.message : String(err)}` }, 500)
   }
 
-  if (!raw) return respond({ error: 'No response from Claude' }, 500)
+  if (!raw) return respond({ error: 'No response from AI' }, 500)
 
   let result: Record<string, unknown>
   try {

@@ -1,5 +1,5 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import Anthropic from 'npm:@anthropic-ai/sdk'
+import { askModel } from './ai.ts'
 
 export type InsightsResult =
   | { ok: true; count: number }
@@ -82,18 +82,9 @@ export async function runInsightsForProject(
     })),
   }
 
-  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
-  if (!apiKey) return { ok: false, reason: 'ANTHROPIC_API_KEY secret not set in Supabase' }
-
-  const anthropic = new Anthropic({ apiKey })
-
-  const message = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 2048,
-    messages: [
-      {
-        role: 'user',
-        content: `You are an AI analyst for PAAQ, a mobile app monitoring platform. Analyze this real-time app data and generate 4-6 concise, specific, actionable insights. Return ONLY valid JSON — no markdown fences, no explanation outside the JSON.
+  const text = await askModel({
+    system: 'You are an AI analyst for PAAQ, a mobile app monitoring platform. Analyze the provided app data and return only valid JSON.',
+    prompt: `You are an AI analyst for PAAQ, a mobile app monitoring platform. Analyze this real-time app data and generate 4-6 concise, specific, actionable insights. Return ONLY valid JSON — no markdown fences, no explanation outside the JSON.
 
 App data:
 ${JSON.stringify(summary, null, 2)}
@@ -124,18 +115,14 @@ Rules:
 - success = things working well, worth doubling down on
 - confidence is 0.0–1.0 based on how much data you have
 - Never say "consider monitoring" — be specific about WHAT and WHY`,
-      },
-    ],
+    maxTokens: 2048,
   })
 
-  const content = message.content[0]
-  if (content.type !== 'text') return { ok: false, reason: 'No text response from AI' }
-
-  const text = content.text.replace(/```json?\n?/g, '').replace(/```/g, '').trim()
+  const cleanText = text.replace(/```json?\n?/g, '').replace(/```/g, '').trim()
 
   let insights: Record<string, unknown>[]
   try {
-    insights = JSON.parse(text)
+    insights = JSON.parse(cleanText)
   } catch {
     return { ok: false, reason: 'Failed to parse AI response' }
   }

@@ -5,6 +5,7 @@
  * stricter auth than the rest of this codebase's AI endpoints).
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { getAiConfig } from '../_shared/ai.ts'
 import { runSummaryForSession } from '../_shared/session-summary-engine.ts'
 
 const supabase = createClient(
@@ -16,8 +17,8 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders() })
   if (req.method !== 'POST') return respond({ error: 'Method not allowed' }, 405)
 
-  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
-  if (!apiKey) return respond({ error: 'ANTHROPIC_API_KEY not set' }, 500)
+  const aiConfig = getAiConfig()
+  if (!aiConfig) return respond({ error: 'No AI API key configured. Set GEMINI_API_KEY or ANTHROPIC_API_KEY in Supabase secrets.' }, 500)
 
   const body = await req.json().catch(() => ({}))
   const sessionId = body.session_id as string | undefined

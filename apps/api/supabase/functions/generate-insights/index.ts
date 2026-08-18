@@ -27,7 +27,7 @@ Deno.serve(async (req) => {
     result = await runInsightsForProject(supabase, projectId)
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
-    return respond({ error: `Anthropic API error: ${msg}` }, 500)
+    return respond({ error: `AI API error: ${msg}` }, 500)
   }
 
   if (!result.ok) return respond({ ok: false, reason: result.reason })

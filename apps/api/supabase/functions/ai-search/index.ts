@@ -2,10 +2,11 @@
  * PAAQ Phase 2 — AI Search / Natural Language Query
  *
  * Accepts a plain-language question from the admin,
- * pulls relevant data from the DB filtered by project_id, and answers using Claude.
+ * pulls relevant data from the DB filtered by project_id, and answers using
+ * whichever configured AI key is active: Gemini or Anthropic.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import Anthropic from 'npm:@anthropic-ai/sdk'
+import { askModel, getAiConfig } from '../_shared/ai.ts'
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -20,8 +21,8 @@ Deno.serve(async (req) => {
   const question: string = body?.question ?? ''
   if (!question.trim()) return respond({ error: 'question is required' }, 400)
 
-  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
-  if (!apiKey) return respond({ error: 'ANTHROPIC_API_KEY not set' }, 500)
+  const aiConfig = getAiConfig()
+  if (!aiConfig) return respond({ error: 'No AI API key configured. Set GEMINI_API_KEY or ANTHROPIC_API_KEY in Supabase secrets.' }, 500)
 
   const project_id: string | null = body?.project_id ?? null
 
@@ -76,27 +77,17 @@ Deno.serve(async (req) => {
     performance: groupMetrics(perf ?? []),
   }
 
-  const anthropic = new Anthropic({ apiKey })
-
   const systemPrompt = hasData
     ? `You are the PAAQ AI assistant — a real-time AI analyst embedded in an app monitoring dashboard. You have access to live platform data scoped to this specific application and answer questions concisely and specifically. You always reference actual numbers and names from the data provided. You are direct and useful, not generic. Use **bold** for key findings. Keep answers under 150 words unless the question specifically needs more detail. Never invent metrics — only reference what is in the data.`
     : `You are the PAAQ AI assistant. No telemetry data has been received from this application yet. The SDK may not be sending events, or this is a new project. Explain this honestly and suggest next steps: verify SDK integration, check that events are being tracked, and run an AI analysis once data arrives. Keep your response concise.`
 
-  const message = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 1024,
+  const answer = await askModel({
     system: systemPrompt,
-    messages: [
-      {
-        role: 'user',
-        content: hasData
-          ? `Platform data:\n${JSON.stringify(platformData, null, 2)}\n\nQuestion: ${question}`
-          : `Question: ${question}`,
-      },
-    ],
+    prompt: hasData
+      ? `Platform data:\n${JSON.stringify(platformData, null, 2)}\n\nQuestion: ${question}`
+      : `Question: ${question}`,
+    maxTokens: 1024,
   })
-
-  const answer = message.content[0]?.type === 'text' ? message.content[0].text : 'Unable to generate response.'
 
   return respond({ ok: true, answer })
 })

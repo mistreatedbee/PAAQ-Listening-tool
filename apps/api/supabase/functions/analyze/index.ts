@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import Anthropic from 'npm:@anthropic-ai/sdk'
+import { getAiConfig, askModel } from '../_shared/ai.ts'
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -10,8 +10,8 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders() })
   if (req.method !== 'POST') return respond({ error: 'Method not allowed' }, 405)
 
-  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
-  if (!apiKey) return respond({ error: 'ANTHROPIC_API_KEY not set' }, 500)
+  const aiConfig = getAiConfig()
+  if (!aiConfig) return respond({ error: 'No AI API key configured. Set GEMINI_API_KEY or ANTHROPIC_API_KEY in Supabase secrets.' }, 500)
 
   // project_id is optional — if omitted we use the first active project for this token
   const body = await req.json().catch(() => ({}))
@@ -258,13 +258,9 @@ Deno.serve(async (req) => {
     anomalies: anomalyRows.map((a) => ({ type: a.type, pattern: a.detected_pattern })),
   }
 
-  const anthropic = new Anthropic({ apiKey })
-  const aiMessage = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 3000,
-    messages: [{
-      role: 'user',
-      content: `You are the AI analyst for PAAQ, a digital product intelligence platform. Analyze this data and return structured JSON only — no markdown, no explanation.
+  const rawText = await askModel({
+    system: 'You are the AI analyst for PAAQ, a digital product intelligence platform. Analyze the provided data and return structured JSON only.',
+    prompt: `You are the AI analyst for PAAQ, a digital product intelligence platform. Analyze this data and return structured JSON only — no markdown, no explanation.
 
 Data:
 ${JSON.stringify(summary, null, 2)}
@@ -307,15 +303,13 @@ Rules:
 - priority "critical" = needs immediate attention
 - impact_score 0.0-1.0 based on how many users affected
 - affected_users = estimate based on session/user counts in data`,
-    }],
+    maxTokens: 3000,
   })
 
-  const rawText = aiMessage.content[0]?.type === 'text'
-    ? aiMessage.content[0].text.replace(/```json?\n?/g, '').replace(/```/g, '').trim()
-    : null
+  const cleanText = rawText.replace(/```json?\n?/g, '').replace(/```/g, '').trim()
 
   let aiResult: { insights?: Record<string, unknown>[]; feature_summaries?: Record<string, unknown>[] } = {}
-  if (rawText) { try { aiResult = JSON.parse(rawText) } catch { /* continue */ } }
+  if (cleanText) { try { aiResult = JSON.parse(cleanText) } catch { /* continue */ } }
 
   // Merge AI summaries into feature health rows
   const featureSummaryMap: Record<string, string> = {}

@@ -1,4 +1,4 @@
-import Anthropic from 'npm:@anthropic-ai/sdk'
+import { askModel } from './ai.ts'
 
 // deno-lint-ignore no-explicit-any
 type SupabaseClient = any
@@ -80,18 +80,9 @@ export async function runSummaryForSession(
     })),
   }
 
-  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
-  if (!apiKey) return { ok: false, reason: 'ANTHROPIC_API_KEY secret not set in Supabase' }
-
-  const anthropic = new Anthropic({ apiKey })
-
-  const message = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 900,
-    messages: [
-      {
-        role: 'user',
-        content: `You are an AI analyst for PAAQ, a product-analytics platform. Analyze this real user session for an engineer or product manager. Return ONLY valid JSON — no markdown fences, no explanation outside the JSON.
+  const text = await askModel({
+    system: 'You are an AI analyst for PAAQ, a product-analytics platform. Analyze the provided session data and return only valid JSON.',
+    prompt: `You are an AI analyst for PAAQ, a product-analytics platform. Analyze this real user session for an engineer or product manager. Return ONLY valid JSON — no markdown fences, no explanation outside the JSON.
 
 Session data:
 ${JSON.stringify(summary, null, 2)}
@@ -118,14 +109,10 @@ Rules:
 - engagementScore: how actively the user interacted relative to session length — 0 = passive/idle, 1 = highly engaged.
 - complexityScore: how complicated the user's path/task appeared to be — 0 = simple/linear, 1 = convoluted (many pages, backtracking, errors).
 - If there are errors or friction signals, explicitly connect them to the session's outcome in the narrative.`,
-      },
-    ],
+    maxTokens: 900,
   })
 
-  const content = message.content[0]
-  if (content.type !== 'text') return { ok: false, reason: 'No text response from AI' }
-
-  const text = content.text.replace(/```json?\n?/g, '').replace(/```/g, '').trim()
+  const cleanText = text.replace(/```json?\n?/g, '').replace(/```/g, '').trim()
 
   let parsed: {
     narrative?: string
@@ -138,7 +125,7 @@ Rules:
     complexityScore?: number
   }
   try {
-    parsed = JSON.parse(text)
+    parsed = JSON.parse(cleanText)
   } catch {
     return { ok: false, reason: 'Failed to parse AI response' }
   }

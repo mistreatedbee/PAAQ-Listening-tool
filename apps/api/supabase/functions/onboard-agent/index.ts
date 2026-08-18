@@ -24,6 +24,7 @@
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import Anthropic from 'npm:@anthropic-ai/sdk'
+import { getAiConfig } from '../_shared/ai.ts'
 import { loadGitAdapter, type GitProvider } from '../_shared/git-providers/load-adapter.ts'
 import type { RepoRef } from '../_shared/git-providers/types.ts'
 import { getRepoAndToken } from '../_shared/fix-engine.ts'
@@ -247,9 +248,12 @@ function toolDefs(): Anthropic.Tool[] {
 }
 
 async function runLoop(runId: string, tenantId: string, projectId: string): Promise<void> {
-  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
-  if (!apiKey) { await setRunStatus(runId, 'failed', { error: 'ANTHROPIC_API_KEY not set' }); return }
-  const anthropic = new Anthropic({ apiKey })
+  const aiConfig = getAiConfig()
+  if (!aiConfig || aiConfig.provider !== 'anthropic') {
+    await setRunStatus(runId, 'failed', { error: 'Onboarding agent requires Anthropic tool-use support. Add ANTHROPIC_API_KEY to continue.' })
+    return
+  }
+  const anthropic = new Anthropic({ apiKey: aiConfig.apiKey })
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const { data: runRow } = await supabase.from('onboarding_runs').select('status').eq('id', runId).maybeSingle()

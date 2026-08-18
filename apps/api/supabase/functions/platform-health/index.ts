@@ -7,7 +7,7 @@
  * "healthy".
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import Anthropic from 'npm:@anthropic-ai/sdk'
+import { getAiConfig } from '../_shared/ai.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -62,11 +62,24 @@ async function probeAuth(): Promise<Probe> {
 }
 
 async function probeClaude(): Promise<Probe> {
-  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
-  if (!apiKey) return { ok: false, error: 'ANTHROPIC_API_KEY not set' }
-  const anthropic = new Anthropic({ apiKey })
+  const config = getAiConfig()
+  if (!config) return { ok: false, error: 'No AI API key configured. Set GEMINI_API_KEY or ANTHROPIC_API_KEY in Supabase secrets.' }
+
+  if (config.provider === 'gemini') {
+    return timed(async () => {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${config.apiKey}`)
+      if (!res.ok) throw new Error(`Gemini models endpoint returned ${res.status}`)
+    })
+  }
+
   return timed(async () => {
-    await anthropic.models.list()
+    const res = await fetch('https://api.anthropic.com/v1/models', {
+      headers: {
+        'x-api-key': config.apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+    })
+    if (!res.ok) throw new Error(`Anthropic models endpoint returned ${res.status}`)
   })
 }
 

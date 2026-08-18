@@ -18,6 +18,7 @@
  */
 import Anthropic from 'npm:@anthropic-ai/sdk'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { getAiConfig } from './ai.ts'
 import { loadGitAdapter, type GitProvider } from './git-providers/load-adapter.ts'
 import type { RepoRef } from './git-providers/types.ts'
 import type { RecRow } from './fix-engine.ts'
