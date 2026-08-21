@@ -101,21 +101,23 @@ async function handleStats(sb: ReturnType<typeof createClient>, userId: string) 
 
   // Resolve referred users' emails via auth.users (only reachable through
   // the service-role client from here — never exposed to the dashboard's
-  // public-schema client).
-  const claimed = []
-  for (const claim of claims ?? []) {
-    const { data: u } = await sb
+  // public-schema client). Batch with a single IN query instead of N lookups.
+  const ids = (claims ?? []).map((c) => c.referred_user_id)
+  const emailById = new Map<string, string | null>()
+  if (ids.length > 0) {
+    const { data: users } = await sb
       .from('auth.users')
-      .select('email')
-      .eq('id', claim.referred_user_id)
-      .maybeSingle()
-    claimed.push({
-      referred_user_id: claim.referred_user_id,
-      email: u?.email ?? null,
-      status: claim.status,
-      created_at: claim.created_at,
-    })
+      .select('id, email')
+      .in('id', ids)
+    for (const u of users ?? []) emailById.set(u.id, u.email ?? null)
   }
+
+  const claimed = (claims ?? []).map((claim) => ({
+    referred_user_id: claim.referred_user_id,
+    email: emailById.get(claim.referred_user_id) ?? null,
+    status: claim.status,
+    created_at: claim.created_at,
+  }))
 
   return respond({
     ok: true,
