@@ -140,6 +140,7 @@ Authenticates the SDK and starts a session. Call once on app startup.
 | `sdkToken` | `string` | Your `sdk_live_...` token |
 | `projectKey` | `string` | Your `proj_...` project key |
 | `options.platform` | `string` | `'react'` \| `'nextjs'` \| `'vue'` \| `'vanilla'` |
+| `options.appVersion` | `string` | Optional. Your app's version string, reported with each event |
 
 Returns `Promise<InitResult>`:
 
@@ -163,12 +164,28 @@ paaq.track('form_submitted', { formName: 'signup', fields: 4 })
 paaq.track('purchase_completed', { amount: 49.99, currency: 'USD', plan: 'pro' })
 ```
 
-### `paaq.identify(userId, traits?)`
+### `paaq.trackError(error, options?)`
 
-Associates the current session with a user.
+Reports an error (exception, rejected promise, or any value). Auto-captures stack
+traces and the last user interaction so it appears on the session's timeline.
 
 ```ts
-paaq.identify('user_456', { email: 'alice@example.com', plan: 'enterprise' })
+paaq.trackError(new Error('charge failed'))
+paaq.trackError(error, { severity: 'fatal', screen: '/checkout', context: { orderId } })
+```
+
+Uncaught exceptions, `unhandledrejection`, `console.error`/`warn`, and
+user-visible UI messages (toasts, `role="alert"`, native validation bubbles) are
+also captured automatically — you don't need to call this yourself unless you
+want to attach extra context.
+
+### `paaq.identify(userId, traits?)`
+
+Associates the current session with a user. Returns a promise that resolves once
+the identity is linked to the session.
+
+```ts
+await paaq.identify('user_456', { email: 'alice@example.com', plan: 'enterprise' })
 ```
 
 ### `paaq.page(pageName?, properties?)`
@@ -186,6 +203,28 @@ Forces an immediate event flush. Useful before navigation or logout.
 
 ```ts
 window.addEventListener('beforeunload', () => paaq.flush())
+```
+
+### `paaq.endSession(outcome?)`
+
+Ends the current session explicitly (e.g. after a user logs out). Normally the
+SDK ends sessions automatically on page leave; only call this when you want to
+end a session early.
+
+```ts
+auth.onLogout(() => {
+  paaq.endSession('logged_out')
+})
+```
+
+### Version string
+
+`SDK_VERSION_STRING` exposes the installed SDK build so you can report which
+version is actually live:
+
+```ts
+import { SDK_VERSION_STRING } from '@paaq/web-sdk'
+console.log('PAAQ SDK', SDK_VERSION_STRING)
 ```
 
 ---
