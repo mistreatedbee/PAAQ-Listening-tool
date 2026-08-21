@@ -138,6 +138,7 @@ function LoginForm() {
   const [loading, setLoading] = useState(false)
   const [oauthLoading, setOauthLoading] = useState<'google' | 'github' | null>(null)
   const [error, setError] = useState<string | null>(searchParams.get('error'))
+  const [resetSent, setResetSent] = useState(false)
 
   // Keep the form in sync with the URL (?tab=signup deep-links land on the
   // signup form, and browser back/forward swap between signin and signup).
@@ -189,6 +190,28 @@ function LoginForm() {
       router.push('/onboarding')
       router.refresh()
     }
+  }
+
+  // Password reset — send the recovery email, then show an inline confirmation.
+  // The email's link points back here via /auth/callback?next=/reset-password,
+  // which exchanges the PKCE token into a recovery session. The user then sets
+  // a new password on /reset-password. Errors surface inline; a missing email
+  // is caught before any network call.
+  const handleForgotPassword = async () => {
+    if (resetSent) return
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('Enter your account email to reset your password.')
+      return
+    }
+    setError(null)
+    setLoading(true)
+    const sb = createClient()
+    const { error: err } = await sb.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`,
+    })
+    setLoading(false)
+    if (err) { setError(err.message); return }
+    setResetSent(true)
   }
 
   const handleOAuth = async (provider: 'google' | 'github') => {
@@ -305,11 +328,30 @@ function LoginForm() {
           </div>
 
           <h1 className="mb-1 text-2xl font-black" style={{ color: C.textPrimary }}>
-            {mode === 'signin' ? 'Welcome back' : 'Create your account'}
+            {resetSent ? 'Check your email' : (mode === 'signin' ? 'Welcome back' : 'Create your account')}
           </h1>
           <p className="mb-8 text-sm" style={{ color: C.textSecondary }}>
-            {mode === 'signin' ? 'Sign in to your PAAQ dashboard.' : 'Free forever at 25,000 events/mo. Sign up in under 5 minutes.'}
+            {resetSent
+              ? `If an account exists for ${email}, we've emailed a password reset link.`
+              : (mode === 'signin' ? 'Sign in to your PAAQ dashboard.' : 'Free forever at 25,000 events/mo. Sign up in under 5 minutes.')}
           </p>
+
+          {resetSent && (
+            <div className="mb-6 rounded-xl border p-5" style={{ borderColor: C.tealSoft, background: C.tealSoft }}>
+              <div className="mb-1 flex items-center gap-2">
+                <Check className="h-4 w-4" style={{ color: C.green }} />
+                <span className="text-sm font-semibold" style={{ color: C.textPrimary }}>Reset link sent</span>
+              </div>
+              <p className="mb-4 text-sm" style={{ color: C.textSecondary }}>
+                Open the link we sent to {email} to choose a new password. Check your spam folder if it doesn't
+                arrive within a few minutes.
+              </p>
+              <button type="button" onClick={handleForgotPassword} disabled={loading}
+                className="text-sm font-semibold hover:underline" style={{ color: C.teal }}>
+                Resend reset link
+              </button>
+            </div>
+          )}
 
           {/* OAuth buttons — hidden until Google/GitHub are enabled as Auth
               providers in Supabase; see OAUTH_ENABLED above. */}
@@ -339,6 +381,7 @@ function LoginForm() {
           )}
 
           {/* Email form */}
+          {!resetSent && (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="mb-2 block text-sm font-semibold" style={{ color: C.textPrimary }}>
@@ -353,8 +396,11 @@ function LoginForm() {
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <label className="text-sm font-semibold" style={{ color: C.textPrimary }}>Password</label>
-                {mode === 'signin' && (
-                  <a href="#" className="text-xs font-medium" style={{ color: C.teal }}>Forgot password?</a>
+                {mode === 'signin' && !resetSent && (
+                  <button type="button" onClick={handleForgotPassword}
+                    className="text-xs font-medium hover:underline" style={{ color: C.teal }}>
+                    Forgot password?
+                  </button>
                 )}
               </div>
               <AuthInput
@@ -399,31 +445,44 @@ function LoginForm() {
               }
             </button>
           </form>
+          )}
 
-          {/* Trust / social proof strip */}
-          <div className="mt-5 flex items-center justify-center gap-3 text-xs" style={{ color: C.textMuted }}>
-            <span className="flex items-center gap-1.5">
-              <Check className="h-3.5 w-3.5" style={{ color: C.green }} />
-              No credit card required
-            </span>
-            <span style={{ width: 1, height: 14, background: C.borderStrong }} />
-            <span className="flex items-center gap-1.5">
-              <Check className="h-3.5 w-3.5" style={{ color: C.green }} />
-              Setup in under 5 minutes
-            </span>
-            <span style={{ width: 1, height: 14, background: C.borderStrong }} />
-            <span className="flex items-center gap-1.5">
-              <Check className="h-3.5 w-3.5" style={{ color: C.green }} />
-              Cancel anytime
-            </span>
-          </div>
+          {!resetSent && (
+            <div className="mt-5 flex items-center justify-center gap-3 text-xs" style={{ color: C.textMuted }}>
+              <span className="flex items-center gap-1.5">
+                <Check className="h-3.5 w-3.5" style={{ color: C.green }} />
+                No credit card required
+              </span>
+              <span style={{ width: 1, height: 14, background: C.borderStrong }} />
+              <span className="flex items-center gap-1.5">
+                <Check className="h-3.5 w-3.5" style={{ color: C.green }} />
+                Setup in under 5 minutes
+              </span>
+              <span style={{ width: 1, height: 14, background: C.borderStrong }} />
+              <span className="flex items-center gap-1.5">
+                <Check className="h-3.5 w-3.5" style={{ color: C.green }} />
+                Cancel anytime
+              </span>
+            </div>
+          )}
 
-          <p className="mt-6 text-center text-sm" style={{ color: C.textSecondary }}>
-            {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
-            <button onClick={switchMode} className="font-semibold transition-colors" style={{ color: C.teal }}>
-              {mode === 'signin' ? 'Sign up free' : 'Sign in'}
-            </button>
-          </p>
+          {resetSent && (
+            <div className="mt-6 text-center">
+              <button type="button" onClick={() => { setResetSent(false); setError(null) }}
+                className="text-sm font-semibold hover:underline" style={{ color: C.teal }}>
+                ← Back to sign in
+              </button>
+            </div>
+          )}
+
+          {!resetSent && (
+            <p className="mt-6 text-center text-sm" style={{ color: C.textSecondary }}>
+              {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
+              <button onClick={switchMode} className="font-semibold transition-colors" style={{ color: C.teal }}>
+                {mode === 'signin' ? 'Sign up free' : 'Sign in'}
+              </button>
+            </p>
+          )}
 
           <p className="mt-6 text-center text-xs" style={{ color: C.textMuted }}>
             By continuing, you agree to our{' '}
