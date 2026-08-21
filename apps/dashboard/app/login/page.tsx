@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import { createClient } from '@/utils/supabase/client'
@@ -23,6 +23,28 @@ const C = {
 }
 
 const TEAL_GRADIENT = 'linear-gradient(135deg,#27a6ce,#51c9d3)'
+
+// ─── Referral (waiting-list) capture ─────────────────────────────────────────
+// A share link (e.g. /login?ref=PAAQAB12) carries the inviter's code. We stash
+// it in localStorage on this page, then POST it to /api/referral/claim the
+// moment a fresh account has a session (after signup) so the signup is
+// attributed to the referrer. Best-effort — a failure must never block signup.
+const REF_KEY = 'paaq_referral_code'
+
+async function claimReferral(code: string | null) {
+  if (!code) return
+  try {
+    await fetch('/api/referral/claim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    })
+  } catch {
+    // ignore — attribution is best-effort and never blocks the user
+  } finally {
+    try { localStorage.removeItem(REF_KEY) } catch { /* noop */ }
+  }
+}
 
 // ─── OAuth provider icons ─────────────────────────────────────────────────────
 
@@ -107,7 +129,9 @@ function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const returnTo = searchParams.get('returnTo') ?? '/dashboard'
-  const [mode, setMode] = useState<Mode>('signin')
+  const [mode, setMode] = useState<Mode>(() =>
+    searchParams.get('tab') === 'signup' ? 'signup' : 'signin',
+  )
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
@@ -115,7 +139,31 @@ function LoginForm() {
   const [oauthLoading, setOauthLoading] = useState<'google' | 'github' | null>(null)
   const [error, setError] = useState<string | null>(searchParams.get('error'))
 
+  // Keep the form in sync with the URL (?tab=signup deep-links land on the
+  // signup form, and browser back/forward swap between signin and signup).
+  useEffect(() => {
+    setMode((current) => {
+      const fromTab = searchParams.get('tab') === 'signup' ? 'signup' : 'signin'
+      return fromTab === current ? current : fromTab
+    })
+  }, [searchParams])
+
   const strength = mode === 'signup' ? passwordStrength(password) : null
+
+  const refCode = useRef<string | null>(null)
+
+  // Capture any referral code from the URL (?ref=…) or from a previous visit
+  // (localStorage). It's consumed by claimReferral() once a fresh signup has a
+  // session — see handleSubmit below.
+  useEffect(() => {
+    const fromUrl = searchParams.get('ref')
+    let fromStorage: string | null = null
+    try { fromStorage = localStorage.getItem(REF_KEY) } catch { /* noop */ }
+    refCode.current = fromUrl ?? fromStorage
+    if (fromUrl) {
+      try { localStorage.setItem(REF_KEY, fromUrl) } catch { /* noop */ }
+    }
+  }, [searchParams])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -136,6 +184,8 @@ function LoginForm() {
       // Auto sign in after signup (works when email confirmation is disabled in Supabase)
       const { error: signInErr } = await sb.auth.signInWithPassword({ email, password })
       if (signInErr) { setError(signInErr.message); setLoading(false); return }
+      // Attribute the signup to the referrer now that a session exists.
+      await claimReferral(refCode.current ?? null)
       router.push('/onboarding')
       router.refresh()
     }
@@ -157,7 +207,11 @@ function LoginForm() {
   }
 
   const switchMode = () => {
-    setMode(mode === 'signin' ? 'signup' : 'signin')
+    const next = mode === 'signin' ? 'signup' : 'signin'
+    const params = new URLSearchParams(searchParams.toString())
+    params.set('tab', next)
+    router.replace(`/login?${params.toString()}`, { scroll: false })
+    setMode(next)
     setError(null)
     setPassword('')
   }
@@ -201,7 +255,7 @@ function LoginForm() {
         </div>
 
         {/* Benefits */}
-        <div className="relative space-y-4 px-10 pb-10">
+        <div className="relative space-y-4 px-10">
           {[
             { icon: Sparkles, text: 'AI root cause analysis in seconds' },
             { icon: Eye,      text: 'Real-time event stream across all platforms' },
@@ -215,6 +269,28 @@ function LoginForm() {
               <span className="text-sm" style={{ color: '#8ba0b4' }}>{text}</span>
             </div>
           ))}
+        </div>
+
+        {/* Social proof — testimonial */}
+        <div className="relative mx-10 mb-12 rounded-2xl border p-6"
+          style={{ borderColor: 'rgba(81,201,211,0.22)', background: 'rgba(81,201,211,0.06)' }}>
+          <div className="mb-3 flex items-center gap-1 text-sm" style={{ color: '#51C9D3' }}>
+            {'★★★★★'.split('').map((star, i) => <span key={i}>{star}</span>)}
+          </div>
+          <p className="mb-4 text-sm leading-relaxed" style={{ color: '#c3d4e3' }}>
+            "PAAQ caught a production spike before any of our users reported it — the AI root-cause
+            summary saved us hours. We were up and running in ten minutes."
+          </p>
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold text-white"
+              style={{ background: 'linear-gradient(135deg,#27A6CE,#51C9D3)' }}>
+              MK
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-white">Maya K.</p>
+              <p className="text-[11px]" style={{ color: '#8ba0b4' }}>Staff Engineer · Growth-stage SaaS</p>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -232,7 +308,7 @@ function LoginForm() {
             {mode === 'signin' ? 'Welcome back' : 'Create your account'}
           </h1>
           <p className="mb-8 text-sm" style={{ color: C.textSecondary }}>
-            {mode === 'signin' ? 'Sign in to your PAAQ dashboard.' : 'Start monitoring in under 5 minutes.'}
+            {mode === 'signin' ? 'Sign in to your PAAQ dashboard.' : 'Free forever at 25,000 events/mo. Sign up in under 5 minutes.'}
           </p>
 
           {/* OAuth buttons — hidden until Google/GitHub are enabled as Auth
@@ -323,6 +399,24 @@ function LoginForm() {
               }
             </button>
           </form>
+
+          {/* Trust / social proof strip */}
+          <div className="mt-5 flex items-center justify-center gap-3 text-xs" style={{ color: C.textMuted }}>
+            <span className="flex items-center gap-1.5">
+              <Check className="h-3.5 w-3.5" style={{ color: C.green }} />
+              No credit card required
+            </span>
+            <span style={{ width: 1, height: 14, background: C.borderStrong }} />
+            <span className="flex items-center gap-1.5">
+              <Check className="h-3.5 w-3.5" style={{ color: C.green }} />
+              Setup in under 5 minutes
+            </span>
+            <span style={{ width: 1, height: 14, background: C.borderStrong }} />
+            <span className="flex items-center gap-1.5">
+              <Check className="h-3.5 w-3.5" style={{ color: C.green }} />
+              Cancel anytime
+            </span>
+          </div>
 
           <p className="mt-6 text-center text-sm" style={{ color: C.textSecondary }}>
             {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
