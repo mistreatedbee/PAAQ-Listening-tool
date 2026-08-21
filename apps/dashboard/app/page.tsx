@@ -352,7 +352,7 @@ export default function LandingPage() {
             ))}
           </div>
           <div className="footer-bottom">
-            <span>© 2025 PAAQ Intelligence. All rights reserved.</span>
+            <span>© {new Date().getFullYear()} PAAQ Intelligence. All rights reserved.</span>
             <span>Built for teams that care about their products.</span>
           </div>
         </div>
