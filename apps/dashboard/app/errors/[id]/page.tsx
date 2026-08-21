@@ -50,6 +50,11 @@ function describeEventName(name: string, properties: Record<string, unknown> | n
     const field = (properties?.fieldName as string | undefined) ?? 'field'
     return properties?.hadError === true ? `Form field error — ${field}` : `Form field — ${field}`
   }
+  if (name === '$click' || name === '$rage_click' || name === '$dead_click' || name === '$double_click') {
+    const label = (properties?.targetLabel ?? properties?.targetSelector) as string | undefined
+    const verb = name === '$rage_click' ? 'Rage-clicked' : name === '$dead_click' ? 'Dead-clicked' : name === '$double_click' ? 'Double-clicked' : 'Clicked'
+    return label ? `${verb} “${label}”` : verb
+  }
   return name.replace(/^\$/, '').replace(/_/g, ' ')
 }
 
@@ -185,6 +190,12 @@ export default function ErrorDetailPage() {
           targetIso={error.created_at}
           precedingItems={precedingEvents}
           currentLabel={`${error.error_type}: ${error.message}`}
+          playFromIso={(error.context?.lastClick as { at?: string } | undefined)?.at}
+          lastActionLabel={
+            (error.context?.lastClick as { targetLabel?: string } | undefined)?.targetLabel
+              ? `Clicked “${(error.context!.lastClick as { targetLabel: string }).targetLabel}”`
+              : precedingEvents.filter((p) => /^((Rage-|Dead-|Double-)?[Cc]licked)/.test(p.label)).at(-1)?.label
+          }
           onClose={() => setShowReplay(false)}
         />
       )}

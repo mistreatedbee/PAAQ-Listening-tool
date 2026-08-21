@@ -24,6 +24,13 @@ export type SessionError = {
   severity: string
   screen: string | null
   created_at: string
+  context?: {
+    lastClick?: {
+      targetLabel?: string
+      targetSelector?: string
+      at?: string
+    }
+  } | null
 }
 
 type TimelineItem =
@@ -61,7 +68,28 @@ function describeEvent(e: SessionEvent): string {
     const field = (e.properties?.fieldName as string | undefined) ?? 'field'
     return isFormFieldError(e) ? `Form field error — ${field}` : `Form field — ${field}`
   }
+  if (e.event_name === '$click' || e.event_name === '$rage_click' || e.event_name === '$dead_click' || e.event_name === '$double_click') {
+    const label = (e.properties?.targetLabel ?? e.properties?.targetSelector) as string | undefined
+    const verb = e.event_name === '$rage_click' ? 'Rage-clicked' : e.event_name === '$dead_click' ? 'Dead-clicked' : e.event_name === '$double_click' ? 'Double-clicked' : 'Clicked'
+    return label ? `${verb} “${label}”` : verb
+  }
   return e.event_name.replace(/^\$/, '').replace(/_/g, ' ')
+}
+
+function lastClickBefore(items: TimelineItem[], index: number): { iso: string; label: string } | null {
+  for (let i = index - 1; i >= 0; i--) {
+    const item = items[i]
+    if (item.kind === 'event' && (item.data.event_name === '$click' || item.data.event_name === '$rage_click')) {
+      return { iso: item.timestamp, label: describeEvent(item.data) }
+    }
+  }
+  const current = items[index]
+  if (current?.kind === 'error') {
+    const click = current.data.context?.lastClick
+    const name = click?.targetLabel || click?.targetSelector
+    if (name) return { iso: click?.at || current.timestamp, label: `Clicked “${name}”` }
+  }
+  return null
 }
 
 /** The page/screen a non-navigation event happened on — from its own
@@ -92,7 +120,7 @@ export function InteractionTimeline({
   cutoffTime: string | null
   recording?: SessionRecordingState
 }) {
-  const [openMoment, setOpenMoment] = useState<{ iso: string; index: number } | null>(null)
+  const [openMoment, setOpenMoment] = useState<{ iso: string; index: number; playFromIso?: string; lastActionLabel?: string } | null>(null)
 
   const items: TimelineItem[] = [
     ...events.map((e): TimelineItem => ({ kind: 'event', id: e.id, timestamp: e.timestamp, data: e })),
@@ -172,7 +200,12 @@ export function InteractionTimeline({
                           <span className="text-xs font-medium text-foreground">{item.data.error_type}</span>
                           {page && <span className="truncate font-mono text-[10px] text-muted-foreground/80">on {page}</span>}
                         </div>
-                        <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">{item.data.message}</p>
+                        <p className="mt-0.5 font-mono text-xs text-muted-foreground whitespace-normal break-words">{item.data.message}</p>
+                        {item.data.context?.lastClick?.targetLabel && (
+                          <p className="mt-0.5 text-[11px] text-muted-foreground">
+                            after clicking “{item.data.context.lastClick.targetLabel}”
+                          </p>
+                        )}
                       </>
                     ) : (
                       <div>
@@ -189,7 +222,15 @@ export function InteractionTimeline({
                   </div>
                   {showWatchButton && (
                     <button
-                      onClick={() => setOpenMoment({ iso: item.timestamp, index: i })}
+                      onClick={() => {
+                        const lastClick = lastClickBefore(items, i)
+                        setOpenMoment({
+                          iso: item.timestamp,
+                          index: i,
+                          playFromIso: lastClick?.iso,
+                          lastActionLabel: lastClick?.label,
+                        })
+                      }}
                       className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-critical/30 bg-critical/5 text-critical hover:bg-critical/10 transition-colors"
                       title="Watch this moment in the replay"
                     >
@@ -207,12 +248,20 @@ export function InteractionTimeline({
         <ReplayMomentModal
           recording={recording}
           targetIso={openMoment.iso}
-          precedingItems={items.slice(Math.max(0, openMoment.index - 5), openMoment.index).map((item) => ({
-            time: new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-            label: labelFor(item),
-            isError: item.kind === 'error',
-          }))}
+          precedingItems={(() => {
+            const before = items.slice(0, openMoment.index)
+            const recent = before.slice(-5)
+            const click = [...before].reverse().find((item) => item.kind === 'event' && (item.data.event_name === '$click' || item.data.event_name === '$rage_click'))
+            const rows = click && !recent.includes(click) ? [click, ...recent.slice(-4)] : recent
+            return rows.map((item) => ({
+              time: new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+              label: labelFor(item),
+              isError: item.kind === 'error',
+            }))
+          })()}
           currentLabel={labelFor(items[openMoment.index])}
+          playFromIso={openMoment.playFromIso}
+          lastActionLabel={openMoment.lastActionLabel}
           onClose={() => setOpenMoment(null)}
         />
       )}

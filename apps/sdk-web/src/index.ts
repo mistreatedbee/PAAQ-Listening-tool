@@ -6,7 +6,7 @@ const BASE_URL = 'https://mookyonwpovxscsbqwwl.supabase.co/functions/v1'
 // every install of this SDK has been wrong the entire time, which made
 // "is a customer actually running the new build" impossible to answer
 // from server-side logs alone. Now kept in lockstep with package.json.
-const SDK_VERSION = '1.2.4'
+const SDK_VERSION = '1.2.5'
 
 type ErrorPayload = {
   error_type: string
@@ -55,6 +55,22 @@ let _hadFatalError = false
 let _queue: EventPayload[] = []
 let _config: PaaqConfig = { batchSize: 50, syncIntervalSeconds: 30 }
 let _flushTimer: ReturnType<typeof setInterval> | null = null
+// Page-level listeners (click, errors, console, visible UI messages) must
+// only be installed once. init() runs again for every new session on the
+// same page; re-wrapping console / stacking MutationObservers would
+// duplicate every captured error. DOM recording is per-session and is
+// installed separately because it is torn down on session end.
+let _listenersInstalled = false
+
+type LastClick = {
+  targetLabel: string
+  targetSelector: string
+  x: number
+  y: number
+  at: string
+  page: string
+}
+let _lastClick: LastClick | null = null
 
 type DeviceMetadata = {
   userAgent: string | null
@@ -162,18 +178,7 @@ async function init(
       _hadFatalError = false
       if (data.config) _config = data.config
       scheduleFlush()
-      installGlobalHandlers()
-      installAutoPageTracking()
-      installSessionEndHandlers()
-      installClickTracking()
-      installScrollTracking()
-      installFormTracking()
-      installDoubleClickTracking()
-      installCopyPasteTracking()
-      installKeyboardTracking()
-      installDownloadTracking()
-      installUploadTracking()
-      installHoverTracking()
+      installPageListeners()
       installDomRecording()
       // A fresh session does NOT mean a new, unknown user — this init() runs
       // again every time a new session starts (page reload, a previous
@@ -209,6 +214,7 @@ let _lastSignalAt = 0
 
 function track(eventName: string, properties: Record<string, unknown> = {}) {
   _lastSignalAt = Date.now()
+  _perfEventCount++
   _queue.push({
     event_name: eventName,
     session_id: _sessionId,
@@ -304,11 +310,20 @@ async function flush(): Promise<void> {
 
 async function sendError(payload: ErrorPayload): Promise<void> {
   if (!_sdkToken) return
+  _perfErrorCount++
   try {
+    const context: Record<string, unknown> = {
+      ...(payload.context && typeof payload.context === 'object' ? payload.context : {}),
+      ...(_lastClick ? { lastClick: _lastClick } : {}),
+    }
     await fetch(`${BASE_URL}/errors`, {
       method: 'POST',
       headers: buildHeaders(),
-      body: JSON.stringify({ ...payload, session_id: payload.session_id ?? _sessionId }),
+      body: JSON.stringify({
+        ...payload,
+        session_id: payload.session_id ?? _sessionId,
+        context: Object.keys(context).length > 0 ? context : null,
+      }),
     })
   } catch {
     // fire-and-forget
@@ -328,6 +343,143 @@ function trackError(
     severity: options.severity ?? 'error',
     context: options.context ?? null,
   })
+}
+
+function installPageListeners(): void {
+  if (_listenersInstalled) return
+  _listenersInstalled = true
+  installGlobalHandlers()
+  installAutoPageTracking()
+  installSessionEndHandlers()
+  installClickTracking()
+  installScrollTracking()
+  installFormTracking()
+  installDoubleClickTracking()
+  installCopyPasteTracking()
+  installKeyboardTracking()
+  installDownloadTracking()
+  installUploadTracking()
+  installHoverTracking()
+  installVisibleErrorCapture()
+  installPerfMonitoring()
+}
+
+// ── Performance monitoring ──────────────────────────────────────────────
+// Every metric pushed here is a real, browser-measured signal — no
+// synthetic/placeholder heartbeat, matching how the rest of this SDK
+// reports only genuine observations. There is no browser API for CPU
+// usage, so it is deliberately left uncollected rather than invented.
+const PERF_FLUSH_INTERVAL_MS = 30_000
+const FPS_WINDOW_MS = 1_000
+
+type PerfMetric = { metric_type: string; value: number; metadata?: Record<string, unknown> }
+
+let _perfTimer: ReturnType<typeof setInterval> | null = null
+let _responseTimes: number[] = []
+let _fpsSamples: number[] = []
+let _perfEventCount = 0
+let _perfErrorCount = 0
+
+function installPerfMonitoring(): void {
+  if (typeof window === 'undefined') return
+
+  // Real network timings for the host page's own fetch/XHR calls — PAAQ's
+  // own telemetry requests (BASE_URL) are excluded so the SDK never ends up
+  // measuring itself.
+  if (typeof PerformanceObserver !== 'undefined') {
+    try {
+      const resourceObserver = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries() as PerformanceResourceTiming[]) {
+          if (entry.name.startsWith(BASE_URL)) continue
+          if (entry.initiatorType !== 'fetch' && entry.initiatorType !== 'xmlhttprequest') continue
+          if (entry.duration > 0) _responseTimes.push(entry.duration)
+        }
+      })
+      resourceObserver.observe({ entryTypes: ['resource'] })
+    } catch {
+      // entry type unsupported in this browser — skip silently
+    }
+
+    try {
+      const navObserver = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries() as PerformanceNavigationTiming[]) {
+          if (entry.duration > 0) _responseTimes.push(entry.duration)
+        }
+      })
+      navObserver.observe({ entryTypes: ['navigation'] })
+    } catch {
+      // ignore
+    }
+  }
+
+  // Real rendered-frame rate, sampled via requestAnimationFrame. Browsers
+  // pause rAF while a tab is hidden rather than firing it slowly, so a
+  // window whose elapsed time is wildly inflated is a backgrounded tab
+  // resuming, not real jank — skip recording that window instead of
+  // reporting a fake fps crash.
+  let frames = 0
+  let windowStart = performance.now()
+  const tick = (now: number) => {
+    frames++
+    const elapsed = now - windowStart
+    if (elapsed >= FPS_WINDOW_MS) {
+      if (elapsed < FPS_WINDOW_MS * 3) {
+        _fpsSamples.push(Math.round((frames * 1000) / elapsed))
+      }
+      frames = 0
+      windowStart = now
+    }
+    requestAnimationFrame(tick)
+  }
+  requestAnimationFrame(tick)
+
+  _perfTimer = setInterval(() => void flushPerf(), PERF_FLUSH_INTERVAL_MS)
+}
+
+async function flushPerf(): Promise<void> {
+  if (!_sdkToken || !_projectKey) return
+  const metrics: PerfMetric[] = []
+
+  if (_responseTimes.length > 0) {
+    const avg = _responseTimes.reduce((a, b) => a + b, 0) / _responseTimes.length
+    metrics.push({ metric_type: 'response_time', value: Math.round(avg), metadata: { sampleCount: _responseTimes.length } })
+    _responseTimes = []
+  }
+
+  if (_fpsSamples.length > 0) {
+    const avg = _fpsSamples.reduce((a, b) => a + b, 0) / _fpsSamples.length
+    metrics.push({ metric_type: 'fps', value: Math.round(avg), metadata: { sampleCount: _fpsSamples.length } })
+    _fpsSamples = []
+  }
+
+  const totalSignals = _perfEventCount + _perfErrorCount
+  if (totalSignals > 0) {
+    metrics.push({
+      metric_type: 'error_rate',
+      value: Math.round((_perfErrorCount / totalSignals) * 10000) / 100,
+      metadata: { errors: _perfErrorCount, events: _perfEventCount },
+    })
+    _perfEventCount = 0
+    _perfErrorCount = 0
+  }
+
+  // performance.memory is Chrome-only — report the real reading where the
+  // browser exposes it, never a fabricated value where it doesn't.
+  const mem = (performance as unknown as { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } }).memory
+  if (mem && mem.jsHeapSizeLimit > 0) {
+    metrics.push({ metric_type: 'memory', value: Math.round((mem.usedJSHeapSize / mem.jsHeapSizeLimit) * 10000) / 100 })
+  }
+
+  if (metrics.length === 0) return
+  try {
+    await fetch(`${BASE_URL}/performance`, {
+      method: 'POST',
+      headers: buildHeaders(),
+      body: JSON.stringify(metrics),
+    })
+  } catch {
+    // fire-and-forget — matches flush()/sendError()
+  }
 }
 
 function installGlobalHandlers(): void {
@@ -397,6 +549,154 @@ function installConsoleCapture(): void {
   wrap('warn', 'warning')
 }
 
+// ── Visible UI error messages ───────────────────────────────────────────
+// Thrown exceptions and console.error never see the copy a user actually
+// reads — toasts, inline validation, alert banners, role="alert" regions.
+// Watch the DOM for those nodes appearing and report the real text through
+// the same sendError() pipeline so they show up on the interaction timeline.
+const UI_ERROR_SELECTOR = [
+  '[role="alert"]',
+  '[role="alertdialog"]',
+  '[aria-live="assertive"]',
+  '[aria-invalid="true"]',
+  '[data-sonner-toast][data-type="error"]',
+  '.Toastify__toast--error',
+  '.toast-error',
+  '.alert-danger',
+  '.alert-error',
+  '.error-message',
+  '.field-error',
+  '.form-error',
+  '.text-destructive',
+  '.text-danger',
+  '.MuiAlert-standardError',
+  '.ant-alert-error',
+].join(',')
+
+const UI_ERROR_CLASS_RE = /\b(error-message|field-error|form-error|toast-error|alert-error|alert-danger|text-destructive|text-danger|is-error)\b/i
+
+const _recentUiErrors = new Map<string, number>()
+
+function textOf(el: Element | null | undefined): string | null {
+  if (!el) return null
+  const text = (el.textContent ?? '').replace(/\s+/g, ' ').trim()
+  if (text.length < 3 || text.length > 400) return null
+  return text
+}
+
+function isShown(el: Element): boolean {
+  if (el.getAttribute('aria-hidden') === 'true') return false
+  try {
+    const style = getComputedStyle(el)
+    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false
+    const rect = el.getBoundingClientRect()
+    return rect.width > 0 && rect.height > 0
+  } catch {
+    return false
+  }
+}
+
+function looksLikeUiError(el: Element): boolean {
+  const role = el.getAttribute('role')
+  if (role === 'alert' || role === 'alertdialog') return true
+  if (el.getAttribute('aria-live') === 'assertive') return true
+  if (el.getAttribute('aria-invalid') === 'true') return true
+  const cls = typeof el.className === 'string' ? el.className : ''
+  return UI_ERROR_CLASS_RE.test(cls)
+}
+
+function messageFromUiError(el: Element): string | null {
+  const describedBy = el.getAttribute('aria-errormessage') || el.getAttribute('aria-describedby')
+  if (describedBy) {
+    const fromId = describedBy.split(/\s+/).map((id) => textOf(document.getElementById(id))).find(Boolean)
+    if (fromId) return fromId
+  }
+  if ('validationMessage' in el) {
+    const native = (el as HTMLInputElement).validationMessage
+    if (native) return native
+  }
+  return textOf(el)
+}
+
+function reportUiError(errorType: string, message: string, extra?: Record<string, unknown>): void {
+  const now = Date.now()
+  const last = _recentUiErrors.get(message)
+  if (last && now - last < 8000) return
+  _recentUiErrors.set(message, now)
+  if (_recentUiErrors.size > 40) {
+    for (const [key, at] of _recentUiErrors) {
+      if (now - at > 8000) _recentUiErrors.delete(key)
+    }
+  }
+  void sendError({
+    error_type: errorType,
+    message,
+    stack_trace: null,
+    screen: typeof window !== 'undefined' ? window.location.pathname : null,
+    severity: 'error',
+    context: extra ?? null,
+  })
+}
+
+function captureUiErrorNode(el: Element): void {
+  if (!looksLikeUiError(el) && !el.matches?.(UI_ERROR_SELECTOR)) return
+  if (!isShown(el)) return
+  const message = messageFromUiError(el)
+  if (!message) return
+  reportUiError('UiError', message, { selector: cssPath(el) })
+}
+
+function installVisibleErrorCapture(): void {
+  if (typeof document === 'undefined') return
+
+  const scan = (root: ParentNode) => {
+    if (root instanceof Element) captureUiErrorNode(root)
+    if ('querySelectorAll' in root) {
+      root.querySelectorAll(UI_ERROR_SELECTOR).forEach((node) => captureUiErrorNode(node))
+    }
+  }
+
+  const observer = new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      if (m.type === 'childList') {
+        m.addedNodes.forEach((node) => {
+          if (node instanceof Element) scan(node)
+        })
+      } else if (m.type === 'attributes' && m.target instanceof Element) {
+        captureUiErrorNode(m.target)
+      } else if (m.type === 'characterData') {
+        const parent = m.target.parentElement
+        if (parent) captureUiErrorNode(parent)
+      }
+    }
+  })
+  observer.observe(document.documentElement, {
+    subtree: true,
+    childList: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: ['class', 'role', 'aria-live', 'aria-invalid', 'aria-hidden'],
+  })
+
+  // Native browser validation bubble — the exact string the user sees when
+  // they submit an invalid field. $form_field already records this as an
+  // event; also land it on the errors table so the timeline's error rows
+  // include it.
+  document.addEventListener('invalid', (event) => {
+    const el = event.target
+    if (!(el instanceof Element)) return
+    const message = messageFromUiError(el)
+    if (message) reportUiError('ValidationError', message, { selector: cssPath(el) })
+  }, true)
+
+  const originalAlert = window.alert.bind(window)
+  window.alert = (message?: unknown) => {
+    const text = message == null ? '' : String(message)
+    if (text) reportUiError('Alert', text)
+    return originalAlert(message as string)
+  }
+}
+
 // History API has no native "navigated" event — pushState/replaceState are
 // monkey-patched so page() fires automatically on every client-side route
 // change, matching how Sentry/analytics SDKs instrument SPA routers without
@@ -441,16 +741,17 @@ function installSessionEndHandlers(): void {
   // should end the session client-side. Anything left genuinely idle
   // forever is session-sweep-cron's job, server-side, on a real timeout.
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') void flush()
+    if (document.visibilityState === 'hidden') { void flush(); void flushPerf() }
   })
   window.addEventListener('pagehide', () => endOnce(_hadFatalError ? 'crashed' : 'completed'))
   // beforeunload is unreliable as a primary signal (especially mobile Safari) —
   // used only as a last-chance flush, not the outcome decision.
-  window.addEventListener('beforeunload', () => { void flush() })
+  window.addEventListener('beforeunload', () => { void flush(); void flushPerf() })
 }
 
 function endOnce(outcome: string): void {
   void flush()
+  void flushPerf()
   _recordingStop?.()
   if (_recordingFlushTimer) clearInterval(_recordingFlushTimer)
   void flushRecording()
@@ -484,6 +785,7 @@ function installDoubleClickTracking(): void {
     const target = event.target as Element | null
     track('$double_click', {
       targetSelector: cssPath(target),
+      targetLabel: clickableLabel(target),
       x: event.clientX,
       y: event.clientY,
       page: window.location.pathname,
@@ -704,6 +1006,40 @@ function cssPath(el: Element | null): string {
   return `${tag}${id}${cls}`
 }
 
+/** The label a person would read on the control they pressed — button copy,
+ * aria-label, input value — not a CSS selector. Falls back to cssPath only
+ * when the node has no readable name. */
+function clickableLabel(el: Element | null): string {
+  const interactive = el?.closest('a, button, input, select, textarea, label, [role="button"], summary') ?? el
+  if (!interactive) return 'unknown'
+  const aria = interactive.getAttribute('aria-label')?.trim()
+  if (aria) return aria
+  const title = interactive.getAttribute('title')?.trim()
+  if (title) return title
+  if (interactive instanceof HTMLInputElement || interactive instanceof HTMLButtonElement) {
+    const value = interactive.value?.trim()
+    if (value && (interactive instanceof HTMLButtonElement || /^(submit|button)$/i.test(interactive.type))) return value
+    const name = interactive.getAttribute('name')?.trim()
+    if (interactive instanceof HTMLInputElement && name) return name
+  }
+  const text = (interactive.textContent ?? '').replace(/\s+/g, ' ').trim()
+  if (text && text.length <= 80) return text
+  return cssPath(interactive)
+}
+
+function rememberClick(target: Element | null, x: number, y: number): LastClick {
+  const click: LastClick = {
+    targetLabel: clickableLabel(target),
+    targetSelector: cssPath(target),
+    x,
+    y,
+    at: new Date().toISOString(),
+    page: window.location.pathname,
+  }
+  _lastClick = click
+  return click
+}
+
 function isInteractiveElement(el: Element | null): boolean {
   if (!el) return false
   if (el.closest('a, button, input, select, textarea, label, [role="button"], [onclick], summary')) return true
@@ -729,7 +1065,14 @@ function installClickTracking(): void {
     // interaction_count only ever increments off of *some* tracked event
     // existing, and a normal single click on a button/link previously produced
     // nothing at all, so page-by-page "clicks" was always 0 for ordinary use.
-    track('$click', { targetSelector: cssPath(target), x, y, page: window.location.pathname })
+    const click = rememberClick(target, x, y)
+    track('$click', {
+      targetSelector: click.targetSelector,
+      targetLabel: click.targetLabel,
+      x,
+      y,
+      page: click.page,
+    })
 
     // ── Rage click: 3+ clicks in quick succession, close together ──
     _recentClicks = _recentClicks.filter((c) => now - c.time < RAGE_CLICK_WINDOW_MS)
@@ -740,7 +1083,7 @@ function installClickTracking(): void {
     if (cluster.length >= RAGE_CLICK_MIN_COUNT && now > _rageCooldownUntil) {
       _rageCooldownUntil = now + RAGE_CLICK_WINDOW_MS
       _recentClicks = []
-      track('$rage_click', { targetSelector: cssPath(target), x, y, tapCount: cluster.length })
+      track('$rage_click', { targetSelector: cssPath(target), targetLabel: clickableLabel(target), x, y, tapCount: cluster.length })
     }
 
     // ── Dead click: no other tracked signal followed within the delay ──
@@ -749,7 +1092,7 @@ function installClickTracking(): void {
       const startUrl = window.location.href
       setTimeout(() => {
         if (_lastSignalAt >= clickedAt || window.location.href !== startUrl) return
-        track('$dead_click', { targetSelector: cssPath(target), x, y })
+        track('$dead_click', { targetSelector: cssPath(target), targetLabel: clickableLabel(target), x, y })
       }, DEAD_CLICK_DELAY_MS)
     }
   }, { passive: true })

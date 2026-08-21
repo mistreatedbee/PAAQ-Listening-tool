@@ -61,12 +61,16 @@ export function ReplayMomentModal({
   targetIso,
   precedingItems,
   currentLabel,
+  playFromIso,
+  lastActionLabel,
   onClose,
 }: {
   recording: SessionRecordingState
   targetIso: string
   precedingItems?: PrecedingItem[]
   currentLabel?: string
+  playFromIso?: string | null
+  lastActionLabel?: string | null
   onClose: () => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -110,16 +114,15 @@ export function ReplayMomentModal({
         const player = new RrwebPlayer({
           target: containerRef.current,
           // deno-lint-ignore no-explicit-any
-          props: { events: clipped as any, width, height: 480, autoPlay: false },
+          props: { events: clipped as any, width, height: 480, autoPlay: false, mouseTail: true },
           // deno-lint-ignore no-explicit-any
         }) as any
-        // Seeks to the real moment and pauses there — that paused frame IS
-        // the screenshot. Left there, the player's OWN play button only
-        // resumes forward from this exact point — it never rewinds to show
-        // the lead-up, which looked exactly like "it skipped the error"
-        // when the goal is watching the full 15s-before/5s-after clip. The
-        // explicit "Play full clip" button below seeks back to 0 first.
-        player.goto(offsetMs, false)
+        // Start playback at the last click (or clip start) so the viewer
+        // actually sees the control the user pressed, then the error —
+        // pausing on the error frame hid that lead-up entirely.
+        const playFromMs = playFromIso ? new Date(playFromIso).getTime() : clipStartMs
+        const playOffsetMs = Math.max(0, Math.min(offsetMs, playFromMs - clipStartMs))
+        player.goto(playOffsetMs, true)
         playerRef.current = player
         errorOffsetMsRef.current = offsetMs
         if (!cancelled) setState('ready')
@@ -130,7 +133,7 @@ export function ReplayMomentModal({
 
     mount()
     return () => { cancelled = true }
-  }, [recording, targetIso])
+  }, [recording, targetIso, playFromIso])
 
   const isScreenshot = recording.kind === 'screenshots'
   const time = new Date(targetIso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -160,7 +163,12 @@ export function ReplayMomentModal({
             </p>
           )}
           {currentLabel && (
-            <p className="mb-3 text-xs font-medium text-foreground">{currentLabel}</p>
+            <p className="mb-1 text-xs font-medium text-foreground">{currentLabel}</p>
+          )}
+          {lastActionLabel && (
+            <p className="mb-3 text-xs text-muted-foreground">
+              Last action: <span className="font-medium text-foreground">{lastActionLabel}</span>
+            </p>
           )}
           {!isScreenshot && state === 'ready' && (
             <div className="mb-3 flex gap-2">

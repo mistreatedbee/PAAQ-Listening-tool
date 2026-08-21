@@ -94,6 +94,15 @@ function AuthInput({ type = 'text', value, onChange, placeholder, autoComplete, 
 
 type Mode = 'signin' | 'signup'
 
+// Google/GitHub aren't enabled as Auth providers in Supabase yet (enabling
+// them needs an OAuth app + Client ID/Secret registered per-provider, which
+// only happens in the Supabase dashboard — not something this code can do).
+// Hidden rather than left clickable-but-broken; flip to true once both
+// providers are turned on in Supabase Auth settings. The callback route
+// (app/auth/callback/route.ts) and handleOAuth() below are already wired
+// and will work as soon as this flips.
+const OAUTH_ENABLED = false
+
 function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -104,7 +113,7 @@ function LoginForm() {
   const [showPw, setShowPw] = useState(false)
   const [loading, setLoading] = useState(false)
   const [oauthLoading, setOauthLoading] = useState<'google' | 'github' | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(searchParams.get('error'))
 
   const strength = mode === 'signup' ? passwordStrength(password) : null
 
@@ -136,9 +145,13 @@ function LoginForm() {
     setError(null)
     setOauthLoading(provider)
     const sb = createClient()
+    // Must land on /auth/callback, not returnTo directly — that route is
+    // what exchanges Supabase's PKCE `code` param for a real session before
+    // sending the browser on to `next`. Redirecting straight to returnTo
+    // leaves the code unconsumed and no session ever gets created.
     const { error: err } = await sb.auth.signInWithOAuth({
       provider,
-      options: { redirectTo: `${window.location.origin}${returnTo}` },
+      options: { redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(returnTo)}` },
     })
     if (err) { setError(err.message); setOauthLoading(null) }
   }
@@ -222,27 +235,32 @@ function LoginForm() {
             {mode === 'signin' ? 'Sign in to your PAAQ dashboard.' : 'Start monitoring in under 5 minutes.'}
           </p>
 
-          {/* OAuth buttons */}
-          <div className="mb-6 grid grid-cols-2 gap-3">
-            {([
-              { provider: 'google' as const, label: 'Google', Icon: GoogleIcon },
-              { provider: 'github' as const, label: 'GitHub', Icon: GithubIcon },
-            ]).map(({ provider, label, Icon }) => (
-              <button key={provider} onClick={() => handleOAuth(provider)} disabled={!!oauthLoading || loading}
-                style={{ borderColor: C.borderStrong, color: C.textPrimary }}
-                className="flex items-center justify-center gap-2 rounded-xl border bg-white py-3 text-sm font-semibold transition-colors hover:bg-slate-50 disabled:opacity-50">
-                {oauthLoading === provider ? <Loader2 className="h-4 w-4 animate-spin" /> : <Icon />}
-                {label}
-              </button>
-            ))}
-          </div>
+          {/* OAuth buttons — hidden until Google/GitHub are enabled as Auth
+              providers in Supabase; see OAUTH_ENABLED above. */}
+          {OAUTH_ENABLED && (
+            <>
+              <div className="mb-6 grid grid-cols-2 gap-3">
+                {([
+                  { provider: 'google' as const, label: 'Google', Icon: GoogleIcon },
+                  { provider: 'github' as const, label: 'GitHub', Icon: GithubIcon },
+                ]).map(({ provider, label, Icon }) => (
+                  <button key={provider} onClick={() => handleOAuth(provider)} disabled={!!oauthLoading || loading}
+                    style={{ borderColor: C.borderStrong, color: C.textPrimary }}
+                    className="flex items-center justify-center gap-2 rounded-xl border bg-white py-3 text-sm font-semibold transition-colors hover:bg-slate-50 disabled:opacity-50">
+                    {oauthLoading === provider ? <Loader2 className="h-4 w-4 animate-spin" /> : <Icon />}
+                    {label}
+                  </button>
+                ))}
+              </div>
 
-          {/* Divider */}
-          <div className="relative mb-6 flex items-center gap-3">
-            <div className="flex-1 border-t" style={{ borderColor: C.border }} />
-            <span className="text-xs" style={{ color: C.textMuted }}>or continue with email</span>
-            <div className="flex-1 border-t" style={{ borderColor: C.border }} />
-          </div>
+              {/* Divider */}
+              <div className="relative mb-6 flex items-center gap-3">
+                <div className="flex-1 border-t" style={{ borderColor: C.border }} />
+                <span className="text-xs" style={{ color: C.textMuted }}>or continue with email</span>
+                <div className="flex-1 border-t" style={{ borderColor: C.border }} />
+              </div>
+            </>
+          )}
 
           {/* Email form */}
           <form onSubmit={handleSubmit} className="space-y-4">

@@ -52,3 +52,11 @@ Thumbs.db
 # Logs
 *.log
 npm-debug.log*
+
+# Forge session files
+.forge-commit-ready
+.forge/project-id
+.forge/hook-version
+.cursor/hooks.json
+.cursor/hooks/
+.cursor/rules/forge-workflow.mdc

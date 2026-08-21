@@ -53,7 +53,7 @@ export function DomReplayPlayer({ sessionId, seekToIso }: { sessionId: string; s
         containerRef.current.innerHTML = ''
         playerRef.current = new RrwebPlayer({
           target: containerRef.current,
-          props: { events, width: containerRef.current.clientWidth || 800, height: 500, autoPlay: false },
+          props: { events, width: containerRef.current.clientWidth || 800, height: 500, autoPlay: false, mouseTail: true },
         }) as unknown as PlayerInstance
         setState('ready')
       } catch {
