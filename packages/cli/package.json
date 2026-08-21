@@ -3,10 +3,19 @@
   "version": "0.1.0",
   "description": "PAAQ Intelligence CLI — connect any app or website to PAAQ with one command",
   "type": "module",
+  "main": "./index.js",
   "bin": {
     "paaq": "./index.js"
   },
+  "files": [
+    "index.js"
+  ],
   "scripts": {
     "start": "node index.js"
-  }
+  },
+  "keywords": ["paaq", "cli", "intelligence", "analytics", "monitoring"],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
 }
