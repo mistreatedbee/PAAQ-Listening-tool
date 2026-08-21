@@ -104,7 +104,7 @@ function installSnippet(platformId: string, sdkToken: string, projectId: string)
   switch (platformId) {
     case 'react': return {
       cmd: 'npm install @paaq/web-sdk',
-      init: `import { PAAQProvider } from '@paaq/web-sdk';\n\nexport default function App() {\n  return (\n    <PAAQProvider sdkToken="${t}" projectId="${p}">\n      <YourApp />\n    </PAAQProvider>\n  );\n}`,
+      init: `import { paaq } from '@paaq/web-sdk';\n\npaaq.init('${t}', '${p}');`,
       steps: [
         {
           title: 'Step 1 — Install PAAQ',
@@ -112,15 +112,15 @@ function installSnippet(platformId: string, sdkToken: string, projectId: string)
           code: 'npm install @paaq/web-sdk',
         },
         {
-          title: 'Step 2 — Wrap your app with PAAQ',
-          note: 'Open your main App.jsx (or App.tsx) file. Your credentials are already filled in — just paste this:',
-          code: `import { PAAQProvider } from '@paaq/web-sdk';\n\nexport default function App() {\n  return (\n    <PAAQProvider sdkToken="${t}" projectId="${p}">\n      <YourApp />\n    </PAAQProvider>\n  );\n}`,
+          title: 'Step 2 — Initialise PAAQ',
+          note: 'Open your main entry file — the web SDK exports a plain \`paaq\` object, not a React provider. Initialise it once at app startup — your credentials are already filled in:',
+          code: `import { paaq } from '@paaq/web-sdk';\n\npaaq.init('${t}', '${p}');`,
         },
       ],
     }
     case 'nextjs': return {
       cmd: 'npm install @paaq/web-sdk',
-      init: `import { PAAQProvider } from '@paaq/web-sdk';\n\nexport default function RootLayout({ children }) {\n  return (\n    <html><body>\n      <PAAQProvider sdkToken="${t}" projectId="${p}">\n        {children}\n      </PAAQProvider>\n    </body></html>\n  );\n}`,
+      init: `import { paaq } from '@paaq/web-sdk';\n\n// app/layout.tsx — call client-side once at startup\npaaq.init('${t}', '${p}');`,
       steps: [
         {
           title: 'Step 1 — Install PAAQ',
@@ -128,15 +128,15 @@ function installSnippet(platformId: string, sdkToken: string, projectId: string)
           code: 'npm install @paaq/web-sdk',
         },
         {
-          title: 'Step 2 — Add to your root layout',
-          note: 'Open app/layout.tsx (or app/layout.js) and wrap children with PAAQProvider — your credentials are already filled in:',
-          code: `import { PAAQProvider } from '@paaq/web-sdk';\n\nexport default function RootLayout({ children }) {\n  return (\n    <html><body>\n      <PAAQProvider sdkToken="${t}" projectId="${p}">\n        {children}\n      </PAAQProvider>\n    </body></html>\n  );\n}`,
+          title: 'Step 2 — Initialise in a client component',
+          note: 'The web SDK exports a plain \`paaq\` object (no React provider). Create a small \'use client\' component (or file) and call init once — your credentials are already filled in:',
+          code: `import { paaq } from '@paaq/web-sdk';\n\n// in a 'use client' component (e.g. components/PaaqInit.tsx)\npaaq.init('${t}', '${p}');`,
         },
       ],
     }
     case 'vue': return {
       cmd: 'npm install @paaq/web-sdk',
-      init: `import { createApp } from 'vue';\nimport { PAAQPlugin } from '@paaq/web-sdk';\n\nconst app = createApp(App);\napp.use(PAAQPlugin, { sdkToken: '${t}', projectId: '${p}' });\napp.mount('#app');`,
+      init: `import { paaq } from '@paaq/web-sdk';\n\n// src/main.js — initialise before mounting the app\npaaq.init('${t}', '${p}');\napp.mount('#app');`,
       steps: [
         {
           title: 'Step 1 — Install PAAQ',
@@ -144,15 +144,15 @@ function installSnippet(platformId: string, sdkToken: string, projectId: string)
           code: 'npm install @paaq/web-sdk',
         },
         {
-          title: 'Step 2 — Register the PAAQ plugin',
-          note: 'Open src/main.js (or main.ts) and add the PAAQ plugin — your credentials are already filled in:',
-          code: `import { createApp } from 'vue';\nimport { PAAQPlugin } from '@paaq/web-sdk';\n\nconst app = createApp(App);\napp.use(PAAQPlugin, { sdkToken: '${t}', projectId: '${p}' });\napp.mount('#app');`,
+          title: 'Step 2 — Initialise at startup',
+          note: 'Open src/main.js (or main.ts). The web SDK exports a plain \`paaq\` object (no Vue plugin) — initialise it once — your credentials are already filled in:',
+          code: `import { createApp } from 'vue';\nimport App from './App.vue';\nimport { paaq } from '@paaq/web-sdk';\n\nconst app = createApp(App);\npaaq.init('${t}', '${p}');\napp.mount('#app');`,
         },
       ],
     }
     case 'angular': return {
       cmd: 'npm install @paaq/web-sdk',
-      init: `import { PAAQ } from '@paaq/web-sdk';\n\n// In main.ts\nPAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });`,
+      init: `import { paaq } from '@paaq/web-sdk';\n\n// In main.ts, before bootstrapApplication — no Angular-specific wrapper, the\n// web SDK exports a plain paaq object:\npaaq.init('${t}', '${p}');`,
       steps: [
         {
           title: 'Step 1 — Install PAAQ',
@@ -161,14 +161,14 @@ function installSnippet(platformId: string, sdkToken: string, projectId: string)
         },
         {
           title: 'Step 2 — Initialize in main.ts',
-          note: 'Open src/main.ts and add these two lines before bootstrapApplication:',
-          code: `import { PAAQ } from '@paaq/web-sdk';\n\nPAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });`,
+          note: 'Open src/main.ts and add these lines before bootstrapApplication — the web SDK exports a plain \`paaq\` object:',
+          code: `import { paaq } from '@paaq/web-sdk';\n\npaaq.init('${t}', '${p}');`,
         },
       ],
     }
     case 'vanilla': return {
       cmd: '<!-- No install needed — just paste into your HTML -->',
-      init: `<script type="module">\n  import { PAAQ } from 'https://unpkg.com/@paaq/web-sdk@1.0.0/dist/index.mjs';\n  PAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });\n</script>`,
+      init: `<script type="module">\n  import { paaq } from 'https://unpkg.com/@paaq/web-sdk@1.2.6/dist/index.mjs';\n  paaq.init('${t}', '${p}');\n</script>`,
       steps: [
         {
           title: 'Step 1 — Open your website\'s HTML file',
@@ -177,7 +177,7 @@ function installSnippet(platformId: string, sdkToken: string, projectId: string)
         {
           title: 'Step 2 — Paste this code just before </body>',
           note: 'Scroll to the very bottom of the file. Find the </body> tag and paste this code right above it. No npm or build tools needed:',
-          code: `<script type="module">\n  import { PAAQ } from 'https://unpkg.com/@paaq/web-sdk@1.0.0/dist/index.mjs';\n  PAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });\n</script>`,
+          code: `<script type="module">\n  import { paaq } from 'https://unpkg.com/@paaq/web-sdk@1.2.6/dist/index.mjs';\n  paaq.init('${t}', '${p}');\n</script>`,
         },
         {
           title: 'Step 3 — Save and reload your page',
@@ -223,13 +223,13 @@ function installSnippet(platformId: string, sdkToken: string, projectId: string)
       ],
     }
     case 'ios': return {
-      cmd: 'https://github.com/mistreatedbee/paaq-intelligence-ios',
+      cmd: 'https://github.com/mistreatedbee/PAAQ-Listening-tool',
       init: `import PaaqIntelligence\n\n@main\nstruct MyApp: App {\n  init() {\n    Task {\n      await PAAQ.initialize(\n        sdkToken: "${t}",\n        projectId: "${p}"\n      )\n    }\n  }\n  var body: some Scene {\n    WindowGroup { ContentView() }\n  }\n}`,
       steps: [
         {
           title: 'Step 1 — Open Xcode and add the package',
           note: 'In Xcode, click File in the top menu → Add Package Dependencies. In the search box (top right of the dialog), paste this URL and press Enter:',
-          code: 'https://github.com/mistreatedbee/paaq-intelligence-ios',
+          code: 'https://github.com/mistreatedbee/PAAQ-Listening-tool',
         },
         {
           title: 'Step 2 — Select version and add',
@@ -243,7 +243,7 @@ function installSnippet(platformId: string, sdkToken: string, projectId: string)
       ],
     }
     case 'android': return {
-      cmd: `implementation("com.github.mistreatedbee:paaq-intelligence-android:1.0.0")`,
+      cmd: `implementation("com.github.mistreatedbee.PAAQ-Listening-tool:paaq-intelligence-android:1.0.0")`,
       init: `import io.paaq.intelligence.PAAQ\n\nclass MyApplication : Application() {\n  override fun onCreate() {\n    super.onCreate()\n    PAAQ.initialize(\n      context = this,\n      sdkToken = "${t}",\n      projectId = "${p}"\n    )\n  }\n}`,
       steps: [
         {
@@ -254,7 +254,7 @@ function installSnippet(platformId: string, sdkToken: string, projectId: string)
         {
           title: 'Step 2 — Add the PAAQ package',
           note: 'Open build.gradle.kts inside the app/ folder. Find the dependencies { } block and add this line:',
-          code: `dependencies {\n    implementation("com.github.mistreatedbee:paaq-intelligence-android:1.0.0")\n}`,
+          code: `dependencies {\n    implementation("com.github.mistreatedbee.PAAQ-Listening-tool:paaq-intelligence-android:1.0.0")\n}`,
         },
         {
           title: 'Step 3 — Sync and initialize',
@@ -345,10 +345,10 @@ function installSnippet(platformId: string, sdkToken: string, projectId: string)
     }
     default: return {
       cmd: 'npm install @paaq/web-sdk',
-      init: `PAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });`,
+      init: `import { paaq } from '@paaq/web-sdk';\n\npaaq.init('${t}', '${p}');`,
       steps: [
         { title: 'Step 1 — Install', code: 'npm install @paaq/web-sdk' },
-        { title: 'Step 2 — Initialize', code: `PAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });` },
+        { title: 'Step 2 — Initialize', code: `import { paaq } from '@paaq/web-sdk';\n\npaaq.init('${t}', '${p}');` },
       ],
     }
   }

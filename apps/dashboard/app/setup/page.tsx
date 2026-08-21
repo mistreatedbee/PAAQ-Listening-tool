@@ -98,31 +98,35 @@ function buildChecklist(type: AppTypeId, tech: string, _method: string, apiKey: 
     ? 'pip install paaq-server-sdk'
     : isMobile && isFlutter
     ? 'flutter pub add paaq_intelligence'
+    : isMobile
+    ? 'npm install @paaq/react-native-sdk'
     : isBack
     ? 'npm install @paaq/server-sdk'
-    : isWeb
-    ? 'npm install @paaq/web-sdk'
-    : 'npm install @paaq/sdk'
+    : 'npm install @paaq/web-sdk'
 
   const initCode = isBack && isPy
     ? `from paaq import PAAQ\n\nPAAQ.initialize(\n    sdk_token="${apiKey}",\n    project_id="${projectId}"\n)`
     : isMobile && isFlutter
     ? `await PAAQ.initialize(\n  sdkToken: '${apiKey}',\n  projectId: '${projectId}',\n);`
+    : isMobile
+    ? `import { PAAQ } from '@paaq/react-native-sdk';\n\nawait PAAQ.initialize({\n  sdkToken: '${apiKey}',\n  projectId: '${projectId}',\n});`
     : isBack
     ? `import { PAAQ } from '@paaq/server-sdk';\n\nPAAQ.initialize({\n  sdkToken: '${apiKey}',\n  projectId: '${projectId}',\n});\napp.use(PAAQ.middleware());`
-    : `import { PAAQProvider } from '@paaq/web-sdk';\n\n<PAAQProvider\n  sdkToken="${apiKey}"\n  projectId="${projectId}"\n>\n  <YourApp />\n</PAAQProvider>`
+    : `import { paaq } from '@paaq/web-sdk';\n\npaaq.init('${apiKey}', '${projectId}');`
 
   const startCmd = isBack && isPy
     ? 'python app.py'
     : isMobile && isFlutter
     ? 'flutter run'
+    : isMobile
+    ? 'npx react-native run-ios  # or run-android'
     : isBack
     ? 'npm start'
     : 'npm run dev'
 
   return [
     { id: 'install',  label: 'Install the SDK',         detail: 'Run this command in your project directory',         code: installCmd },
-    { id: 'key',      label: 'Copy your API Key',        detail: 'Keep this secure — never commit to version control', isKey: true },
+    { id: 'key',      label: 'Copy your SDK token',      detail: 'Keep this secure — never commit to version control', isKey: true },
     { id: 'init',     label: 'Initialise the SDK',       detail: 'Add this to your application entry point',           code: initCode },
     { id: 'start',    label: 'Start your application',   detail: 'Run your app as you normally would',                 code: startCmd },
     { id: 'verify',   label: 'Verify connection',         detail: 'Click the button below to confirm PAAQ can see your app', isVerify: true },
@@ -281,9 +285,26 @@ export default function SetupPage() {
   const [verifyIdx, setVerifyIdx]   = useState(-1)
   const [verified, setVerified]     = useState(false)
   const [discoverIdx, setDiscoverIdx] = useState(-1)
+  const [sdkToken, setSdkToken]     = useState<string | null>(null)
 
   const hasApps = allApps.length > 0
   const [discoveryProgress, setDiscoveryProgress] = useState<boolean[]>([false, false, false, false, false, false])
+
+  // The wizard's init snippets need the real SDK bearer token (sdk_live_…),
+  // not the project key. app.apiKey is the project_id_key (proj_…) used for
+  // the X-Project-ID header; the bearer token lives in access_tokens.
+  useEffect(() => {
+    if (app.id === '__loading__' || !hasApps) return
+    const sb = createClient()
+    sb.from('access_tokens')
+      .select('token')
+      .eq('project_id', app.id)
+      .eq('token_type', 'sdk_token')
+      .eq('status', 'active')
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => setSdkToken((data as { token?: string } | null)?.token ?? null))
+  }, [app.id, hasApps])
 
   useEffect(() => {
     if (app.id === '__loading__' || !hasApps) return
@@ -340,11 +361,15 @@ export default function SetupPage() {
   // Move to step 4 and generate checklist
   const goStep4 = useCallback(() => {
     if (!appType || !technology || !method) return
-    const items = buildChecklist(appType, technology, method, app.apiKey, app.id)
+    // sdkToken (Bearer token) → first SDK arg; app.apiKey is the project
+    // key (proj_…) → second SDK arg. Fall back to a visibly-invalid token if
+    // none was fetched so the user sees the placeholder rather than an empty init.
+    const token = sdkToken ?? 'sdk_live_paste_your_token_here'
+    const items = buildChecklist(appType, technology, method, token, app.apiKey)
     setChecklist(items)
     setDone({})
     setStep(4)
-  }, [appType, technology, method, app.apiKey, app.id])
+  }, [appType, technology, method, sdkToken, app.apiKey])
 
   const resetWizard = () => {
     setStep(1)
@@ -655,9 +680,9 @@ export default function SetupPage() {
                                 {item.isKey && !isDone && (
                                   <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-muted/50 px-3 py-2">
                                     <code className="flex-1 font-mono text-[11px] text-foreground">
-                                      {app.apiKey.slice(0, 20)}••••••••
+                                      {(sdkToken ?? 'sdk_live_your_token_here').slice(0, 20)}••••••••
                                     </code>
-                                    <CopyButton text={app.apiKey} small />
+                                    <CopyButton text={sdkToken ?? ''} small />
                                   </div>
                                 )}
 
