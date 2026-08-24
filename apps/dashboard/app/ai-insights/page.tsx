@@ -98,7 +98,7 @@ export default function AIInsightsPage() {
 
   const handleRegenerate = async () => {
     setRegenerating(true)
-    showToast('Running full AI analysis with Claude…')
+    showToast('Running full AI analysis…')
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/analyze`, {
         method: 'POST',
@@ -239,7 +239,7 @@ export default function AIInsightsPage() {
           <Sparkles className="mx-auto mb-3 h-8 w-8 text-muted-foreground opacity-20" />
           <p className="text-sm font-medium text-foreground">No insights yet</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Click "Run AI Analysis" to analyse your live data with Claude AI.
+            Click "Run AI Analysis" to analyse your live data with AI.
           </p>
         </Card>
       ) : filtered.length === 0 ? (

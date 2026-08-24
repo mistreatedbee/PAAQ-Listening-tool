@@ -47,7 +47,7 @@ Deno.serve(async (req) => {
 
     const aiConfig = getAiConfig()
     if (!aiConfig) {
-      return new Response(JSON.stringify({ error: 'No AI API key configured. Set GEMINI_API_KEY or ANTHROPIC_API_KEY in Supabase secrets.' }), {
+      return new Response(JSON.stringify({ error: 'No AI API key configured. Set OPENROUTER_API_KEY in Supabase secrets.' }), {
         status: 500,
         headers: { ...cors, 'Content-Type': 'application/json' },
       })

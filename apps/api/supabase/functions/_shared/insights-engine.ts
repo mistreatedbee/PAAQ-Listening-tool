@@ -6,7 +6,7 @@ export type InsightsResult =
   | { ok: false; reason: string }
 
 /**
- * Gathers a project's recent telemetry, asks Claude for insights, and writes
+ * Gathers a project's recent telemetry, asks the AI model for insights, and writes
  * them into ai_insights — scoped to exactly one project. Shared by the
  * manual (button-triggered) generate-insights handler and the event-driven
  * generate-insights-cron sweep, so there is one source of truth for the

@@ -3,7 +3,7 @@
  *
  * Accepts a plain-language question from the admin,
  * pulls relevant data from the DB filtered by project_id, and answers using
- * whichever configured AI key is active: Gemini or Anthropic.
+ * the configured AI provider (OpenRouter).
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { askModel, getAiConfig } from '../_shared/ai.ts'
@@ -22,7 +22,7 @@ Deno.serve(async (req) => {
   if (!question.trim()) return respond({ error: 'question is required' }, 400)
 
   const aiConfig = getAiConfig()
-  if (!aiConfig) return respond({ error: 'No AI API key configured. Set GEMINI_API_KEY or ANTHROPIC_API_KEY in Supabase secrets.' }, 500)
+  if (!aiConfig) return respond({ error: 'No AI API key configured. Set OPENROUTER_API_KEY in Supabase secrets.' }, 500)
 
   const project_id: string | null = body?.project_id ?? null
 

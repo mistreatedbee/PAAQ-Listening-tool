@@ -11,7 +11,7 @@ Deno.serve(async (req) => {
   if (req.method !== 'POST') return respond({ error: 'Method not allowed' }, 405)
 
   const aiConfig = getAiConfig()
-  if (!aiConfig) return respond({ error: 'No AI API key configured. Set GEMINI_API_KEY or ANTHROPIC_API_KEY in Supabase secrets.' }, 500)
+  if (!aiConfig) return respond({ error: 'No AI API key configured. Set OPENROUTER_API_KEY in Supabase secrets.' }, 500)
 
   // project_id is optional — if omitted we use the first active project for this token
   const body = await req.json().catch(() => ({}))
@@ -171,7 +171,7 @@ Deno.serve(async (req) => {
     })
   }
 
-  // ── 5. Ask Claude for AI insights ─────────────────────────────────────
+  // ── 5. Ask the AI model for insights ───────────────────────────────────
   // Real session-level signals (outcomes, device/platform mix, friction,
   // page-by-page behavior, form abandonment) — without these the summary
   // was effectively just "event name counts + error counts," which for a

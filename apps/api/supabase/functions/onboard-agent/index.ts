@@ -1,8 +1,8 @@
 /**
- * PAAQ Onboarding Agent — a real Claude tool-use loop that connects a
- * customer's repo, generates and PRs the SDK integration, configures the
- * database, and verifies frontend/backend/database, driven by one free-text
- * prompt from the dashboard's "Connect Application" flow.
+ * PAAQ Onboarding Agent — a real AI tool-use loop (via OpenRouter) that
+ * connects a customer's repo, generates and PRs the SDK integration,
+ * configures the database, and verifies frontend/backend/database, driven by
+ * one free-text prompt from the dashboard's "Connect Application" flow.
  *
  * Every tool wraps existing, already-real logic — this function does not
  * reimplement repo access, DB testing, or SDK verification, it orchestrates
@@ -16,15 +16,14 @@
  * repo tokens and potentially DB secrets read out of a customer's repo.
  *
  * Runs as one long-running invocation per `start`/`continue` call: it drives
- * the Claude tool-use loop turn-by-turn internally (see runLoop) until the
- * run reaches awaiting_input/succeeded/failed or a safety iteration cap,
+ * the tool-use loop turn-by-turn internally (see runLoop) until the run
+ * reaches awaiting_input/succeeded/failed or a safety iteration cap,
  * writing every step/message to the DB as it goes so the UI stays live via
  * Realtime even mid-run. No separate polling cron for v1 — see the plan's
  * "Open risk" note if real runs prove this insufficient.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import Anthropic from 'npm:@anthropic-ai/sdk'
-import { getAiConfig } from '../_shared/ai.ts'
+import { getAiConfig, openRouterChat, type ChatMessage } from '../_shared/ai.ts'
 import { loadGitAdapter, type GitProvider } from '../_shared/git-providers/load-adapter.ts'
 import type { RepoRef } from '../_shared/git-providers/types.ts'
 import { getRepoAndToken } from '../_shared/fix-engine.ts'
@@ -58,7 +57,7 @@ const STEP_KEYS = [
 ] as const
 type StepKey = (typeof STEP_KEYS)[number]
 
-const MAX_TURNS = 40 // safety cap on Claude round-trips per invocation
+const MAX_TURNS = 40 // safety cap on AI round-trips per invocation
 
 function checkInternalSecret(req: Request): boolean {
   const provided = req.headers.get('x-internal-secret') ?? ''
@@ -151,19 +150,15 @@ async function appendMessage(runId: string, role: 'user' | 'assistant' | 'tool',
   await supabase.from('onboarding_run_messages').insert({ run_id: runId, role, content: redactSecrets(content) })
 }
 
-async function loadMessages(runId: string): Promise<Anthropic.MessageParam[]> {
+async function loadMessages(runId: string): Promise<{ role: 'user' | 'assistant'; content: unknown }[]> {
   const { data } = await supabase
     .from('onboarding_run_messages')
     .select('role, content')
     .eq('run_id', runId)
     .order('created_at', { ascending: true })
-  // 'tool' rows are stored separately for the transcript UI but map back
-  // onto a 'user' role message for the Anthropic API (tool_result blocks
-  // are sent as part of a user-role message).
   return (data ?? []).map((m: { role: string; content: unknown }) => ({
-    role: m.role === 'assistant' ? 'assistant' : 'user',
-    // deno-lint-ignore no-explicit-any
-    content: m.content as any,
+    role: m.role === 'assistant' ? 'assistant' as const : 'user' as const,
+    content: m.content,
   }))
 }
 
@@ -229,45 +224,98 @@ Work through these steps, roughly in order (a tool call itself enforces its own 
 
 Always call ask_user instead of guessing when you're not confident — about which directory is the real frontend/backend, which of several repos to use, or any credential. Keep any user-facing text you write concise and concrete, and reference real details (repo name, file paths, framework detected) rather than generic language.`
 
-function toolDefs(): Anthropic.Tool[] {
+/** OpenAI function-tool definition sent to OpenRouter. */
+type OpenAiTool = {
+  type: 'function'
+  function: { name: string; description: string; parameters: Record<string, unknown> }
+}
+
+function toolDefs(): OpenAiTool[] {
+  // deno-lint-ignore no-explicit-any
+  const def = (name: string, description: string, parameters: any): OpenAiTool => ({ type: 'function', function: { name, description, parameters } })
   return [
-    { name: 'list_repos', description: 'List repos accessible via a connected git provider token.', input_schema: { type: 'object', properties: { provider: { type: 'string', enum: ['github', 'gitlab', 'azure', 'bitbucket'] } }, required: ['provider'] } },
-    { name: 'connect_repository', description: 'Check or establish repo connection for this project. If not yet connected, this pauses the run for the user to complete OAuth/repo-pick in the UI.', input_schema: { type: 'object', properties: { provider: { type: 'string', enum: ['github', 'gitlab', 'azure', 'bitbucket'] }, repoFullName: { type: 'string' } } } },
-    { name: 'list_repo_tree', description: 'List files/dirs in the connected repo.', input_schema: { type: 'object', properties: { path: { type: 'string' }, recursive: { type: 'boolean' } } } },
-    { name: 'read_repo_file', description: 'Read one file\'s content from the connected repo. Refused for files that look like secrets (keys, bare .env) or aren\'t relevant.', input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } },
-    { name: 'generate_sdk_snippet', description: 'Generate the PAAQ SDK integration file content for a detected framework.', input_schema: { type: 'object', properties: { framework: { type: 'string', enum: ['nextjs', 'react', 'vue', 'vanilla', 'nodejs', 'python'] } }, required: ['framework'] } },
-    { name: 'write_sdk_file_via_pr', description: 'Commit the given file(s) to a new branch and open a PR. Never merges.', input_schema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' }, commitMessage: { type: 'string' }, prTitle: { type: 'string' }, prBody: { type: 'string' } }, required: ['path', 'content', 'commitMessage', 'prTitle'] } },
-    { name: 'configure_db_connection', description: 'Scan the repo for a database connection string. Returns candidates; if none has a real (non-placeholder) value, you must ask_user for one.', input_schema: { type: 'object', properties: {} } },
-    { name: 'verify_database', description: 'Test and save a real database connection string.', input_schema: { type: 'object', properties: { engine: { type: 'string', enum: ['postgres', 'mysql', 'mongodb', 'sqlite', 'redis', 'supabase'] }, connectionString: { type: 'string' } }, required: ['engine', 'connectionString'] } },
-    { name: 'verify_backend', description: 'Check whether real backend SDK traffic has been seen recently.', input_schema: { type: 'object', properties: {} } },
-    { name: 'verify_frontend', description: 'Check whether real frontend SDK traffic has been seen recently.', input_schema: { type: 'object', properties: {} } },
-    { name: 'send_test_event', description: 'Send one real confirmation event through the live ingestion pipeline.', input_schema: { type: 'object', properties: {} } },
-    { name: 'activate_monitoring', description: 'Finish the run successfully once at least one layer (and the database, if configured) is verified.', input_schema: { type: 'object', properties: {} } },
-    { name: 'ask_user', description: 'Pause and ask the user a question instead of guessing. Use whenever you are not confident about a choice or need a real credential.', input_schema: { type: 'object', properties: { question: { type: 'string' }, kind: { type: 'string', enum: ['text', 'confirm', 'choose_provider', 'paste_connection_string'] }, options: { type: 'array', items: { type: 'string' } } }, required: ['question'] } },
+    def('list_repos', 'List repos accessible via a connected git provider token.', { type: 'object', properties: { provider: { type: 'string', enum: ['github', 'gitlab', 'azure', 'bitbucket'] } }, required: ['provider'] }),
+    def('connect_repository', 'Check or establish repo connection for this project. If not yet connected, this pauses the run for the user to complete OAuth/repo-pick in the UI.', { type: 'object', properties: { provider: { type: 'string', enum: ['github', 'gitlab', 'azure', 'bitbucket'] }, repoFullName: { type: 'string' } } }),
+    def('list_repo_tree', 'List files/dirs in the connected repo.', { type: 'object', properties: { path: { type: 'string' }, recursive: { type: 'boolean' } } }),
+    def('read_repo_file', "Read one file's content from the connected repo. Refused for files that look like secrets (keys, bare .env) or aren't relevant.", { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] }),
+    def('generate_sdk_snippet', 'Generate the PAAQ SDK integration file content for a detected framework.', { type: 'object', properties: { framework: { type: 'string', enum: ['nextjs', 'react', 'vue', 'vanilla', 'nodejs', 'python'] } }, required: ['framework'] }),
+    def('write_sdk_file_via_pr', 'Commit the given file(s) to a new branch and open a PR. Never merges.', { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' }, commitMessage: { type: 'string' }, prTitle: { type: 'string' }, prBody: { type: 'string' } }, required: ['path', 'content', 'commitMessage', 'prTitle'] }),
+    def('configure_db_connection', 'Scan the repo for a database connection string. Returns candidates; if none has a real (non-placeholder) value, you must ask_user for one.', { type: 'object', properties: {} }),
+    def('verify_database', 'Test and save a real database connection string.', { type: 'object', properties: { engine: { type: 'string', enum: ['postgres', 'mysql', 'mongodb', 'sqlite', 'redis', 'supabase'] }, connectionString: { type: 'string' } }, required: ['engine', 'connectionString'] }),
+    def('verify_backend', 'Check whether real backend SDK traffic has been seen recently.', { type: 'object', properties: {} }),
+    def('verify_frontend', 'Check whether real frontend SDK traffic has been seen recently.', { type: 'object', properties: {} }),
+    def('send_test_event', 'Send one real confirmation event through the live ingestion pipeline.', { type: 'object', properties: {} }),
+    def('activate_monitoring', 'Finish the run successfully once at least one layer (and the database, if configured) is verified.', { type: 'object', properties: {} }),
+    def('ask_user', 'Pause and ask the user a question instead of guessing. Use whenever you are not confident about a choice or need a real credential.', { type: 'object', properties: { question: { type: 'string' }, kind: { type: 'string', enum: ['text', 'confirm', 'choose_provider', 'paste_connection_string'] }, options: { type: 'array', items: { type: 'string' } } }, required: ['question'] }),
   ]
+}
+
+// ── Transcript format conversion ─────────────────────────────────────────
+// Messages are PERSISTED in block format ({type:'text'|'tool_use'|'tool_result'})
+// because the dashboard transcript UI renders that shape directly. These
+// adapters convert to/from OpenAI chat messages at the API boundary only.
+
+// deno-lint-ignore no-explicit-any
+type Block = Record<string, any>
+
+function blocksToChatMessages(blocks: { role: string; content: unknown }[]): ChatMessage[] {
+  const out: ChatMessage[] = []
+  for (const m of blocks) {
+    // deno-lint-ignore no-explicit-any
+    const content = (Array.isArray(m.content) ? m.content : [m.content]) as any[]
+    if (m.role === 'assistant') {
+      const text = content.filter((b) => b?.type === 'text').map((b) => b.text).join('\n')
+      const toolCalls = content
+        .filter((b) => b?.type === 'tool_use')
+        .map((b) => ({ id: b.id as string, type: 'function' as const, function: { name: b.name as string, arguments: JSON.stringify(b.input ?? {}) } }))
+      out.push({ role: 'assistant', ...(text ? { content: text } : {}), ...(toolCalls.length ? { tool_calls: toolCalls } : {}) })
+    } else {
+      // user + tool rows: split into tool-role messages and plain text
+      for (const b of content) {
+        if (b && typeof b === 'object' && b.type === 'tool_result') {
+          out.push({ role: 'tool', tool_call_id: String(b.tool_use_id), content: typeof b.content === 'string' ? b.content : JSON.stringify(b.content ?? '') })
+        } else if (b && typeof b === 'object' && b.type === 'text' && typeof b.text === 'string') {
+          out.push({ role: 'user', content: b.text })
+        }
+      }
+    }
+  }
+  return out
+}
+
+function assistantResponseToBlocks(message: { content: string | null; tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> }): Block[] {
+  const blocks: Block[] = []
+  if (message.content) blocks.push({ type: 'text', text: message.content })
+  for (const call of message.tool_calls ?? []) {
+    let input: unknown = {}
+    try { input = JSON.parse(call.function.arguments || '{}') } catch { /* leave {} */ }
+    blocks.push({ type: 'tool_use', id: call.id, name: call.function.name, input })
+  }
+  return blocks
 }
 
 async function runLoop(runId: string, tenantId: string, projectId: string): Promise<void> {
   const aiConfig = getAiConfig()
-  if (!aiConfig || aiConfig.provider !== 'anthropic') {
-    await setRunStatus(runId, 'failed', { error: 'Onboarding agent requires Anthropic tool-use support. Add ANTHROPIC_API_KEY to continue.' })
+  if (!aiConfig) {
+    await setRunStatus(runId, 'failed', { error: 'No AI API key configured. Set OPENROUTER_API_KEY in Supabase secrets.' })
     return
   }
-  const anthropic = new Anthropic({ apiKey: aiConfig.apiKey })
+  const apiKey = aiConfig.apiKey
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const { data: runRow } = await supabase.from('onboarding_runs').select('status').eq('id', runId).maybeSingle()
     if (!runRow || runRow.status !== 'running') return
 
-    const messages = await loadMessages(runId)
-    let response: Anthropic.Message
+    // Convert the persisted block-format transcript to OpenAI chat messages.
+    const stored = await loadMessages(runId)
+    const history = blocksToChatMessages(stored)
+    let response: Awaited<ReturnType<typeof openRouterChat>>
     try {
-      response = await anthropic.messages.create({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 4096,
-        system: SYSTEM_PROMPT,
+      response = await openRouterChat({
+        apiKey,
+        messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...history],
+        maxTokens: 4096,
         tools: toolDefs(),
-        messages,
       })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -275,31 +323,39 @@ async function runLoop(runId: string, tenantId: string, projectId: string): Prom
       return
     }
 
-    const textBlocks = response.content.filter((b): b is Anthropic.TextBlock => b.type === 'text')
-    const toolUseBlocks = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
+    const { message: assistantMsg, finishReason } = response
+
+    if (finishReason === 'length') {
+      await setRunStatus(runId, 'failed', { error: 'Agent response was truncated (max_tokens) — try a narrower prompt.' })
+      return
+    }
+
+    const blocks = assistantResponseToBlocks(assistantMsg)
+    const textBlocks = blocks.filter((b) => b.type === 'text')
+    const toolUseBlocks = blocks.filter((b) => b.type === 'tool_use')
 
     if (textBlocks.length > 0) {
-      await appendMessage(runId, 'assistant', textBlocks.map((b) => ({ type: 'text', text: b.text })))
+      await appendMessage(runId, 'assistant', textBlocks)
     }
 
     if (toolUseBlocks.length === 0) {
-      // Claude produced only narration this turn with no tool call — nothing
+      // The model produced only narration this turn with no tool call — nothing
       // more to drive right now; leave the run 'running' so a later
       // `continue` (or the client polling) can pick it back up, unless a
       // handler already moved status to awaiting_input/succeeded/failed.
       return
     }
 
-    await appendMessage(runId, 'assistant', toolUseBlocks.map((b) => ({ type: 'tool_use', id: b.id, name: b.name, input: b.input })))
+    await appendMessage(runId, 'assistant', toolUseBlocks)
 
-    const toolResults: Anthropic.ToolResultBlockParam[] = []
+    const toolResultBlocks: Block[] = []
     let shouldPause = false
     for (const block of toolUseBlocks) {
-      const result = await dispatchTool(block.name, block.input as Record<string, unknown>, { runId, tenantId, projectId })
-      toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(result.output) })
+      const result = await dispatchTool(block.name, (block.input ?? {}) as Record<string, unknown>, { runId, tenantId, projectId })
+      toolResultBlocks.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(result.output) })
       if (result.pause) shouldPause = true
     }
-    await appendMessage(runId, 'tool', toolResults)
+    await appendMessage(runId, 'tool', toolResultBlocks)
 
     if (shouldPause) return // status already set by the handler (awaiting_input/succeeded/failed)
   }

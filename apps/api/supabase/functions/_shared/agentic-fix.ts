@@ -1,6 +1,6 @@
 /**
- * The real fix-generation agent — same shape as how Claude Code itself
- * works: explore the actual repo (as many real files as it takes), commit
+ * The real fix-generation agent — the same shape as a terminal coding agent:
+ * explore the actual repo (as many real files as it takes), commit
  * to a concrete plan, show that plan to the user for approval, then execute
  * it one step at a time — each step reads the real current file, writes a
  * real change, and gets a real self-review pass before being marked done.
@@ -16,9 +16,8 @@
  * authoritative test is the repo's own CI once a PR is opened — which the
  * existing merge gate (fix-engine.ts performMerge) already requires to pass.
  */
-import Anthropic from 'npm:@anthropic-ai/sdk'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { getAiConfig } from './ai.ts'
+import { getAiConfig, openRouterChat, OPENROUTER_MODEL, type ChatMessage } from './ai.ts'
 import { loadGitAdapter, type GitProvider } from './git-providers/load-adapter.ts'
 import type { RepoRef } from './git-providers/types.ts'
 import type { RecRow } from './fix-engine.ts'
@@ -63,11 +62,15 @@ export async function exploreAndPlan(
   provider: GitProvider,
   repo: RepoRef,
   token: string,
-  apiKey: string,
   explicitPath?: string,
 ): Promise<void> {
   const adapter = await loadGitAdapter(provider)
-  const anthropic = new Anthropic({ apiKey })
+  const config = getAiConfig()
+  if (!config) {
+    await updateRun(runId, { status: 'failed', error: 'No AI API key configured. Set OPENROUTER_API_KEY in Supabase secrets.' })
+    return
+  }
+  const apiKey = config.apiKey
 
   await appendLog(runId, 'Reading the repository file tree…')
   const treeResult = await adapter.listTree(token, repo, '', repo.defaultBranch, { recursive: true })
@@ -87,7 +90,7 @@ export async function exploreAndPlan(
     ? `\nA human pointed at this file as a likely starting point: ${explicitPath} — start there, but keep investigating other files if the real cause turns out to live elsewhere.`
     : ''
 
-  const systemPrompt = `You are the PAAQ Fix Agent. You work the same way Claude Code does: investigate for real before proposing anything.
+  const systemPrompt = `You are the PAAQ Fix Agent. Work like a disciplined coding agent: investigate for real before proposing anything.
 
 1. Explore. Call read_file on every file you actually need to understand the issue — start from the file tree below. Do not stop at one file if the real cause spans more than one (e.g. a UI bug caused by a backend response shape, a shared util used in several places). Never reason about the fix from filenames or descriptions alone.
 2. Once you genuinely understand the cause, call propose_plan with a concrete, ordered todo list — one item per discrete change, each naming the exact file it touches. This plan is shown to a human for approval before any code is written, so it must be specific enough for them to judge it (not "fix the bug" — say exactly what changes in which file and why).
@@ -105,67 +108,88 @@ Description: ${rec.description ?? 'none'}${rootCauseText}${affectedHint}${patchP
 Repo file tree (${allPaths.length} files total${allPaths.length > MAX_TREE_ENTRIES ? `, showing first ${MAX_TREE_ENTRIES}` : ''}):
 ${treeListing || '(tree unavailable — call read_file to probe likely paths directly)'}`
 
-  const tools: Anthropic.Tool[] = [
+  // OpenAI-style function tools for the OpenRouter wire format.
+  const tools = [
     {
-      name: 'read_file',
-      description: "Read a file's real current content from the connected repo.",
-      input_schema: { type: 'object' as const, properties: { path: { type: 'string' } }, required: ['path'] },
+      type: 'function' as const,
+      function: {
+        name: 'read_file',
+        description: "Read a file's real current content from the connected repo.",
+        parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+      },
     },
     {
-      name: 'propose_plan',
-      description: 'Finish investigating and propose the concrete plan for a human to approve before any code is written.',
-      input_schema: {
-        type: 'object' as const,
-        properties: {
-          summary: { type: 'string', description: 'One or two sentences describing the real root cause and the overall fix approach.' },
-          confidence: { type: 'number', description: '0-100' },
-          steps: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                description: { type: 'string', description: 'Exactly what will change and why, specific enough to review.' },
-                path: { type: 'string', description: 'The repo-relative file path this step changes.' },
+      type: 'function' as const,
+      function: {
+        name: 'propose_plan',
+        description: 'Finish investigating and propose the concrete plan for a human to approve before any code is written.',
+        parameters: {
+          type: 'object',
+          properties: {
+            summary: { type: 'string', description: 'One or two sentences describing the real root cause and the overall fix approach.' },
+            confidence: { type: 'number', description: '0-100' },
+            steps: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  description: { type: 'string', description: 'Exactly what will change and why, specific enough to review.' },
+                  path: { type: 'string', description: 'The repo-relative file path this step changes.' },
+                },
+                required: ['description', 'path'],
               },
-              required: ['description', 'path'],
             },
           },
+          required: ['summary', 'confidence', 'steps'],
         },
-        required: ['summary', 'confidence', 'steps'],
       },
     },
   ]
 
-  const messages: Anthropic.MessageParam[] = [{ role: 'user', content: userPrompt }]
+  const messages: ChatMessage[] = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userPrompt },
+  ]
 
   for (let turn = 0; turn < MAX_EXPLORE_TURNS; turn++) {
-    let response: Anthropic.Message
+    let response: Awaited<ReturnType<typeof openRouterChat>>
     try {
-      response = await anthropic.messages.create({ model: 'claude-sonnet-4-6', max_tokens: 6000, system: systemPrompt, tools, messages })
+      response = await openRouterChat({ apiKey, messages, maxTokens: 6000, tools })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       await updateRun(runId, { status: 'failed', error: `AI call failed: ${message}` })
       return
     }
 
-    messages.push({ role: 'assistant', content: response.content })
+    const { message: assistantMsg, finishReason } = response
+    messages.push({
+      role: 'assistant',
+      content: assistantMsg.content ?? undefined,
+      ...(assistantMsg.tool_calls ? { tool_calls: assistantMsg.tool_calls } : {}),
+    })
 
-    if (response.stop_reason === 'max_tokens') {
+    if (finishReason === 'length') {
       await updateRun(runId, { status: 'failed', error: 'Agent response was truncated mid-turn — try narrowing the issue description.' })
       return
     }
 
-    const toolUseBlocks = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
+    const toolCalls = assistantMsg.tool_calls ?? []
 
-    if (toolUseBlocks.length === 0) {
-      const text = response.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join(' ')
+    if (toolCalls.length === 0) {
+      const text = assistantMsg.content ?? ''
       await updateRun(runId, { status: 'failed', error: text || 'Agent stopped without proposing a plan.' })
       return
     }
 
-    const planBlock = toolUseBlocks.find((b) => b.name === 'propose_plan')
-    if (planBlock) {
-      const input = planBlock.input as { summary: string; confidence: number; steps: { description: string; path: string }[] }
+    const planCall = toolCalls.find((c) => c.function.name === 'propose_plan')
+    if (planCall) {
+      let input: { summary: string; confidence: number; steps: { description: string; path: string }[] }
+      try {
+        input = JSON.parse(planCall.function.arguments)
+      } catch {
+        await updateRun(runId, { status: 'failed', error: 'Agent returned malformed plan arguments.' })
+        return
+      }
 
       if (explored.length === 0) {
         await updateRun(runId, { status: 'failed', error: 'Agent tried to propose a plan without reading any real file — refusing to trust an unverified guess.' })
@@ -193,29 +217,41 @@ ${treeListing || '(tree unavailable — call read_file to probe likely paths dir
       return
     }
 
-    const toolResults: Anthropic.ToolResultBlockParam[] = []
-    for (const block of toolUseBlocks) {
-      if (block.name === 'read_file') {
-        const path = (block.input as { path: string }).path
+    // Feed every tool result back as role:'tool' messages (OpenAI convention).
+    for (const call of toolCalls) {
+      if (call.function.name === 'read_file') {
+        let path = ''
+        try { path = (JSON.parse(call.function.arguments) as { path?: string }).path ?? '' } catch { /* malformed args */ }
         await appendLog(runId, `Reading ${path}…`)
-        const result = await adapter.getFileContent(token, repo, path, repo.defaultBranch)
+        const result = path
+          ? await adapter.getFileContent(token, repo, path, repo.defaultBranch)
+          : { ok: false as const, error: 'Malformed read_file arguments' }
         if (result.ok) {
           if (!explored.includes(path)) explored.push(path)
           await updateRun(runId, { explored_files: explored })
           const truncated = result.content.length > MAX_FILE_CHARS
-          toolResults.push({
-            type: 'tool_result',
-            tool_use_id: block.id,
-            content: truncated ? `${result.content.slice(0, MAX_FILE_CHARS)}\n… (truncated, ${result.content.length} chars total)` : result.content,
+          messages.push({
+            role: 'user',
+            content: JSON.stringify({
+              tool: 'read_file',
+              tool_call_id: call.id,
+              ok: true,
+              content: truncated ? `${result.content.slice(0, MAX_FILE_CHARS)}\n… (truncated, ${result.content.length} chars total)` : result.content,
+            }),
           })
         } else {
-          toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: `Error: ${result.error}`, is_error: true })
+          messages.push({
+            role: 'user',
+            content: JSON.stringify({ tool: 'read_file', tool_call_id: call.id, ok: false, error: result.error }),
+          })
         }
       } else {
-        toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: `Unknown tool: ${block.name}`, is_error: true })
+        messages.push({
+          role: 'user',
+          content: JSON.stringify({ tool: call.function.name, tool_call_id: call.id, ok: false, error: `Unknown tool: ${call.function.name}` }),
+        })
       }
     }
-    messages.push({ role: 'user', content: toolResults })
   }
 
   await updateRun(runId, { status: 'failed', error: `Investigation didn't converge within ${MAX_EXPLORE_TURNS} turns — try a narrower issue description or point at a specific file.` })
@@ -224,7 +260,7 @@ ${treeListing || '(tree unavailable — call read_file to probe likely paths dir
 /**
  * Phase 2: execute an already-approved plan — but ONE STEP PER CALL, not the
  * whole plan in one request. A plan of any real size (multi-file, each step
- * costing 2-3 sequential Claude calls) reliably blew past the edge
+ * costing 2-3 sequential AI calls) reliably blew past the edge
  * function's execution time limit when run as a single synchronous loop —
  * confirmed live: a real 6-step plan got stuck 'running' forever with no
  * error surfaced, which is exactly what "I click approve and nothing
@@ -239,7 +275,6 @@ export async function executeNextStep(
   provider: GitProvider,
   repo: RepoRef,
   token: string,
-  apiKey: string,
 ): Promise<{ done: boolean }> {
   const { data: run } = await supabase.from('fix_runs').select('*').eq('id', runId).maybeSingle()
   if (!run) return { done: true }
@@ -285,7 +320,16 @@ export async function executeNextStep(
 
   const step = plan[stepIdx]
   const adapter = await loadGitAdapter(provider)
-  const anthropic = new Anthropic({ apiKey })
+  const config = getAiConfig()
+  if (!config) {
+    await updateRun(runId, {
+      plan,
+      status: 'failed',
+      error: 'No AI API key configured. Set OPENROUTER_API_KEY in Supabase secrets.',
+    })
+    return { done: false }
+  }
+  const apiKey = config.apiKey
 
   plan[stepIdx] = { ...step, status: 'running' }
   await updateRun(runId, { plan })
@@ -317,18 +361,18 @@ export async function executeNextStep(
     }
 
     const currentContent = working.get(step.path)!
-    const generated = await generateStepChange(anthropic, rec, run.summary as string | null, plan, step, currentContent)
+    const generated = await generateStepChange(apiKey, rec, run.summary as string | null, plan, step, currentContent)
     if (!generated.ok) {
       await persistProgress({ status: 'error', detail: generated.error })
       return { done: false }
     }
 
-    const review = await reviewStepChange(anthropic, step, currentContent, generated.newContent)
+    const review = await reviewStepChange(apiKey, step, currentContent, generated.newContent)
     let finalContent = generated.newContent
     let detail = review.passed ? 'Applied and self-reviewed.' : `Applied — self-review flagged: ${review.note}`
 
     if (!review.passed) {
-      const retry = await generateStepChange(anthropic, rec, run.summary as string | null, plan, step, currentContent, review.note)
+      const retry = await generateStepChange(apiKey, rec, run.summary as string | null, plan, step, currentContent, review.note)
       if (retry.ok) {
         finalContent = retry.newContent
         detail = 'Applied after one self-review retry.'
@@ -346,7 +390,7 @@ export async function executeNextStep(
 }
 
 async function generateStepChange(
-  anthropic: Anthropic,
+  apiKey: string,
   rec: RecRow,
   overallSummary: string | null,
   plan: PlanStep[],
@@ -379,10 +423,14 @@ Rules:
 - Only make the change described by this step — later steps handle the rest.`
 
   try {
-    const msg = await anthropic.messages.create({ model: 'claude-sonnet-4-6', max_tokens: 8000, messages: [{ role: 'user', content: prompt }] })
-    if (msg.stop_reason === 'max_tokens') return { ok: false, error: 'Response truncated (file may be too large for one pass).' }
-    const raw = msg.content[0]?.type === 'text' ? msg.content[0].text.replace(/```json?\n?/g, '').replace(/```/g, '').trim() : null
-    if (!raw) return { ok: false, error: 'No response from Claude' }
+    const { message, finishReason } = await openRouterChat({
+      apiKey,
+      messages: [{ role: 'user', content: prompt }],
+      maxTokens: 8000,
+    })
+    if (finishReason === 'length') return { ok: false, error: 'Response truncated (file may be too large for one pass).' }
+    const raw = message.content?.trim() ?? null
+    if (!raw) return { ok: false, error: 'No response from the AI model' }
     const start = raw.indexOf('{')
     const end = raw.lastIndexOf('}')
     const parsed = JSON.parse(start >= 0 && end > start ? raw.slice(start, end + 1) : raw) as { newContent: string }
@@ -399,7 +447,7 @@ Rules:
  * step, left the file unchanged) before the step is marked done.
  */
 async function reviewStepChange(
-  anthropic: Anthropic,
+  apiKey: string,
   step: PlanStep,
   before: string,
   after: string,
@@ -423,8 +471,13 @@ ${after.slice(0, 6000)}
 Reply with ONLY this JSON: { "passed": true|false, "note": "one short sentence" }`
 
   try {
-    const msg = await anthropic.messages.create({ model: 'claude-haiku-4-5-20251001', max_tokens: 200, messages: [{ role: 'user', content: prompt }] })
-    const raw = msg.content[0]?.type === 'text' ? msg.content[0].text.trim() : '{}'
+    const { message } = await openRouterChat({
+      apiKey,
+      messages: [{ role: 'user', content: prompt }],
+      maxTokens: 200,
+      temperature: 0,
+    })
+    const raw = message.content?.trim() || '{}'
     const start = raw.indexOf('{')
     const end = raw.lastIndexOf('}')
     const parsed = JSON.parse(start >= 0 && end > start ? raw.slice(start, end + 1) : raw) as { passed: boolean; note: string }

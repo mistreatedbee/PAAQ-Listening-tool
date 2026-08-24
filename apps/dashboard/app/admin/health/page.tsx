@@ -29,7 +29,7 @@ export default function SystemHealthPage() {
       { name: 'Storage',             category: 'Core Infrastructure', status: 'checking' },
       { name: 'Auth',                category: 'Core Infrastructure', status: 'checking' },
       { name: 'Edge Functions',      category: 'Compute',             status: 'checking' },
-      { name: 'Claude AI',           category: 'AI Services',         status: 'checking' },
+      { name: 'OpenRouter AI',       category: 'AI Services',         status: 'checking' },
       { name: 'Stripe Webhooks',     category: 'Integrations',        status: 'not_monitored', note: 'No Stripe integration found in this codebase' },
       { name: 'Agora SDK',           category: 'Integrations',        status: 'not_monitored', note: 'No Agora integration found in this codebase' },
       { name: 'Next.js Dashboard',   category: 'Applications',        status: 'healthy', note: 'You are viewing this page right now' },
@@ -43,7 +43,7 @@ export default function SystemHealthPage() {
     const dbMs = Date.now() - dbStart
 
     // Real probes, run server-side (avoids exposing service-role-only checks
-    // like Auth settings / Anthropic key to the browser).
+    // like Auth settings / the AI provider key to the browser).
     const edgeStart = Date.now()
     const { data: remote, error: remoteErr } = await sb.functions.invoke('platform-health', { body: {} })
     const edgeMs = Date.now() - edgeStart
@@ -57,7 +57,7 @@ export default function SystemHealthPage() {
       { name: 'Storage',             category: 'Core Infrastructure', status: statusFor(remote?.storage),  latencyMs: remote?.storage?.latencyMs,  note: remote?.storage?.error },
       { name: 'Auth',                category: 'Core Infrastructure', status: statusFor(remote?.auth),      latencyMs: remote?.auth?.latencyMs,      note: remote?.auth?.error },
       { name: 'Edge Functions',      category: 'Compute',             status: remoteErr ? 'down' : 'healthy', latencyMs: edgeMs, note: remoteErr?.message },
-      { name: 'Claude AI',           category: 'AI Services',         status: statusFor(remote?.claude),    latencyMs: remote?.claude?.latencyMs,   note: remote?.claude?.error ?? 'Anthropic API' },
+      { name: 'OpenRouter AI',       category: 'AI Services',         status: statusFor(remote?.ai),        latencyMs: remote?.ai?.latencyMs,       note: remote?.ai?.error ?? 'openrouter.ai API' },
       { name: 'Stripe Webhooks',     category: 'Integrations',        status: 'not_monitored', note: 'No Stripe integration found in this codebase' },
       { name: 'Agora SDK',           category: 'Integrations',        status: 'not_monitored', note: 'No Agora integration found in this codebase' },
       { name: 'Next.js Dashboard',   category: 'Applications',        status: 'healthy', note: 'You are viewing this page right now' },

@@ -18,7 +18,7 @@ export type SessionSummaryResult =
 
 /**
  * Builds a natural-language narrative for one real session from its actual
- * captured pages/events/errors and asks Claude Haiku to summarize it — same
+ * captured pages/events/errors and asks the AI model to summarize it — same
  * call shape as _shared/insights-engine.ts's runInsightsForProject, scoped to
  * a single session_id instead of a whole project's recent activity.
  */

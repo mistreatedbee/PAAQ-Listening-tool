@@ -1,6 +1,23 @@
-import Anthropic from 'npm:@anthropic-ai/sdk'
+/**
+ * Shared AI access via OpenRouter (OpenAI-compatible Chat Completions API).
+ *
+ * OpenRouter is now the only AI path: one key (`OPENROUTER_API_KEY`), one
+ * model default (`stealth/ox-alpha`). Gemini support was removed in the
+ * Claude→OpenRouter migration; `askModel` keeps its signature so every call
+ * site stays unchanged.
+ *
+ * Error mapping (surfaced to callers as Error with a descriptive message):
+ * - 401 → invalid/missing OPENROUTER_API_KEY
+ * - 402 → insufficient credits
+ * - 408/timeout → upstream model timeout
+ * - 429 → rate limited
+ * - 5xx → provider/model failure
+ */
 
-export type AiProvider = 'gemini' | 'anthropic'
+export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
+export const OPENROUTER_MODEL = 'stealth/ox-alpha'
+
+export type AiProvider = 'openrouter'
 
 export type AiRequest = {
   system?: string
@@ -17,37 +34,115 @@ export type AiConfig = {
 }
 
 export function getAiConfig(): AiConfig | null {
-  const gemini = Deno.env.get('GEMINI_API_KEY')
-  if (gemini) {
-    return { provider: 'gemini', apiKey: gemini, model: 'gemini-2.5-flash' }
-  }
-
-  const anthropic = Deno.env.get('ANTHROPIC_API_KEY')
-  if (anthropic) {
-    return { provider: 'anthropic', apiKey: anthropic, model: 'claude-haiku-4-5-20251001' }
-  }
-
-  return null
+  const apiKey = Deno.env.get('OPENROUTER_API_KEY')
+  if (!apiKey) return null
+  return { provider: 'openrouter', apiKey, model: OPENROUTER_MODEL }
 }
 
 export function getAiApiKey(): string | undefined {
   return getAiConfig()?.apiKey
 }
 
+/** Kept for call-site compatibility — OpenRouter is a single configured provider. */
 export function getAiConfigs(): AiConfig[] {
-  const configs: AiConfig[] = []
+  const config = getAiConfig()
+  return config ? [config] : []
+}
 
-  const gemini = Deno.env.get('GEMINI_API_KEY')
-  if (gemini) {
-    configs.push({ provider: 'gemini', apiKey: gemini, model: 'gemini-2.5-flash' })
+/** Maps an OpenRouter/OpenAI-style HTTP failure to a human-actionable message. */
+export async function openRouterError(res: Response): Promise<Error> {
+  let detail = ''
+  try {
+    const body = await res.json() as { error?: { message?: string } | string }
+    detail = typeof body.error === 'string' ? body.error : body.error?.message ?? JSON.stringify(body)
+  } catch {
+    detail = await res.text().catch(() => '')
   }
 
-  const anthropic = Deno.env.get('ANTHROPIC_API_KEY')
-  if (anthropic) {
-    configs.push({ provider: 'anthropic', apiKey: anthropic, model: 'claude-haiku-4-5-20251001' })
+  switch (res.status) {
+    case 400:
+      return new Error(`OpenRouter bad request (${res.status}): ${detail || 'check model name and payload shape'}`)
+    case 401:
+      return new Error(`OpenRouter auth failed (${res.status}): invalid or missing OPENROUTER_API_KEY`)
+    case 402:
+      return new Error(`OpenRouter credits exhausted (${res.status}): add credits at openrouter.ai/credits`)
+    case 408:
+      return new Error(`OpenRouter timeout (${res.status}): upstream model took too long — retry or lower max_tokens`)
+    case 429:
+      return new Error(`OpenRouter rate limited (${res.status}): slow down or check quota`)
+    default:
+      if (res.status >= 500) {
+        return new Error(`OpenRouter provider error (${res.status}): ${detail || 'upstream model/provider failed — retry shortly'}`)
+      }
+      return new Error(`OpenRouter request failed (${res.status}): ${detail}`)
+  }
+}
+
+/** OpenAI-style chat message used by the OpenRouter wire format. */
+export type ChatMessage = {
+  role: 'system' | 'user' | 'assistant' | 'tool'
+  // deno-lint-ignore no-explicit-any
+  content?: any
+  tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }>
+  tool_call_id?: string
+}
+
+type ChatOptions = {
+  apiKey: string
+  messages: ChatMessage[]
+  model?: string
+  maxTokens?: number
+  temperature?: number
+  tools?: unknown[]
+  toolChoice?: 'auto' | 'none'
+}
+
+/**
+ * Single non-streaming chat completion against OpenRouter.
+ * Returns the assistant message plus finish reason.
+ */
+export async function openRouterChat(options: ChatOptions): Promise<{
+  message: { role: 'assistant'; content: string | null; tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> }
+  finishReason: string | null
+}> {
+  const res = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${options.apiKey}`,
+      'Content-Type': 'application/json',
+      // Optional attribution headers recommended by OpenRouter.
+      'HTTP-Referer': 'https://paaq.ai',
+      'X-Title': 'PAAQ Intelligence',
+    },
+    body: JSON.stringify({
+      model: options.model ?? OPENROUTER_MODEL,
+      messages: options.messages,
+      max_tokens: options.maxTokens,
+      temperature: options.temperature,
+      ...(options.tools ? { tools: options.tools, tool_choice: options.toolChoice ?? 'auto' } : {}),
+    }),
+  })
+
+  if (!res.ok) throw await openRouterError(res)
+
+  const data = await res.json() as {
+    choices?: Array<{
+      message?: { role: 'assistant'; content?: string | null; tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> }
+      finish_reason?: string | null
+    }>
+    error?: { message?: string }
   }
 
-  return configs
+  if (data.error) throw new Error(`OpenRouter error: ${data.error.message ?? 'unknown error'}`)
+
+  const choice = data.choices?.[0]
+  if (!choice?.message) throw new Error('OpenRouter returned no choices — the model may be unavailable; retry or check status.openrouter.ai')
+
+  return {
+    // Some models emit reasoning-only responses with empty content; normalize to null so callers can branch cleanly.
+    message: { ...choice.message, content: choice.message.content ?? null },
+    finishReason: choice.finish_reason ?? null,
+  }
 }
 
 export async function askModel({
@@ -57,65 +152,27 @@ export async function askModel({
   maxTokens = 2048,
   temperature = 0.2,
 }: AiRequest): Promise<string> {
-  const configs = getAiConfigs()
-  if (configs.length === 0) {
-    throw new Error('No AI API key configured. Set GEMINI_API_KEY or ANTHROPIC_API_KEY in Supabase secrets.')
+  const config = getAiConfig()
+  if (!config) {
+    throw new Error('No AI API key configured. Set OPENROUTER_API_KEY in Supabase secrets.')
   }
 
-  let lastError: unknown = null
+  const messages: ChatMessage[] = []
+  if (system) messages.push({ role: 'system', content: system })
+  messages.push({ role: 'user', content: prompt })
 
-  for (const config of configs) {
-    try {
-      if (config.provider === 'gemini') {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model ?? config.model}:generateContent?key=${config.apiKey}`
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            systemInstruction: system ? { parts: [{ text: system }] } : undefined,
-            generationConfig: { temperature, maxOutputTokens: maxTokens },
-            contents: [{ parts: [{ text: prompt }] }],
-          }),
-        })
+  const { message, finishReason } = await openRouterChat({
+    apiKey: config.apiKey,
+    messages,
+    model: model ?? config.model,
+    maxTokens,
+    temperature,
+  })
 
-        if (!response.ok) {
-          const text = await response.text()
-          throw new Error(`Gemini request failed: ${response.status} ${text}`)
-        }
-
-        const data = await response.json() as {
-          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
-        }
-
-        const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('')?.trim()
-        if (!text) {
-          throw new Error('Gemini returned no text content')
-        }
-
-        return text
-      }
-
-      const anthropic = new Anthropic({ apiKey: config.apiKey })
-      const response = await anthropic.messages.create({
-        model: model ?? config.model,
-        max_tokens: maxTokens,
-        system,
-        messages: [{ role: 'user', content: prompt }],
-      })
-
-      const text = response.content.filter((block) => block.type === 'text').map((block) => block.text).join('\n').trim()
-      if (!text) {
-        throw new Error('Anthropic returned no text content')
-      }
-
-      return text
-    } catch (error) {
-      lastError = error
-      if (config === configs[configs.length - 1]) {
-        throw error
-      }
-    }
+  const text = message.content?.trim()
+  if (!text && finishReason !== 'tool_calls') {
+    throw new Error(`OpenRouter returned no text content (finish_reason: ${finishReason ?? 'unknown'})`)
   }
 
-  throw lastError instanceof Error ? lastError : new Error('AI request failed')
+  return text ?? ''
 }

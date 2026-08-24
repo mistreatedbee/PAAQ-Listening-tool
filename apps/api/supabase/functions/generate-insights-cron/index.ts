@@ -78,7 +78,7 @@ async function runSweep() {
 }
 
 // Every 15 minutes — frequent enough to feel continuous without hammering
-// Claude on projects with no new traffic (those are skipped entirely above).
+// the AI model on projects with no new traffic (those are skipped entirely above).
 Deno.cron('generate-insights-sweep', '*/15 * * * *', runSweep)
 
 Deno.serve(async (req) => {

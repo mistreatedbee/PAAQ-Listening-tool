@@ -1,7 +1,7 @@
 /**
  * PAAQ Intelligence — Generate Fix
  *
- * Accepts an error payload, sends it to Claude, and returns a structured fix:
+ * Accepts an error payload, sends it to the configured AI model, and returns a structured fix:
  *   rootCause, fix, codeExample, confidence, affectedArea, prevention
  */
 import { getAiConfig, askModel } from '../_shared/ai.ts'
@@ -11,7 +11,7 @@ Deno.serve(async (req) => {
   if (req.method !== 'POST') return respond({ error: 'Method not allowed' }, 405)
 
   const aiConfig = getAiConfig()
-  if (!aiConfig) return respond({ error: 'No AI API key configured. Set GEMINI_API_KEY or ANTHROPIC_API_KEY in Supabase secrets.' }, 500)
+  if (!aiConfig) return respond({ error: 'No AI API key configured. Set OPENROUTER_API_KEY in Supabase secrets.' }, 500)
 
   let body: {
     errorId?: string
@@ -104,12 +104,12 @@ Rules:
     const start = raw.indexOf('{')
     const end = raw.lastIndexOf('}')
     if (start === -1 || end === -1 || end <= start) {
-      return respond({ error: 'Failed to parse Claude response', raw }, 500)
+      return respond({ error: 'Failed to parse AI response', raw }, 500)
     }
     try {
       result = JSON.parse(raw.slice(start, end + 1))
     } catch {
-      return respond({ error: 'Failed to parse Claude response', raw }, 500)
+      return respond({ error: 'Failed to parse AI response', raw }, 500)
     }
   }
 

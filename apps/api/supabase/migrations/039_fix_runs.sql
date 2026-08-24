@@ -4,7 +4,7 @@
 -- an actual live feed of what the agent is doing: which files it opened,
 -- the real plan it produced (shown to the user for approval before any repo
 -- write happens), and per-step status as it executes that approved plan one
--- step at a time — mirroring how Claude Code itself works, per explicit
+-- step at a time — mirroring how a terminal coding agent works, per explicit
 -- request. The dashboard subscribes to this row via Realtime, so progress
 -- shown is always the agent's real current state, never a simulated timer.
 CREATE TABLE IF NOT EXISTS fix_runs (
