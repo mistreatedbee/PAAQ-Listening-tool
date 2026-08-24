@@ -114,8 +114,30 @@ function effectiveMaxTokens(requested?: number): number {
 /**
  * Single non-streaming chat completion against OpenRouter.
  * Returns the assistant message plus finish reason.
+ * Retries once (short backoff) on transient failures — 429 rate limiting
+ * and upstream provider 5xx are common on shared inference endpoints and
+ * almost always clear within seconds.
  */
 export async function openRouterChat(options: ChatOptions): Promise<{
+  message: { role: 'assistant'; content: string | null; tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> }
+  finishReason: string | null
+}> {
+  let lastError: Error | null = null
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 3000))
+    try {
+      return await openRouterChatOnce(options)
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+      // Only transient classes are worth retrying; auth/credit/bad-request
+      // failures would just fail again identically.
+      if (!/rate limited|provider error|no choices|timeout/i.test(lastError.message)) throw lastError
+    }
+  }
+  throw lastError ?? new Error('OpenRouter request failed')
+}
+
+async function openRouterChatOnce(options: ChatOptions): Promise<{
   message: { role: 'assistant'; content: string | null; tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> }
   finishReason: string | null
 }> {
