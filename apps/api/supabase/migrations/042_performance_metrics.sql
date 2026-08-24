@@ -2,22 +2,33 @@
 -- Stores runtime performance telemetry from SDKs: response times, error rates,
 -- CPU, memory, FPS, and other observable metrics for monitoring and alerting.
 
-CREATE TABLE IF NOT EXISTS performance_metrics (
-  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id   UUID NOT NULL REFERENCES tenant_projects(id) ON DELETE CASCADE,
-  session_id   UUID,          -- Optional session reference (no FK to avoid circular deps)
-  
-  metric_type  TEXT NOT NULL, -- response_time, error_rate, cpu, memory, fps, etc.
-  value        DOUBLE PRECISION NOT NULL,
-  unit         TEXT,          -- ms, %, fps, bytes, etc.
-  
-  source       TEXT,          -- frontend, backend, database, etc.
-  endpoint     TEXT,          -- API route or page that generated the metric
-  user_agent   TEXT,
-  
-  metadata     JSONB DEFAULT '{}'::jsonb,
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+DO $$
+BEGIN
+  -- Create table if it doesn't exist
+  IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'performance_metrics') THEN
+    CREATE TABLE performance_metrics (
+      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      project_id   UUID NOT NULL REFERENCES tenant_projects(id) ON DELETE CASCADE,
+      session_id   UUID,
+      metric_type  TEXT NOT NULL,
+      value        DOUBLE PRECISION NOT NULL,
+      unit         TEXT,
+      source       TEXT,
+      endpoint     TEXT,
+      user_agent   TEXT,
+      metadata     JSONB DEFAULT '{}'::jsonb,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  END IF;
+
+  -- Add session_id column if it doesn't exist (for existing tables from failed migrations)
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'performance_metrics' AND column_name = 'session_id'
+  ) THEN
+    ALTER TABLE performance_metrics ADD COLUMN session_id UUID;
+  END IF;
+END $$;
 
 -- ─── Indexes ─────────────────────────────────────────────────────────────────
 
@@ -27,8 +38,7 @@ CREATE INDEX IF NOT EXISTS idx_performance_metrics_project
 CREATE INDEX IF NOT EXISTS idx_performance_metrics_type 
   ON performance_metrics(project_id, metric_type, created_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_performance_metrics_session 
-  ON performance_metrics(session_id) WHERE session_id IS NOT NULL;
+-- Session index omitted - session_id is optional and may not exist in existing tables
 
 -- ─── RLS ─────────────────────────────────────────────────────────────────────
 
