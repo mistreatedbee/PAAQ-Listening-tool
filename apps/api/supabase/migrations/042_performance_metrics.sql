@@ -5,7 +5,7 @@
 CREATE TABLE IF NOT EXISTS performance_metrics (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id   UUID NOT NULL REFERENCES tenant_projects(id) ON DELETE CASCADE,
-  session_id   UUID REFERENCES sessions(id) ON DELETE SET NULL,
+  session_id   UUID,          -- Optional session reference (no FK to avoid circular deps)
   
   metric_type  TEXT NOT NULL, -- response_time, error_rate, cpu, memory, fps, etc.
   value        DOUBLE PRECISION NOT NULL,
