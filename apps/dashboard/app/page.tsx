@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
+import { track } from '@vercel/analytics/react'
 import {
   BrainCircuit, Code2, Sparkles, Star,
   Sun, Moon, Menu, X as XIcon,
@@ -80,7 +81,7 @@ export default function LandingPage() {
           </button>
           <Link href="/referral" className="btn btn-ghost nav-login">Invite friends</Link>
           <Link href="/login" className="btn btn-ghost nav-login">Log in</Link>
-          <Link href="/login?tab=signup" className="btn btn-primary">Start free</Link>
+          <Link href="/login?tab=signup" className="btn btn-primary" onClick={() => track('cta_click', { location: 'nav' })}>Start free</Link>
           <button className="mobile-menu-toggle" onClick={() => setMenuOpen(!menuOpen)} aria-label="Menu">
             {menuOpen ? <XIcon size={22} /> : <Menu size={22} />}
           </button>
@@ -97,7 +98,7 @@ export default function LandingPage() {
         <div className="mobile-cta-group">
           <Link href="/referral" className="btn btn-ghost" style={{ textAlign: 'center' }} onClick={() => setMenuOpen(false)}>Invite friends</Link>
           <Link href="/login" className="btn btn-ghost" style={{ textAlign: 'center' }} onClick={() => setMenuOpen(false)}>Log in</Link>
-          <Link href="/login?tab=signup" className="btn btn-primary" style={{ justifyContent: 'center' }} onClick={() => setMenuOpen(false)}>Start free</Link>
+          <Link href="/login?tab=signup" className="btn btn-primary" style={{ justifyContent: 'center' }} onClick={() => { track('cta_click', { location: 'mobile_nav' }); setMenuOpen(false); }}>Start free</Link>
         </div>
       </div>
 
@@ -117,7 +118,7 @@ export default function LandingPage() {
               explains root causes in plain language, and helps your team resolve incidents in minutes — not days.
             </p>
             <div className="hero-actions">
-              <Link href="/login?tab=signup" className="btn btn-primary btn-lg">
+              <Link href="/login?tab=signup" className="btn btn-primary btn-lg" onClick={() => track('cta_click', { location: 'hero' })}>
                 Start free — no credit card <ArrowRight size={16} />
               </Link>
               <a href="#how" className="btn-outline-lg">See how it works</a>
@@ -298,7 +299,7 @@ export default function LandingPage() {
               Connect your first app in under 5 minutes.
             </p>
             <div className="cta-actions">
-              <Link href="/login?tab=signup" className="btn btn-primary btn-lg">
+              <Link href="/login?tab=signup" className="btn btn-primary btn-lg" onClick={() => track('cta_click', { location: 'final_cta' })}>
                 Start free <ArrowRight size={16} />
               </Link>
               <a href="#how" className="btn-outline-lg">See how it works</a>
