@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { track } from '@vercel/analytics/react'
 import { createClient } from '@/utils/supabase/client'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { CheckCircle2, Circle, Sparkles, Users, Share2, ArrowRight } from 'lucide-react'
@@ -108,6 +109,7 @@ export function ActivationChecklist() {
                 <Link
                   key={step.id}
                   href={step.href}
+                  onClick={() => track('activation_step_click', { step: step.id })}
                   className={cn(
                     'group flex items-start gap-3 rounded-lg border px-3 py-2.5 transition-all',
                     step.completed

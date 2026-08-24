@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
+import { track } from '@vercel/analytics/react'
 import { createClient } from '@/utils/supabase/client'
 import { Sparkles, ArrowRight, Loader2, Eye, EyeOff, Check, X } from 'lucide-react'
 
@@ -175,18 +176,20 @@ function LoginForm() {
 
     if (mode === 'signin') {
       const { error: err } = await sb.auth.signInWithPassword({ email, password })
-      if (err) { setError(err.message); setLoading(false); return }
+      if (err) { track('signin_error'); setError(err.message); setLoading(false); return }
+      track('signin_success')
       router.push(returnTo)
       router.refresh()
     } else {
       if (password.length < 8) { setError('Password must be at least 8 characters.'); setLoading(false); return }
       const { error: err } = await sb.auth.signUp({ email, password })
-      if (err) { setError(err.message); setLoading(false); return }
+      if (err) { track('signup_error', { reason: 'sign_up_failed' }); setError(err.message); setLoading(false); return }
       // Auto sign in after signup (works when email confirmation is disabled in Supabase)
       const { error: signInErr } = await sb.auth.signInWithPassword({ email, password })
-      if (signInErr) { setError(signInErr.message); setLoading(false); return }
+      if (signInErr) { track('signup_error', { reason: 'auto_signin_failed' }); setError(signInErr.message); setLoading(false); return }
       // Attribute the signup to the referrer now that a session exists.
       await claimReferral(refCode.current ?? null)
+      track('signup_success', { referred: !!refCode.current })
       router.push('/onboarding')
       router.refresh()
     }
@@ -211,6 +214,7 @@ function LoginForm() {
     })
     setLoading(false)
     if (err) { setError(err.message); return }
+    track('password_reset_requested')
     setResetSent(true)
   }
 
