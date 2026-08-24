@@ -4,9 +4,10 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { PageHeader, Card, CardHead } from '@/components/kit'
+import { AiButton } from '@/components/kit-ai-button'
 import { cn } from '@/lib/utils'
 import { toneText } from '@/lib/tones'
-import { BarChart3, RefreshCw, Sparkles } from 'lucide-react'
+import { BarChart3, Sparkles } from 'lucide-react'
 import type { Tone } from '@/lib/data'
 
 type RawEvent = {
@@ -148,14 +149,19 @@ export default function ProductAnalyticsPage() {
         title="Product Analytics"
         desc="Funnels, retention and adoption analytics drawn directly from your live event stream."
         actions={
-          <button
+          <AiButton
             onClick={runAnalysis}
-            disabled={analysing}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-ai px-3 py-1.5 text-sm font-medium text-ai-foreground hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            <RefreshCw className={`h-4 w-4 ${analysing ? 'animate-spin' : ''}`} />
-            {analysing ? 'Analysing…' : 'Run AI Analysis'}
-          </button>
+            busy={analysing}
+            idleLabel="Run AI Analysis"
+            stages={[
+              'Collecting events…',
+              'Scoring features…',
+              'Rebuilding journeys…',
+              'Detecting anomalies…',
+              'Almost there…',
+            ]}
+            icon={<Sparkles className="h-4 w-4" />}
+          />
         }
       />
 

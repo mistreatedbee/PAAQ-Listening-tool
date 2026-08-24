@@ -9,7 +9,8 @@ import { PageHeader, Card, ToneBadge, StatusDot } from '@/components/kit'
 import { useBulkSelection, RowCheckbox, BulkActionsBar, ConfirmDeleteDialog } from '@/components/kit-bulk-actions'
 import { cn } from '@/lib/utils'
 import { toneText } from '@/lib/tones'
-import { AlertTriangle, Clock, ArrowRight, Plus, X, Loader2 } from 'lucide-react'
+import { AlertTriangle, Clock, ArrowRight, Plus, X, Search } from 'lucide-react'
+import { AiButton } from '@/components/kit-ai-button'
 import type { Tone } from '@/lib/data'
 
 type DbIncident = {
@@ -275,7 +276,6 @@ export default function IncidentsPage() {
             const tone = severityTone(inc.severity)
             const sTone = STATUS_TONE[inc.status] ?? 'intel'
             const sLabel = STATUS_LABEL[inc.status] ?? inc.status
-            const isFixing = fixingId === inc.id
             return (
               <Card key={inc.id} className="p-4 transition-colors hover:border-border">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
@@ -304,22 +304,20 @@ export default function IncidentsPage() {
                     </div>
                   </div>
                   <div className="flex shrink-0 flex-wrap gap-2 lg:w-56 lg:flex-col">
-                    <button
+                    <AiButton
                       onClick={() => handleInvestigate(inc)}
-                      disabled={isFixing || fixingId !== null}
-                      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-ai px-3 py-1.5 text-xs font-medium text-ai-foreground hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isFixing ? (
-                        <>
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          Investigating…
-                        </>
-                      ) : (
-                        <>
-                          Investigate <ArrowRight className="h-3.5 w-3.5" />
-                        </>
-                      )}
-                    </button>
+                      busy={fixingId === inc.id}
+                      idleLabel="Investigate"
+                      busyLabel="Agents investigating…"
+                      stages={[
+                        'Reading telemetry…',
+                        'Mapping to source files…',
+                        'Agents investigating…',
+                        'Preparing recommendations…',
+                      ]}
+                      icon={<Search className="h-3.5 w-3.5" />}
+                      className="flex-1 px-3 py-1.5 text-xs"
+                    />
                     <Link
                       href={`/incidents/${inc.id}`}
                       className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-border/70 bg-card/60 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
