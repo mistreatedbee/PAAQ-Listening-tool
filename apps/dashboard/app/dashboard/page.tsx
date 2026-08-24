@@ -14,6 +14,7 @@ import { AiDiscoveries } from '@/components/dashboard/ai-discoveries'
 import { PredictedRisks } from '@/components/dashboard/predicted-risks'
 import { LiveUsers } from '@/components/dashboard/live-users'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
+import { ActivationChecklist } from '@/components/dashboard/activation-checklist'
 import { WifiOff } from 'lucide-react'
 import Link from 'next/link'
 
@@ -83,6 +84,9 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {/* Activation checklist for early-stage connected users */}
+      <ActivationChecklist />
 
       {/* 1 — Live Users + Connection Status */}
       <LiveUsers />
