@@ -31,6 +31,13 @@ const MAX_EXPLORE_TURNS = 8
 const MAX_TREE_ENTRIES = 1200
 const MAX_FILE_CHARS = 12000
 const MAX_PLAN_STEPS = 8
+// Wall-clock ceiling for the explore loop inside one invocation. The whole
+// loop runs synchronously in a single edge-function call, so past ~105s we
+// stop exploring and force convergence rather than risk the platform
+// killing the function mid-flight (which would strand the run in
+// 'exploring' forever — the same failure mode the per-step execution
+// design exists to prevent).
+const EXPLORE_TIME_BUDGET_MS = 105_000
 
 export type PlanStep = {
   step: number
@@ -78,6 +85,15 @@ export async function exploreAndPlan(
   const treeListing = allPaths.slice(0, MAX_TREE_ENTRIES).join('\n')
 
   const explored: string[] = []
+  const failedPaths: string[] = []
+
+  // Stack traces usually name the real file. Surfacing those paths up front
+  // lets the agent start from evidence instead of guessing through the tree —
+  // the single biggest lever on whether exploration converges at all.
+  const stackHintPaths = (rec.description?.match(/[\w./-]+\.(?:ts|tsx|js|jsx|py|rb|go|java|kt|swift|dart|php|cs)\b/g) ?? [])
+    .filter((p) => !p.includes('node_modules'))
+    .slice(0, 12)
+    .filter((p) => allPaths.length === 0 || allPaths.includes(p))
 
   const patchPlanText = rec.patch_plan?.length
     ? `\nExisting investigation notes (context only — verify against the real code, don't trust blindly):\n${rec.patch_plan.map((s, i) => `  ${i + 1}. ${s}`).join('\n')}`
@@ -95,6 +111,12 @@ export async function exploreAndPlan(
 1. Explore. Call read_file on every file you actually need to understand the issue — start from the file tree below. Do not stop at one file if the real cause spans more than one (e.g. a UI bug caused by a backend response shape, a shared util used in several places). Never reason about the fix from filenames or descriptions alone.
 2. Once you genuinely understand the cause, call propose_plan with a concrete, ordered todo list — one item per discrete change, each naming the exact file it touches. This plan is shown to a human for approval before any code is written, so it must be specific enough for them to judge it (not "fix the bug" — say exactly what changes in which file and why).
 
+Efficiency rules (you have a hard turn budget — see the turn counter on every message):
+- Read MULTIPLE files per turn by calling read_file several times in one response. Do NOT spend one turn per file.
+- Start with files named in the stack trace or hints; expand outward only as needed.
+- If a read fails (file doesn't exist), do NOT retry variants of that path more than once — move to a different candidate.
+- Aim to propose_plan within 3 turns. Convergence is mandatory before the budget runs out.
+
 Rules:
 - You MUST call read_file at least once before propose_plan. A plan with no real file read is a guess, not an investigation, and will be rejected.
 - Cap the plan at ${MAX_PLAN_STEPS} steps. If it genuinely needs more, say so in summary and lower confidence rather than overreaching.
@@ -104,9 +126,12 @@ Rules:
 Title: ${rec.title}
 Type: ${rec.type}
 Description: ${rec.description ?? 'none'}${rootCauseText}${affectedHint}${patchPlanText}${explicitHint}
+${stackHintPaths.length ? `\nFiles named in the stack trace/description — read these first:\n${stackHintPaths.map((p) => `- ${p}`).join('\n')}` : ''}
 
 Repo file tree (${allPaths.length} files total${allPaths.length > MAX_TREE_ENTRIES ? `, showing first ${MAX_TREE_ENTRIES}` : ''}):
-${treeListing || '(tree unavailable — call read_file to probe likely paths directly)'}`
+${treeListing || '(tree unavailable — call read_file to probe likely paths directly)'}
+
+Turn 1 of ${MAX_EXPLORE_TURNS}. You have ${MAX_EXPLORE_TURNS} turns total; propose_plan must happen before they run out.`
 
   // OpenAI-style function tools for the OpenRouter wire format.
   const tools = [
@@ -151,7 +176,35 @@ ${treeListing || '(tree unavailable — call read_file to probe likely paths dir
     { role: 'user', content: userPrompt },
   ]
 
+  const startedAt = Date.now()
+
   for (let turn = 0; turn < MAX_EXPLORE_TURNS; turn++) {
+    // Final turn: force a decision instead of letting the run die at the cap.
+    // The model is told to commit to its best-supported plan now (or an
+    // explicit "not fixable" summary) — anything beats the generic
+    // "didn't converge" failure the user sees otherwise.
+    const turnsLeft = MAX_EXPLORE_TURNS - turn
+    if (turn > 0) {
+      messages.push({
+        role: 'user',
+        content: turnsLeft <= 2
+          ? `Turn ${turn + 1} of ${MAX_EXPLORE_TURNS}. ${turnsLeft === 1 ? 'This is your LAST turn — call propose_plan NOW with your best-supported plan based on what you have read (lower confidence and state uncertainty in summary rather than continuing to explore). If you truly found nothing actionable, propose_plan with summary explaining why and confidence 0.' : 'Budget nearly exhausted — wrap up investigation this turn.'}`
+          : `Turn ${turn + 1} of ${MAX_EXPLORE_TURNS} (${turnsLeft} remaining).`,
+      })
+    }
+
+    // Wall-clock guard: if we're close to the invocation timeout, force
+    // convergence immediately rather than risk the platform killing the
+    // function mid-call and stranding the run in 'exploring'.
+    const timeLeft = EXPLORE_TIME_BUDGET_MS - (Date.now() - startedAt)
+    if (turn > 0 && timeLeft < 25_000 && explored.length > 0) {
+      await appendLog(runId, 'Time budget nearly spent — forcing plan proposal from findings so far…')
+      messages.push({
+        role: 'user',
+        content: 'Time budget exhausted. Call propose_plan NOW with the best plan supported by the files you have already read.',
+      })
+    }
+
     let response: Awaited<ReturnType<typeof openRouterChat>>
     try {
       response = await openRouterChat({ apiKey, messages, maxTokens: 8192, tools })
@@ -162,20 +215,38 @@ ${treeListing || '(tree unavailable — call read_file to probe likely paths dir
     }
 
     const { message: assistantMsg, finishReason } = response
+
+    if (finishReason === 'length') {
+      // A truncated turn isn't necessarily fatal: the model may have burned
+      // its budget on reasoning before emitting tool calls. Give it one
+      // recovery nudge (cheap turn) instead of killing the whole run.
+      await appendLog(runId, 'Response was truncated — retrying with a nudge to answer concisely…')
+      messages.push({
+        role: 'user',
+        content: 'Your previous response was cut off by the token limit. Continue concisely: call read_file for only the single most important file you still need, or call propose_plan if you know enough already.',
+      })
+      continue
+    }
     messages.push({
       role: 'assistant',
       content: assistantMsg.content ?? undefined,
       ...(assistantMsg.tool_calls ? { tool_calls: assistantMsg.tool_calls } : {}),
     })
 
-    if (finishReason === 'length') {
-      await updateRun(runId, { status: 'failed', error: 'Agent response was truncated mid-turn — try narrowing the issue description.' })
-      return
-    }
-
     const toolCalls = assistantMsg.tool_calls ?? []
 
     if (toolCalls.length === 0) {
+      // Narration without action. One free nudge to act; on the second
+      // offense (or final turn), salvage whatever text exists as the error
+      // so the user sees the agent's own explanation, not a generic one.
+      if (turn < MAX_EXPLORE_TURNS - 2 && turnsLeft > 2) {
+        await appendLog(runId, 'Agent replied without acting — nudging it to investigate…')
+        messages.push({
+          role: 'user',
+          content: 'Replying in prose does not progress the investigation. Either call read_file on the files you need or call propose_plan with your current best understanding.',
+        })
+        continue
+      }
       const text = assistantMsg.content ?? ''
       await updateRun(runId, { status: 'failed', error: text || 'Agent stopped without proposing a plan.' })
       return
@@ -240,9 +311,20 @@ ${treeListing || '(tree unavailable — call read_file to probe likely paths dir
             }),
           })
         } else {
+          if (path && !failedPaths.includes(path)) failedPaths.push(path)
+          // Give the model usable signal on failure: what was already tried
+          // and a few real alternatives from the tree, so it stops guessing.
+          const guesses = allPaths.filter((p) => !failedPaths.includes(p) && !explored.includes(p)).slice(0, 15)
           messages.push({
             role: 'user',
-            content: JSON.stringify({ tool: 'read_file', tool_call_id: call.id, ok: false, error: result.error }),
+            content: JSON.stringify({
+              tool: 'read_file',
+              tool_call_id: call.id,
+              ok: false,
+              error: result.error,
+              pathsAlreadyTriedAndFailed: failedPaths,
+              ...(guesses.length ? { availableAlternatives: guesses } : {}),
+            }),
           })
         }
       } else {
@@ -252,6 +334,40 @@ ${treeListing || '(tree unavailable — call read_file to probe likely paths dir
         })
       }
     }
+  }
+
+  // Hit the turn cap. If the agent read anything at all, that's still enough
+  // for a salvage plan — run one final forced-proposal call so the user gets
+  // a reviewable plan (possibly low-confidence) instead of a dead end.
+  if (explored.length > 0) {
+    await appendLog(runId, 'Turn budget spent — requesting a best-effort plan from what was explored…')
+    messages.push({
+      role: 'user',
+      content: `The ${MAX_EXPLORE_TURNS}-turn investigation budget is now exhausted. Call propose_plan immediately with the best plan you can support from the files you already read. Set confidence honestly (below 40 if uncertain) and explain remaining unknowns in summary.`,
+    })
+    try {
+      const { message: finalMsg } = await openRouterChat({ apiKey, messages, maxTokens: 8192, tools })
+      const planCall = (finalMsg.tool_calls ?? []).find((c) => c.function.name === 'propose_plan')
+      if (planCall) {
+        const input = JSON.parse(planCall.function.arguments) as { summary: string; confidence: number; steps: { description: string; path: string }[] }
+        if (input.steps?.length) {
+          const plan: PlanStep[] = input.steps.slice(0, MAX_PLAN_STEPS).map((s, i) => ({
+            step: i + 1,
+            description: s.description,
+            path: s.path ?? null,
+            status: 'pending',
+          }))
+          await appendLog(runId, `Salvaged a plan (${plan.length} step${plan.length === 1 ? '' : 's'}) from the exploration so far.`)
+          await updateRun(runId, {
+            status: 'awaiting_plan_approval',
+            summary: input.summary,
+            confidence: Math.min(input.confidence ?? 0, 40),
+            plan,
+          })
+          return
+        }
+      }
+    } catch { /* fall through to the generic failure below */ }
   }
 
   await updateRun(runId, { status: 'failed', error: `Investigation didn't converge within ${MAX_EXPLORE_TURNS} turns — try a narrower issue description or point at a specific file.` })
