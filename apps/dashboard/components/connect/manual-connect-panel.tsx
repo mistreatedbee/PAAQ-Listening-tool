@@ -142,7 +142,7 @@ Generate the integration code directly. The API endpoints are:
 Auth headers for BOTH endpoints:
   Authorization: Bearer ${tok}
   X-Project-ID:  ${key}
-  X-SDK-Version: 1.1.0
+  X-SDK-Version: 1.2.6
   X-Platform:    <framework name>
   X-Environment: production
 

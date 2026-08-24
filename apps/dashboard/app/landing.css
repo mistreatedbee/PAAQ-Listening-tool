@@ -529,6 +529,24 @@
 .landing-root .cta-desc { font-size: 1rem; color: var(--text-muted); margin-bottom: 28px; position: relative; z-index: 2; }
 .landing-root .cta-actions { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; position: relative; z-index: 2; }
 
+/* ─── Referral / waiting-list CTA ──────────────────────────────────────── */
+.landing-root .refer-cta {
+    padding: 90px 24px; text-align: center; position: relative; overflow: hidden;
+}
+.landing-root .refer-cta::before {
+    content: ''; position: absolute; inset: 0;
+    background:
+        radial-gradient(ellipse at 50% 0%, rgba(81,201,211,0.10) 0%, transparent 60%),
+        var(--bg);
+    pointer-events: none;
+}
+.landing-root .refer-cta > * { position: relative; z-index: 1; }
+.landing-root .refer-desc {
+    font-size: 1.05rem; color: var(--text-muted); line-height: 1.7;
+    max-width: 560px;
+}
+.landing-root .refer-cta-buttons { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; margin-top: 12px; }
+
 /* ─── Footer ─────────────────────────────────────────────────────────────── */
 .landing-root .footer { border-top: 1px solid var(--border-light); padding: 60px 24px 32px; }
 .landing-root .footer-grid { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 40px; margin-bottom: 40px; }
@@ -590,5 +608,7 @@
     .landing-root .hero-actions .btn, .landing-root .hero-actions .btn-outline-lg { width: 100%; justify-content: center; }
     .landing-root .cta-actions { flex-direction: column; }
     .landing-root .cta-actions .btn, .landing-root .cta-actions .btn-outline-lg { width: 100%; justify-content: center; }
+    .landing-root .refer-cta-buttons { flex-direction: column; }
+    .landing-root .refer-cta-buttons .btn { width: 100%; justify-content: center; }
     .landing-root .mockup-kpi-row { grid-template-columns: 1fr 1fr; gap: 4px; }
 }

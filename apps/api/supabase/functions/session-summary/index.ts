@@ -18,7 +18,7 @@ Deno.serve(async (req) => {
   if (req.method !== 'POST') return respond({ error: 'Method not allowed' }, 405)
 
   const aiConfig = getAiConfig()
-  if (!aiConfig) return respond({ error: 'No AI API key configured. Set GEMINI_API_KEY or ANTHROPIC_API_KEY in Supabase secrets.' }, 500)
+  if (!aiConfig) return respond({ error: 'No AI API key configured. Set OPENROUTER_API_KEY in Supabase secrets.' }, 500)
 
   const body = await req.json().catch(() => ({}))
   const sessionId = body.session_id as string | undefined

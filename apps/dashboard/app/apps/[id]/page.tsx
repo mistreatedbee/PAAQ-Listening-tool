@@ -384,9 +384,9 @@ export default function AppManagementPage() {
         : platform === 'reactnative'
         ? 'npm install @paaq/react-native-sdk @react-native-async-storage/async-storage'
         : platform === 'ios'
-        ? '# Xcode → File → Add Package Dependencies\nhttps://github.com/mistreatedbee/paaq-intelligence-ios\n# Version: Up to Next Major from 1.0.0 → select PaaqIntelligence'
+        ? '# Xcode → File → Add Package Dependencies\nhttps://github.com/mistreatedbee/PAAQ-Listening-tool\n# Version: Up to Next Major from 1.0.0 → select PaaqIntelligence'
         : platform === 'android'
-        ? '# 1. settings.gradle.kts → add JitPack:\nmaven { url = uri("https://jitpack.io") }\n\n# 2. build.gradle.kts → add dependency:\nimplementation("com.github.mistreatedbee:paaq-intelligence-android:1.0.0")'
+        ? '# 1. settings.gradle.kts → add JitPack:\nmaven { url = uri("https://jitpack.io") }\n\n# 2. build.gradle.kts → add dependency:\nimplementation("com.github.mistreatedbee.PAAQ-Listening-tool:paaq-intelligence-android:1.0.0")'
         : 'npm install @paaq/web-sdk',
       initCode: platform === 'flutter'
         ? `import 'package:paaq_intelligence/paaq_intelligence.dart';\n\nawait PAAQ.initialize(\n  sdkToken: '${tok}',\n  projectId: '${apiKey}',\n);`
@@ -396,7 +396,7 @@ export default function AppManagementPage() {
         ? `import PaaqIntelligence\n\n@main\nstruct MyApp: App {\n  init() {\n    Task {\n      await PAAQ.initialize(\n        sdkToken: "${tok}",\n        projectId: "${apiKey}"\n      )\n    }\n  }\n  var body: some Scene {\n    WindowGroup { ContentView() }\n  }\n}`
         : platform === 'android'
         ? `import io.paaq.intelligence.PAAQ\n\nclass MyApplication : Application() {\n  override fun onCreate() {\n    super.onCreate()\n    PAAQ.initialize(\n      context = this,\n      sdkToken = "${tok}",\n      projectId = "${apiKey}"\n    )\n  }\n}`
-        : `import { PAAQProvider } from '@paaq/web-sdk';\n\n<PAAQProvider sdkToken="${tok}" projectId="${apiKey}">\n  <YourApp />\n</PAAQProvider>`,
+        : `import { paaq } from '@paaq/web-sdk';\n\npaaq.init('${tok}', '${apiKey}');`,
     },
     backend: {
       installCmd: platform === 'python'

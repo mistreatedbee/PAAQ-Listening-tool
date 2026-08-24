@@ -8,7 +8,8 @@ import { Card, Confidence, ToneBadge } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import { toneBg } from '@/lib/tones'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
-import { Sparkles, Users, TrendingUp, ArrowRight, Loader2 } from 'lucide-react'
+import { Sparkles, Users, TrendingUp, ArrowRight } from 'lucide-react'
+import { AiButton } from '@/components/kit-ai-button'
 
 export function InsightCard({ insight, compact }: { insight: Insight; compact?: boolean }) {
   const { app } = useConnectedApp()
@@ -65,23 +66,37 @@ export function InsightCard({ insight, compact }: { insight: Insight; compact?: 
         <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border/50 pt-3">
           {insight.actions.map((a, i) => {
             const isInvestigate = a === 'Investigate'
+            if (isInvestigate) {
+              return (
+                <AiButton
+                  key={a}
+                  onClick={handleInvestigate}
+                  busy={investigating}
+                  idleLabel="Investigate"
+                  busyLabel="Agents investigating…"
+                  stages={[
+                    'Reading telemetry…',
+                    'Mapping to source files…',
+                    'Agents investigating…',
+                    'Preparing recommendations…',
+                  ]}
+                  icon={<TrendingUp className="h-3.5 w-3.5" />}
+                  className="px-2.5 py-1.5 text-xs"
+                />
+              )
+            }
             return (
               <button
                 key={a}
-                onClick={isInvestigate ? handleInvestigate : undefined}
-                disabled={isInvestigate && investigating}
                 className={cn(
-                  'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed',
+                  'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors',
                   i === 0
                     ? 'bg-ai text-ai-foreground hover:opacity-90'
                     : 'border border-border/70 bg-card/60 text-foreground hover:bg-accent',
                 )}
               >
-                {i === 0 && !isInvestigate && <TrendingUp className="h-3.5 w-3.5" />}
-                {isInvestigate && (investigating
-                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  : <TrendingUp className="h-3.5 w-3.5" />)}
-                {isInvestigate && investigating ? 'Investigating…' : a}
+                <TrendingUp className="h-3.5 w-3.5" />
+                {a}
               </button>
             )
           })}

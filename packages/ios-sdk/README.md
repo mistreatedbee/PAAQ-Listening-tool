@@ -61,16 +61,46 @@ PAAQ.screen("CheckoutView")
 // Identify the current user
 PAAQ.identify("user_123", traits: ["email": "user@example.com", "plan": "pro"])
 
-// Capture an error
+// Capture an error, optionally with extra context
 do {
     try riskyOperation()
 } catch {
-    PAAQ.captureError(error)
+    PAAQ.captureError(error, context: ["screen": "checkout"])
 }
 
 // Flush on app termination
 await PAAQ.flush()
+
+// End the session explicitly (e.g. on logout)
+await PAAQ.endSessionOnLogout()
 ```
+
+## Behavior analytics
+
+Scroll and form tracking are **opt-in** — there is no universal iOS hook for
+either (tap rage/dead detection is captured automatically). Wire these up from
+your view controllers / delegate callbacks:
+
+```swift
+// Scroll depth — call from scrollViewDidScroll with the % scrolled (0-100).
+// Milestones at 25/50/75/100% fire once.
+PAAQ.trackScrollDepth(pct)
+
+// Call when navigating so scroll depth is measured per screen.
+PAAQ.resetScrollTracking()
+
+// Form fields — call on focus, backspace, and blur of each field.
+PAAQ.trackFieldFocus("email")
+PAAQ.trackFieldBackspace("email")
+PAAQ.trackFieldBlur("email", formName: "signup", hadError: false, completed: false)
+PAAQ.trackFormAbandon("signup")
+```
+
+## Visual session replay
+
+Screenshot-based replay runs automatically once initialized — it renders the
+app's own view hierarchy (no screen-recording permission needed) and pauses
+while a form field is focused. No extra setup required.
 
 ## Features
 
@@ -79,4 +109,6 @@ await PAAQ.flush()
 - Automatic flush when app resigns active (before iOS suspends)
 - Stable device ID via UserDefaults (persists across launches)
 - 5-minute heartbeat keeps Connection Status green in your dashboard
+- Rage/dead-tap detection (automatic) and opt-in scroll/form tracking
+- Automatic screenshot-based visual session replay
 - Zero third-party dependencies

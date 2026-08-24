@@ -6,7 +6,8 @@ import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { PageHeader, Card, ToneBadge } from '@/components/kit'
 import { useBulkSelection, RowCheckbox, BulkActionsBar, ConfirmDeleteDialog } from '@/components/kit-bulk-actions'
 import { InsightCard } from '@/components/insight-card'
-import { Sparkles, RefreshCw } from 'lucide-react'
+import { AiButton } from '@/components/kit-ai-button'
+import { Sparkles } from 'lucide-react'
 import type { Insight, Tone } from '@/lib/data'
 
 type DbInsight = {
@@ -98,7 +99,7 @@ export default function AIInsightsPage() {
 
   const handleRegenerate = async () => {
     setRegenerating(true)
-    showToast('Running full AI analysis with Claude…')
+    showToast('Running full AI analysis…')
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/analyze`, {
         method: 'POST',
@@ -164,14 +165,18 @@ export default function AIInsightsPage() {
         title="AI Insights"
         desc="Autonomous analysis of what is happening, why, who is affected and what to do next."
         actions={
-          <button
+          <AiButton
             onClick={handleRegenerate}
-            disabled={regenerating}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-ai px-3 py-1.5 text-sm font-medium text-ai-foreground hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            <RefreshCw className={`h-4 w-4 ${regenerating ? 'animate-spin' : ''}`} />
-            {regenerating ? 'Analysing…' : 'Run AI Analysis'}
-          </button>
+            busy={regenerating}
+            idleLabel="Run AI Analysis"
+            stages={[
+              'Gathering insights data…',
+              'AI agents analysing…',
+              'Prioritising findings…',
+              'Almost there…',
+            ]}
+            icon={<Sparkles className="h-4 w-4" />}
+          />
         }
       />
 
@@ -239,7 +244,7 @@ export default function AIInsightsPage() {
           <Sparkles className="mx-auto mb-3 h-8 w-8 text-muted-foreground opacity-20" />
           <p className="text-sm font-medium text-foreground">No insights yet</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Click "Run AI Analysis" to analyse your live data with Claude AI.
+            Click "Run AI Analysis" to analyse your live data with AI.
           </p>
         </Card>
       ) : filtered.length === 0 ? (

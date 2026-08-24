@@ -7,6 +7,7 @@ import { PageHeader, Card, CardHead, ToneBadge, Confidence } from '@/components/
 import { cn } from '@/lib/utils'
 import { toneText } from '@/lib/tones'
 import { Search, Sparkles, CheckCircle2, Clock, AlertTriangle, Loader2, ChevronRight, Bot } from 'lucide-react'
+import { AiButton } from '@/components/kit-ai-button'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import type { Tone } from '@/lib/data'
 
@@ -119,16 +120,20 @@ export default function InvestigationsPage() {
         title="AI Investigations"
         desc="8 specialist agents automatically investigate incidents, correlate evidence, and surface root causes."
         actions={
-          <button
+          <AiButton
             onClick={handleTrigger}
-            disabled={triggering}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-ai px-3 py-1.5 text-sm font-medium text-ai-foreground hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {triggering
-              ? <Loader2 className="h-4 w-4 animate-spin" />
-              : <Sparkles className="h-4 w-4" />}
-            {triggering ? 'Investigating…' : 'Trigger Investigation'}
-          </button>
+            busy={triggering}
+            idleLabel="Trigger Investigation"
+            busyLabel="8 agents investigating…"
+            stages={[
+              'Collecting telemetry…',
+              'Dispatching 8 AI agents…',
+              'Correlating evidence…',
+              'Writing root cause…',
+              'Preparing recommendations…',
+            ]}
+            icon={<Sparkles className="h-4 w-4" />}
+          />
         }
       />
 

@@ -1,8 +1,9 @@
 'use client'
 
-import { Suspense, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
+import { track } from '@vercel/analytics/react'
 import { createClient } from '@/utils/supabase/client'
 import { Sparkles, ArrowRight, Loader2, Eye, EyeOff, Check, X } from 'lucide-react'
 
@@ -23,6 +24,28 @@ const C = {
 }
 
 const TEAL_GRADIENT = 'linear-gradient(135deg,#27a6ce,#51c9d3)'
+
+// ─── Referral (waiting-list) capture ─────────────────────────────────────────
+// A share link (e.g. /login?ref=PAAQAB12) carries the inviter's code. We stash
+// it in localStorage on this page, then POST it to /api/referral/claim the
+// moment a fresh account has a session (after signup) so the signup is
+// attributed to the referrer. Best-effort — a failure must never block signup.
+const REF_KEY = 'paaq_referral_code'
+
+async function claimReferral(code: string | null) {
+  if (!code) return
+  try {
+    await fetch('/api/referral/claim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    })
+  } catch {
+    // ignore — attribution is best-effort and never blocks the user
+  } finally {
+    try { localStorage.removeItem(REF_KEY) } catch { /* noop */ }
+  }
+}
 
 // ─── OAuth provider icons ─────────────────────────────────────────────────────
 
@@ -107,15 +130,42 @@ function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const returnTo = searchParams.get('returnTo') ?? '/dashboard'
-  const [mode, setMode] = useState<Mode>('signin')
+  const [mode, setMode] = useState<Mode>(() =>
+    searchParams.get('tab') === 'signup' ? 'signup' : 'signin',
+  )
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [loading, setLoading] = useState(false)
   const [oauthLoading, setOauthLoading] = useState<'google' | 'github' | null>(null)
   const [error, setError] = useState<string | null>(searchParams.get('error'))
+  const [resetSent, setResetSent] = useState(false)
+
+  // Keep the form in sync with the URL (?tab=signup deep-links land on the
+  // signup form, and browser back/forward swap between signin and signup).
+  useEffect(() => {
+    setMode((current) => {
+      const fromTab = searchParams.get('tab') === 'signup' ? 'signup' : 'signin'
+      return fromTab === current ? current : fromTab
+    })
+  }, [searchParams])
 
   const strength = mode === 'signup' ? passwordStrength(password) : null
+
+  const refCode = useRef<string | null>(null)
+
+  // Capture any referral code from the URL (?ref=…) or from a previous visit
+  // (localStorage). It's consumed by claimReferral() once a fresh signup has a
+  // session — see handleSubmit below.
+  useEffect(() => {
+    const fromUrl = searchParams.get('ref')
+    let fromStorage: string | null = null
+    try { fromStorage = localStorage.getItem(REF_KEY) } catch { /* noop */ }
+    refCode.current = fromUrl ?? fromStorage
+    if (fromUrl) {
+      try { localStorage.setItem(REF_KEY, fromUrl) } catch { /* noop */ }
+    }
+  }, [searchParams])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -126,19 +176,46 @@ function LoginForm() {
 
     if (mode === 'signin') {
       const { error: err } = await sb.auth.signInWithPassword({ email, password })
-      if (err) { setError(err.message); setLoading(false); return }
+      if (err) { track('signin_error'); setError(err.message); setLoading(false); return }
+      track('signin_success')
       router.push(returnTo)
       router.refresh()
     } else {
       if (password.length < 8) { setError('Password must be at least 8 characters.'); setLoading(false); return }
       const { error: err } = await sb.auth.signUp({ email, password })
-      if (err) { setError(err.message); setLoading(false); return }
+      if (err) { track('signup_error', { reason: 'sign_up_failed' }); setError(err.message); setLoading(false); return }
       // Auto sign in after signup (works when email confirmation is disabled in Supabase)
       const { error: signInErr } = await sb.auth.signInWithPassword({ email, password })
-      if (signInErr) { setError(signInErr.message); setLoading(false); return }
+      if (signInErr) { track('signup_error', { reason: 'auto_signin_failed' }); setError(signInErr.message); setLoading(false); return }
+      // Attribute the signup to the referrer now that a session exists.
+      await claimReferral(refCode.current ?? null)
+      track('signup_success', { referred: !!refCode.current })
       router.push('/onboarding')
       router.refresh()
     }
+  }
+
+  // Password reset — send the recovery email, then show an inline confirmation.
+  // The email's link points back here via /auth/callback?next=/reset-password,
+  // which exchanges the PKCE token into a recovery session. The user then sets
+  // a new password on /reset-password. Errors surface inline; a missing email
+  // is caught before any network call.
+  const handleForgotPassword = async () => {
+    if (resetSent) return
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('Enter your account email to reset your password.')
+      return
+    }
+    setError(null)
+    setLoading(true)
+    const sb = createClient()
+    const { error: err } = await sb.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`,
+    })
+    setLoading(false)
+    if (err) { setError(err.message); return }
+    track('password_reset_requested')
+    setResetSent(true)
   }
 
   const handleOAuth = async (provider: 'google' | 'github') => {
@@ -157,7 +234,11 @@ function LoginForm() {
   }
 
   const switchMode = () => {
-    setMode(mode === 'signin' ? 'signup' : 'signin')
+    const next = mode === 'signin' ? 'signup' : 'signin'
+    const params = new URLSearchParams(searchParams.toString())
+    params.set('tab', next)
+    router.replace(`/login?${params.toString()}`, { scroll: false })
+    setMode(next)
     setError(null)
     setPassword('')
   }
@@ -201,7 +282,7 @@ function LoginForm() {
         </div>
 
         {/* Benefits */}
-        <div className="relative space-y-4 px-10 pb-10">
+        <div className="relative space-y-4 px-10">
           {[
             { icon: Sparkles, text: 'AI root cause analysis in seconds' },
             { icon: Eye,      text: 'Real-time event stream across all platforms' },
@@ -216,6 +297,28 @@ function LoginForm() {
             </div>
           ))}
         </div>
+
+        {/* Social proof — testimonial */}
+        <div className="relative mx-10 mb-12 rounded-2xl border p-6"
+          style={{ borderColor: 'rgba(81,201,211,0.22)', background: 'rgba(81,201,211,0.06)' }}>
+          <div className="mb-3 flex items-center gap-1 text-sm" style={{ color: '#51C9D3' }}>
+            {'★★★★★'.split('').map((star, i) => <span key={i}>{star}</span>)}
+          </div>
+          <p className="mb-4 text-sm leading-relaxed" style={{ color: '#c3d4e3' }}>
+            "PAAQ caught a production spike before any of our users reported it — the AI root-cause
+            summary saved us hours. We were up and running in ten minutes."
+          </p>
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold text-white"
+              style={{ background: 'linear-gradient(135deg,#27A6CE,#51C9D3)' }}>
+              MK
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-white">Maya K.</p>
+              <p className="text-[11px]" style={{ color: '#8ba0b4' }}>Staff Engineer · Growth-stage SaaS</p>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* ── Right form panel ───────────────────────────────────────────────── */}
@@ -229,11 +332,30 @@ function LoginForm() {
           </div>
 
           <h1 className="mb-1 text-2xl font-black" style={{ color: C.textPrimary }}>
-            {mode === 'signin' ? 'Welcome back' : 'Create your account'}
+            {resetSent ? 'Check your email' : (mode === 'signin' ? 'Welcome back' : 'Create your account')}
           </h1>
           <p className="mb-8 text-sm" style={{ color: C.textSecondary }}>
-            {mode === 'signin' ? 'Sign in to your PAAQ dashboard.' : 'Start monitoring in under 5 minutes.'}
+            {resetSent
+              ? `If an account exists for ${email}, we've emailed a password reset link.`
+              : (mode === 'signin' ? 'Sign in to your PAAQ dashboard.' : 'Free forever at 25,000 events/mo. Sign up in under 5 minutes.')}
           </p>
+
+          {resetSent && (
+            <div className="mb-6 rounded-xl border p-5" style={{ borderColor: C.tealSoft, background: C.tealSoft }}>
+              <div className="mb-1 flex items-center gap-2">
+                <Check className="h-4 w-4" style={{ color: C.green }} />
+                <span className="text-sm font-semibold" style={{ color: C.textPrimary }}>Reset link sent</span>
+              </div>
+              <p className="mb-4 text-sm" style={{ color: C.textSecondary }}>
+                Open the link we sent to {email} to choose a new password. Check your spam folder if it doesn't
+                arrive within a few minutes.
+              </p>
+              <button type="button" onClick={handleForgotPassword} disabled={loading}
+                className="text-sm font-semibold hover:underline" style={{ color: C.teal }}>
+                Resend reset link
+              </button>
+            </div>
+          )}
 
           {/* OAuth buttons — hidden until Google/GitHub are enabled as Auth
               providers in Supabase; see OAUTH_ENABLED above. */}
@@ -263,6 +385,7 @@ function LoginForm() {
           )}
 
           {/* Email form */}
+          {!resetSent && (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="mb-2 block text-sm font-semibold" style={{ color: C.textPrimary }}>
@@ -277,8 +400,11 @@ function LoginForm() {
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <label className="text-sm font-semibold" style={{ color: C.textPrimary }}>Password</label>
-                {mode === 'signin' && (
-                  <a href="#" className="text-xs font-medium" style={{ color: C.teal }}>Forgot password?</a>
+                {mode === 'signin' && !resetSent && (
+                  <button type="button" onClick={handleForgotPassword}
+                    className="text-xs font-medium hover:underline" style={{ color: C.teal }}>
+                    Forgot password?
+                  </button>
                 )}
               </div>
               <AuthInput
@@ -323,13 +449,44 @@ function LoginForm() {
               }
             </button>
           </form>
+          )}
 
-          <p className="mt-6 text-center text-sm" style={{ color: C.textSecondary }}>
-            {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
-            <button onClick={switchMode} className="font-semibold transition-colors" style={{ color: C.teal }}>
-              {mode === 'signin' ? 'Sign up free' : 'Sign in'}
-            </button>
-          </p>
+          {!resetSent && (
+            <div className="mt-5 flex items-center justify-center gap-3 text-xs" style={{ color: C.textMuted }}>
+              <span className="flex items-center gap-1.5">
+                <Check className="h-3.5 w-3.5" style={{ color: C.green }} />
+                No credit card required
+              </span>
+              <span style={{ width: 1, height: 14, background: C.borderStrong }} />
+              <span className="flex items-center gap-1.5">
+                <Check className="h-3.5 w-3.5" style={{ color: C.green }} />
+                Setup in under 5 minutes
+              </span>
+              <span style={{ width: 1, height: 14, background: C.borderStrong }} />
+              <span className="flex items-center gap-1.5">
+                <Check className="h-3.5 w-3.5" style={{ color: C.green }} />
+                Cancel anytime
+              </span>
+            </div>
+          )}
+
+          {resetSent && (
+            <div className="mt-6 text-center">
+              <button type="button" onClick={() => { setResetSent(false); setError(null) }}
+                className="text-sm font-semibold hover:underline" style={{ color: C.teal }}>
+                ← Back to sign in
+              </button>
+            </div>
+          )}
+
+          {!resetSent && (
+            <p className="mt-6 text-center text-sm" style={{ color: C.textSecondary }}>
+              {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
+              <button onClick={switchMode} className="font-semibold transition-colors" style={{ color: C.teal }}>
+                {mode === 'signin' ? 'Sign up free' : 'Sign in'}
+              </button>
+            </p>
+          )}
 
           <p className="mt-6 text-center text-xs" style={{ color: C.textMuted }}>
             By continuing, you agree to our{' '}

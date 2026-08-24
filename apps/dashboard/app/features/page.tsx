@@ -4,8 +4,9 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { PageHeader, Card, CardHead, ToneBadge } from '@/components/kit'
+import { AiButton } from '@/components/kit-ai-button'
 import { cn } from '@/lib/utils'
-import { Blocks, RefreshCw, TrendingUp, TrendingDown, Minus } from 'lucide-react'
+import { Blocks, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 import type { Tone } from '@/lib/data'
 
 type Feature = {
@@ -97,14 +98,19 @@ export default function FeaturesPage() {
         title="Feature Health"
         desc="Every feature scored on usage, errors and completion — with AI-generated analysis and recommendations."
         actions={
-          <button
+          <AiButton
             onClick={runAnalysis}
-            disabled={analysing}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-ai px-3 py-1.5 text-sm font-medium text-ai-foreground hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            <RefreshCw className={`h-4 w-4 ${analysing ? 'animate-spin' : ''}`} />
-            {analysing ? 'Analysing…' : 'Run AI Analysis'}
-          </button>
+            busy={analysing}
+            idleLabel="Run AI Analysis"
+            stages={[
+              'Scoring feature usage…',
+              'Weighing errors…',
+              'Computing health scores…',
+              'Writing summaries…',
+              'Almost there…',
+            ]}
+            icon={<Blocks className="h-4 w-4" />}
+          />
         }
       />
 

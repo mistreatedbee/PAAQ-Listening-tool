@@ -33,7 +33,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 
 const PAAQ_BASE = 'https://mookyonwpovxscsbqwwl.supabase.co/functions/v1'
-const SDK_VERSION = '1.0.0'
+const SDK_VERSION = '1.2.6'
 
 // Mirrors FRONTEND_PLATFORMS/BACKEND_PLATFORMS in
 // apps/dashboard/components/shell/connected-app-context.tsx — kept in sync

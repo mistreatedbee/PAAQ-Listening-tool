@@ -6,7 +6,7 @@ const BASE_URL = 'https://mookyonwpovxscsbqwwl.supabase.co/functions/v1'
 // every install of this SDK has been wrong the entire time, which made
 // "is a customer actually running the new build" impossible to answer
 // from server-side logs alone. Now kept in lockstep with package.json.
-const SDK_VERSION = '1.2.5'
+const SDK_VERSION = '1.2.6'
 
 type ErrorPayload = {
   error_type: string

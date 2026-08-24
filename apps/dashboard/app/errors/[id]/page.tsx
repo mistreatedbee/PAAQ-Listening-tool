@@ -141,26 +141,42 @@ export default function ErrorDetailPage() {
     if (!error) return
     setStartingFix(true)
     setFixError(null)
-    const res = await fetch('/api/fix/from-error', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectId: error.project_id, errorId: error.id }),
-    }).then((r) => r.json()).catch(() => ({ ok: false, error: 'Network error' }))
-    setStartingFix(false)
-    if (!res.ok) { setFixError(res.error ?? 'Failed to start the fix agent'); return }
-    setExecuting({ recommendationId: res.recommendationId, title: res.title })
+    try {
+      const res = await fetch('/api/fix/from-error', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: error.project_id, errorId: error.id }),
+      })
+      const data = await res.json().catch(() => ({ ok: false, error: 'Invalid response from fix service' }))
+      if (!res.ok || !data?.ok) {
+        setFixError(data?.error ?? `Fix service unavailable (HTTP ${res.status})`)
+        return
+      }
+      setExecuting({ recommendationId: data.recommendationId, title: data.title })
+    } catch {
+      setFixError('Failed to start the fix agent: network or unexpected error')
+    } finally {
+      setStartingFix(false)
+    }
   }
 
   const handleUpdateStatus = async (newStatus: string) => {
     if (!error || error.status === newStatus) return
     setUpdating(true)
-    const sb = createClient()
-    const { error: dbErr } = await sb.from('errors').update({ status: newStatus }).eq('id', id)
-    if (!dbErr) {
+    try {
+      const sb = createClient()
+      const { error: dbErr } = await sb.from('errors').update({ status: newStatus }).eq('id', id)
+      if (dbErr) {
+        showToast(`Update failed: ${dbErr.message}`)
+        return
+      }
       setError({ ...error, status: newStatus })
       showToast(`Error marked as ${newStatus}`)
+    } catch {
+      showToast('Update failed: network or unexpected error')
+    } finally {
+      setUpdating(false)
     }
-    setUpdating(false)
   }
 
   if (loading) {

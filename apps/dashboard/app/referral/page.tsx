@@ -1,127 +1,79 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { createClient } from '@/utils/supabase/client'
+import { useCallback, useEffect, useState } from 'react'
 import { Card, CardHead, ToneBadge } from '@/components/kit'
-import { TrendingUp, Users, Gift, DollarSign, ArrowUpRight, Star } from 'lucide-react'
-import type { Tone } from '@/lib/data'
+import { Copy, Check, Share2, Users, Gift, Bell, Smile } from 'lucide-react'
 
-type ReferralStat = {
-  label: string
-  value: string | number
-  sub?: string
-  tone: Tone
-  delta?: string
-  Icon: typeof TrendingUp
-}
-
-type TopReferrer = {
-  id: string
-  display_name: string | null
+type ClaimedReferral = {
+  referred_user_id: string
   email: string | null
-  referral_count: number
-  total_earned: number | null
+  status: string
+  created_at: string
 }
 
-type RevenueByModule = {
-  module: string
-  total: number
-  count: number
+type StatsResult = {
+  ok: boolean
+  code: string | null
+  redeem_count: number
+  claimed: ClaimedReferral[]
+  error?: string
 }
 
-function formatAmount(n: number) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n / 100)
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 export default function ReferralPage() {
-  const [stats, setStats] = useState<ReferralStat[]>([])
-  const [topReferrers, setTopReferrers] = useState<TopReferrer[]>([])
-  const [revenue, setRevenue] = useState<RevenueByModule[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [code, setCode] = useState<string | null>(null)
+  const [count, setCount] = useState(0)
+  const [claimed, setClaimed] = useState<ClaimedReferral[]>([])
+  const [copied, setCopied] = useState<string | null>(null)
 
-  useEffect(() => {
-    const sb = createClient()
-    Promise.all([
-      sb.from('referrals').select('*', { count: 'exact', head: true }),
-      sb.from('referrals').select('*', { count: 'exact', head: true }).eq('status', 'converted'),
-      sb.from('referral_rewards').select('amount').limit(1000),
-      sb.from('profiles')
-        .select('id, display_name, email')
-        .limit(10),
-    ]).then(([
-      { count: totalReferrals },
-      { count: converted },
-      { data: rewards },
-      { data: profileData },
-    ]) => {
-      const t = totalReferrals ?? 0
-      const c = converted ?? 0
-      const convRate = t > 0 ? Math.round((c / t) * 100) : 0
-      const rewardAmt = ((rewards ?? []) as { amount: number | null }[]).reduce((a, r) => a + (r.amount ?? 0), 0)
-
-      setStats([
-        {
-          label: 'Total Referrals',
-          value: t.toLocaleString(),
-          sub: `${c} converted`,
-          tone: t > 0 ? 'healthy' : 'intel',
-          Icon: Users,
-        },
-        {
-          label: 'Conversion Rate',
-          value: `${convRate}%`,
-          sub: 'Referral → Signup',
-          tone: convRate >= 30 ? 'healthy' : convRate >= 15 ? 'warning' : 'intel',
-          Icon: TrendingUp,
-        },
-        {
-          label: 'Rewards Paid',
-          value: formatAmount(rewardAmt),
-          sub: `${(rewards ?? []).length} reward events`,
-          tone: 'intel',
-          Icon: Gift,
-        },
-        {
-          label: 'Total Revenue',
-          value: '—',
-          sub: 'Across all modules',
-          tone: 'intel',
-          Icon: DollarSign,
-        },
-      ])
-
-      setTopReferrers(
-        ((profileData ?? []) as { id: string; display_name: string | null; email: string | null }[]).map((p, i) => ({
-          id: p.id,
-          display_name: p.display_name,
-          email: p.email,
-          referral_count: Math.max(0, 10 - i),
-          total_earned: null,
-        })),
-      )
-
-      setRevenue([
-        { module: 'Book', total: 0, count: 0 },
-        { module: 'Attend', total: 0, count: 0 },
-        { module: 'Ask', total: 0, count: 0 },
-        { module: 'Learn', total: 0, count: 0 },
-      ])
-
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/referral', { method: 'GET' })
+      const data = (await res.json()) as StatsResult
+      if (!res.ok || !data.ok) {
+        setError(data.error ?? 'Could not load your referral details.')
+        return
+      }
+      setCode(data.code)
+      setCount(data.redeem_count)
+      setClaimed(data.claimed ?? [])
+    } catch {
+      setError('Something went wrong. Please try again.')
+    } finally {
       setLoading(false)
-    })
+    }
   }, [])
 
-  const moduleColor: Record<string, string> = {
-    Book: 'text-book',
-    Attend: 'text-attend',
-    Ask: 'text-ask',
-    Learn: 'text-learn',
+  useEffect(() => { refresh() }, [refresh])
+
+  const shareUrl = code ? `${window.location.origin}/login?ref=${code}` : ''
+  const message = code
+    ? `Join me on PAAQ Intelligence — AI that listens to your product and surfaces insights in minutes. ${shareUrl}`
+    : ''
+
+  const copyText = (text: string, scope: string) => {
+    navigator.clipboard?.writeText(text).catch(() => {})
+    setCopied(scope)
+    setTimeout(() => setCopied(null), 2000)
   }
-  const moduleBg: Record<string, string> = {
-    Book: 'bg-book/10',
-    Attend: 'bg-attend/10',
-    Ask: 'bg-ask/10',
-    Learn: 'bg-learn/10',
+
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'Join me on PAAQ Intelligence', text: message, url: shareUrl })
+        return
+      } catch {
+        // User dismissed the share sheet — fall through to email.
+      }
+    }
+    window.location.href = `mailto:?subject=${encodeURIComponent('Join me on PAAQ Intelligence')}&body=${encodeURIComponent(message)}`
   }
 
   return (
@@ -129,116 +81,165 @@ export default function ReferralPage() {
       {/* Header */}
       <div className="flex items-center gap-3">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-intel/10">
-          <TrendingUp className="h-5 w-5 text-intel" />
+          <Gift className="h-5 w-5 text-intel" />
         </div>
         <div>
-          <h1 className="text-lg font-bold tracking-tight text-foreground">Referral & Revenue Tracker</h1>
+          <h1 className="text-lg font-bold tracking-tight text-foreground">Invite friends, grow faster</h1>
           <p className="text-xs text-muted-foreground">
-            Referral conversion, top advocates, and revenue by module
+            Share your personal link — every friend who signs up is a step toward the next milestone.
           </p>
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-        {loading
-          ? Array(4).fill(0).map((_, i) => (
-              <div key={i} className="h-28 animate-pulse rounded-xl border border-border/40 bg-card/60" />
-            ))
-          : stats.map((s) => {
-              const Icon = s.Icon
-              return (
-                <Card key={s.label} className="p-4 relative overflow-hidden">
-                  <div className="absolute right-2 top-2 opacity-5">
-                    <Icon className="h-14 w-14" />
-                  </div>
-                  <div className="flex items-center gap-1.5 mb-2">
-                    <Icon className="h-3.5 w-3.5 text-muted-foreground/60" />
-                    <ToneBadge tone={s.tone} dot>
-                      {s.tone === 'healthy' ? 'Active' : s.tone === 'warning' ? 'Low' : 'Live'}
-                    </ToneBadge>
-                  </div>
-                  <p className="text-2xl font-bold tabular-nums text-foreground">{s.value}</p>
-                  <p className="text-[11px] font-medium text-foreground">{s.label}</p>
-                  {s.sub && <p className="mt-0.5 text-[10px] text-muted-foreground">{s.sub}</p>}
-                </Card>
-              )
-            })}
-      </div>
+      {error && (
+        <div className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          <span>{error}</span>
+          <button onClick={refresh} className="underline underline-offset-2">Retry</button>
+        </div>
+      )}
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_320px]">
-        {/* Top referrers */}
-        <Card>
-          <CardHead
-            title="Top Referrers"
-            desc="Users driving the most new signups through the PAAQ referral programme"
-          />
-          <div className="divide-y divide-border/40 px-5 pb-5">
-            {loading
-              ? Array(6).fill(0).map((_, i) => (
-                  <div key={i} className="py-3 flex items-center gap-3">
-                    <div className="h-7 w-7 animate-pulse rounded-full bg-card" />
-                    <div className="flex-1 space-y-1.5">
-                      <div className="h-3 w-28 animate-pulse rounded bg-card" />
+      {loading ? (
+        <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+          <div className="h-52 animate-pulse rounded-xl border border-border/40 bg-card/60" />
+          <div className="h-52 animate-pulse rounded-xl border border-border/40 bg-card/60" />
+        </div>
+      ) : (
+        <>
+          {/* Hero invite card */}
+          <Card className="p-5">
+            <div className="grid gap-5 lg:grid-cols-[1fr_260px]">
+              <div>
+                <div className="mb-1 flex items-center gap-2">
+                  <h2 className="text-sm font-semibold text-foreground">Your personal invite</h2>
+                  {code && <ToneBadge tone="healthy" dot>Live</ToneBadge>}
+                </div>
+                <p className="mb-4 text-xs text-muted-foreground">
+                  Anyone who opens this link can sign up — you'll be credited when they do.
+                </p>
+
+                {code ? (
+                  <>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-border/70 bg-background/40 px-3 py-2.5 font-mono text-xs text-foreground sm:text-sm">
+                        <span className="truncate">{shareUrl}</span>
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        <button
+                          onClick={() => copyText(shareUrl, 'link')}
+                          className="flex items-center gap-1.5 rounded-lg border border-border/70 bg-card px-3 py-2 text-xs font-semibold text-foreground hover:bg-accent"
+                        >
+                          {copied === 'link' ? <Check className="h-3.5 w-3.5 text-healthy" /> : <Copy className="h-3.5 w-3.5" />}
+                          {copied === 'link' ? 'Copied!' : 'Copy link'}
+                        </button>
+                        <button
+                          onClick={handleShare}
+                          className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-bold text-white"
+                          style={{ background: 'linear-gradient(135deg,#27a6ce,#51c9d3)' }}
+                        >
+                          <Share2 className="h-3.5 w-3.5" />
+                          Invite
+                        </button>
+                      </div>
                     </div>
-                    <div className="h-3 w-8 animate-pulse rounded bg-card" />
-                  </div>
-                ))
-              : topReferrers.map((r, i) => (
-                  <div key={r.id} className="flex items-center gap-3 py-2.5">
-                    <div className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-intel/10 text-intel font-semibold text-xs">
-                      {(r.display_name ?? r.email ?? '?').charAt(0).toUpperCase()}
-                      {i < 3 && (
-                        <span className="absolute -top-1 -right-1">
-                          <Star className="h-3 w-3 fill-learn text-learn" />
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-foreground truncate">
-                        {r.display_name ?? r.email ?? r.id.slice(0, 12)}
+                    {count > 0 && (
+                      <p className="mt-3 text-xs text-muted-foreground">
+                        <strong className="text-foreground">{count}</strong> friend{count === 1 ? '' : 's'} signed up with your link. Nice work.
                       </p>
-                    </div>
-                    <span className="flex items-center gap-1 text-xs font-bold text-foreground tabular-nums">
-                      {r.referral_count}
-                      <span className="text-[10px] font-normal text-muted-foreground">refs</span>
-                    </span>
-                    {r.total_earned && (
-                      <span className="text-xs text-healthy tabular-nums">{formatAmount(r.total_earned)}</span>
                     )}
+                  </>
+                ) : (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    Preparing your link…
                   </div>
-                ))}
-          </div>
-        </Card>
+                )}
+              </div>
 
-        {/* Revenue by module */}
-        <Card>
-          <CardHead title="Revenue by Module" desc="GMV breakdown across PAAQ's four product lines" />
-          <div className="space-y-3 px-5 pb-5">
-            {loading
-              ? Array(4).fill(0).map((_, i) => (
-                  <div key={i} className="h-14 animate-pulse rounded-lg border border-border/40 bg-card/60" />
-                ))
-              : revenue.map((r) => (
-                  <div
-                    key={r.module}
-                    className="flex items-center gap-3 rounded-lg border border-border/40 bg-background/30 px-3.5 py-3"
-                  >
-                    <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold ${moduleBg[r.module] ?? 'bg-muted/20'} ${moduleColor[r.module] ?? 'text-muted-foreground'}`}>
-                      {r.module.charAt(0)}
+              {/* Code + count snapshot */}
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
+                <div className="rounded-xl border border-border/70 bg-background/30 p-3.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Your code</p>
+                  {code ? (
+                    <button
+                      onClick={() => copyText(code, 'code')}
+                      className="mt-1 flex items-center gap-1.5 text-lg font-black tracking-widest text-foreground hover:underline"
+                    >
+                      {code}
+                      {copied === 'code' ? <Check className="h-3.5 w-3.5 text-healthy" /> : <Copy className="h-3.5 w-3.5 text-muted-foreground" />}
+                    </button>
+                  ) : (
+                    <div className="mt-1 text-lg font-black text-muted-foreground">—</div>
+                  )}
+                  <p className="text-[10px] text-muted-foreground">share-code</p>
+                </div>
+                <div className="rounded-xl border border-border/70 bg-background/30 p-3.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Signups</p>
+                  <p className="mt-1 text-lg font-black tabular-nums text-foreground">{count}</p>
+                  <p className="text-[10px] text-muted-foreground">attributed to you</p>
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          {/* Why share */}
+          <Card>
+            <CardHead title="Why share?" desc="Every friend you bring helps the community — and unlocks more for everyone." />
+            <div className="grid gap-3 px-5 pb-5 sm:grid-cols-3">
+              {[
+                { icon: Users, title: 'Grow the community', body: 'More teams learning from real production data.' },
+                { icon: Gift,  title: 'Track your influence', body: 'See your impact grow in real time, right here.' },
+                { icon: Bell,  title: 'Stay in the loop', body: 'We’ll let you know whenever a friend signs up.' },
+              ].map(({ icon: Icon, title, body }) => (
+                <div key={title} className="flex items-start gap-3 rounded-lg border border-border/40 bg-background/30 p-3.5">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-intel/10 text-intel">
+                    <Icon className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <p className="text-xs font-semibold text-foreground">{title}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{body}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          {/* People you've referred */}
+          <Card>
+            <CardHead
+              title="People you've brought in"
+              desc={count > 0 ? `${count} signup${count === 1 ? '' : 's'} via your link` : 'Your list is empty for now'}
+            />
+            {count === 0 ? (
+              <div className="flex flex-col items-center gap-2 px-5 pb-8 pt-2 text-center">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-card">
+                  <Smile className="h-6 w-6 text-muted-foreground/50" />
+                </div>
+                <p className="text-sm font-medium text-foreground">No signups yet</p>
+                <p className="max-w-sm text-xs text-muted-foreground">
+                  Copy your link above and share it with a friend. When they join, they'll show up here.
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-border/40 px-5 pb-5">
+                {claimed.map((r) => (
+                  <div key={r.referred_user_id} className="flex items-center gap-3 py-2.5">
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-intel/10 text-xs font-semibold text-intel">
+                      {(r.email ?? '?').charAt(0).toUpperCase()}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-xs font-semibold ${moduleColor[r.module] ?? 'text-foreground'}`}>{r.module}</p>
-                      <p className="text-[10px] text-muted-foreground">{r.count} transactions</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-semibold text-foreground">{r.email ?? 'Private user'}</p>
+                      <p className="text-[10px] text-muted-foreground">Joined {formatDate(r.created_at)}</p>
                     </div>
-                    <p className="text-sm font-bold tabular-nums text-foreground">
-                      {r.total > 0 ? formatAmount(r.total) : '—'}
-                    </p>
+                    <span className="flex items-center gap-1 text-xs font-semibold text-healthy">
+                      <Check className="h-3.5 w-3.5" /> signed up
+                    </span>
                   </div>
                 ))}
-          </div>
-        </Card>
-      </div>
+              </div>
+            )}
+          </Card>
+        </>
+      )}
     </div>
   )
 }

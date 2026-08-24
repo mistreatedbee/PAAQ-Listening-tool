@@ -120,7 +120,7 @@ async function fetchGithubTree(token: string, repo: RepoRef, ref: string): Promi
 }
 
 // Files over this line count use surgical patch mode instead of full-file rewrite,
-// preventing silent truncation when Claude's output limit is hit.
+// preventing silent truncation when the model's output limit is hit.
 const LARGE_FILE_LINE_THRESHOLD = 100
 
 type PatchEntry = { search: string; replace: string }
@@ -172,7 +172,7 @@ async function findFilesByKeywords(token: string, repo: RepoRef, title: string, 
 }
 
 /**
- * Uses Claude to pick the single most relevant file from a list of candidates.
+ * Uses the AI model to pick the single most relevant file from a list of candidates.
  * Falls back to the first candidate if anything goes wrong.
  */
 async function aiPickBestFile(
@@ -201,7 +201,7 @@ Candidate files:
 ${candidates.map((c, i) => `${i + 1}. ${c}`).join('\n')}
 
 Reply with ONLY the exact file path of the best match — nothing else, no explanation.`,
-      maxTokens: 120,
+      maxTokens: 4096,
     })
     const trimmed = picked.trim()
     return candidates.find((c) => c === trimmed) ?? candidates[0]
@@ -216,7 +216,7 @@ async function handleGenerate(rec: RecRow, explicitPath?: string) {
   const { provider, repo, token } = repoResult
 
   const aiConfig = getAiConfig()
-  if (!aiConfig) return respond({ ok: false, error: 'No AI API key configured. Set GEMINI_API_KEY or ANTHROPIC_API_KEY in Supabase secrets.' }, 500)
+  if (!aiConfig) return respond({ ok: false, error: 'No AI API key configured. Set OPENROUTER_API_KEY in Supabase secrets.' }, 500)
   const apiKey = aiConfig.apiKey
 
   let filePath = explicitPath
@@ -334,17 +334,17 @@ Rules:
   try {
     parsed = JSON.parse(raw)
   } catch {
-    // Claude sometimes wraps the JSON in a stray sentence despite instructions;
+    // Models sometimes wrap JSON in a stray sentence despite instructions;
     // fall back to the outermost {...} span before giving up.
     const start = raw.indexOf('{')
     const end = raw.lastIndexOf('}')
     if (start === -1 || end === -1 || end <= start) {
-      return respond({ ok: false, error: 'Failed to parse Claude response' }, 500)
+      return respond({ ok: false, error: 'Failed to parse AI response' }, 500)
     }
     try {
       parsed = JSON.parse(raw.slice(start, end + 1))
     } catch {
-      return respond({ ok: false, error: 'Failed to parse Claude response' }, 500)
+      return respond({ ok: false, error: 'Failed to parse AI response' }, 500)
     }
   }
 
@@ -501,7 +501,7 @@ async function handleStatus(rec: RecRow) {
  * repo, proposes a concrete plan, and stops for human approval before
  * writing anything. Runs synchronously within this request (same proven
  * pattern as onboard-agent's runLoop) — the explore phase is bounded to a
- * small number of Claude turns, so it comfortably finishes within one
+ * small number of AI turns, so it comfortably finishes within one
  * invocation; the dashboard subscribes to the fix_runs row via Realtime for
  * live progress rather than waiting on this response alone.
  */
@@ -511,7 +511,7 @@ async function handleStartRun(rec: RecRow, explicitPath?: string) {
   const { provider, repo, token } = repoResult
 
   const aiConfig = getAiConfig()
-  if (!aiConfig) return respond({ ok: false, error: 'No AI API key configured. Set GEMINI_API_KEY or ANTHROPIC_API_KEY in Supabase secrets.' }, 500)
+  if (!aiConfig) return respond({ ok: false, error: 'No AI API key configured. Set OPENROUTER_API_KEY in Supabase secrets.' }, 500)
   const apiKey = aiConfig.apiKey
 
   const { data: run, error: insertError } = await supabase
@@ -521,7 +521,7 @@ async function handleStartRun(rec: RecRow, explicitPath?: string) {
     .single()
   if (insertError || !run) return respond({ ok: false, error: insertError?.message ?? 'Failed to create fix run' }, 500)
 
-  await exploreAndPlan(run.id, rec, provider, repo, token, apiKey, explicitPath)
+  await exploreAndPlan(run.id, rec, provider, repo, token, explicitPath)
 
   const { data: finalRun } = await supabase.from('fix_runs').select('*').eq('id', run.id).maybeSingle()
   return respond({ ok: true, run: finalRun })
@@ -543,7 +543,7 @@ async function handleApprovePlan(runId: string, rec: RecRow) {
 
 /** Executes exactly one step of an already-running plan and returns —
  * never the whole plan in one request. A real multi-step plan (each step
- * costing several sequential Claude calls) reliably exceeded the edge
+ * costing several sequential AI calls) reliably exceeded the edge
  * function's execution limit when run as a single request, leaving the run
  * stuck 'running' forever with nothing surfaced to the user ("I click
  * approve and nothing happens"). The dashboard calls this repeatedly,
@@ -565,10 +565,10 @@ async function runOneStep(runId: string, rec: RecRow) {
   const { provider, repo, token } = repoResult
 
   const aiConfig = getAiConfig()
-  if (!aiConfig) return respond({ ok: false, error: 'No AI API key configured. Set GEMINI_API_KEY or ANTHROPIC_API_KEY in Supabase secrets.' }, 500)
+  if (!aiConfig) return respond({ ok: false, error: 'No AI API key configured. Set OPENROUTER_API_KEY in Supabase secrets.' }, 500)
   const apiKey = aiConfig.apiKey
 
-  const { done } = await executeNextStep(runId, rec, provider, repo, token, apiKey)
+  const { done } = await executeNextStep(runId, rec, provider, repo, token)
 
   const { data: finalRun } = await supabase.from('fix_runs').select('*').eq('id', runId).maybeSingle()
   return respond({ ok: true, run: finalRun, done })

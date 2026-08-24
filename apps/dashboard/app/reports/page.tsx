@@ -130,7 +130,7 @@ export default function ReportsPage() {
 
   const handleGenerate = async () => {
     setGenerating(true)
-    showToast('Running full AI analysis with Claude…')
+    showToast('Running full AI analysis…')
     const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/analyze`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}` },
@@ -216,7 +216,7 @@ export default function ReportsPage() {
                   <div>
                     <p className="text-sm font-semibold text-foreground">AI Executive Report</p>
                     <p className="text-xs text-muted-foreground">
-                      Generated {new Date(report!.generatedAt).toLocaleString()} · {report!.insights.length} insights · Claude AI
+                      Generated {new Date(report!.generatedAt).toLocaleString()} · {report!.insights.length} insights · PAAQ AI
                     </p>
                   </div>
                 </div>

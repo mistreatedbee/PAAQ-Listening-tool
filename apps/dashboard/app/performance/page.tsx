@@ -73,6 +73,7 @@ export default function PerformancePage() {
   const [rawRows, setRawRows] = useState<MetricRow[]>([])
   const [metrics, setMetrics] = useState<MetricSummary[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [live, setLive] = useState(false)
 
   useEffect(() => {
@@ -84,7 +85,13 @@ export default function PerformancePage() {
       .eq('project_id', app.id)
       .order('created_at', { ascending: true })
       .limit(200)
-      .then(({ data }) => {
+      .then(({ data, error: err }) => {
+        if (err) {
+          console.error('Performance metrics query failed:', err)
+          setError(err.message)
+          setLoading(false)
+          return
+        }
         const rows = (data ?? []) as MetricRow[]
         setRawRows(rows)
         setMetrics(buildSummaries(rows))
@@ -109,6 +116,23 @@ export default function PerformancePage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-32 text-sm text-muted-foreground">Loading…</div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          icon={<Gauge className="h-5 w-5 text-intel" />}
+          title="Performance Monitoring"
+          desc="Aggregated metrics from the PAAQ SDK — response times, error rates, CPU, memory and FPS."
+        />
+        <Card className="p-10 text-center">
+          <Gauge className="mx-auto mb-3 h-8 w-8 text-critical opacity-50" />
+          <p className="mb-2 text-sm font-semibold text-foreground">Failed to load performance data</p>
+          <p className="text-xs text-muted-foreground">{error}</p>
+        </Card>
+      </div>
     )
   }
 

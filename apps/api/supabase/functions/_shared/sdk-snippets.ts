@@ -9,7 +9,7 @@
 
 export type Framework = 'nextjs' | 'react' | 'vue' | 'vanilla' | 'nodejs' | 'python'
 
-const SDK_VERSION = '1.0.0'
+const SDK_VERSION = '1.2.6'
 const PAAQ_BASE = 'https://mookyonwpovxscsbqwwl.supabase.co/functions/v1'
 
 export const FRAMEWORK_LABELS: Record<Framework, string> = {
@@ -20,6 +20,54 @@ export const FRAMEWORK_LABELS: Record<Framework, string> = {
   nodejs: 'Node.js',
   python: 'Python',
 }
+
+// Self-contained, dependency-free slot-in so /connect (AI onboarding) web
+// snippets deliver the same headline feature the packaged `@paaq/web-sdk`
+// does out of the box: real DOM-reconstruction session replay. Lazily loads
+// rrweb from the CDN so the snippet stays a single block dropped next to the
+// paaq shim. Mirrors the official SDK contract — JSON posted to the
+// session-recording-upload edge, gzip not required (small batches). Privacy
+// defaults match the SDK: maskAllInputs + paaq-block/paaq-mask. Disable by
+// setting window.__PAAQ_RECORDING_ENABLED = false before init().
+const RECORDING_IMPL = `
+function __paqRcStart(pa) {
+  if (typeof document === 'undefined' || pa.__rc) return
+  if (!window.__paqRcRrweb) {
+    var s = document.createElement('script')
+    s.src = 'https://cdn.jsdelivr.net/npm/rrweb@2/dist/rrweb-all.min.js'
+    s.onload = function () { __paqRcStart(pa) }
+    s.onerror = function () { console.warn('[PAAQ] rrweb failed to load; recording disabled') }
+    document.head.appendChild(s)
+    return
+  }
+  var R = window.__paqRcRrweb
+  pa.__rc = R.record({
+    emit: function (ev) {
+      pa.__buf = pa.__buf || [] ; pa.__buf.push(ev)
+      if (ev.type === 2 || ev.type === 4) __paqRcFlush(pa, false)
+      else if (pa.__buf.length >= 200) __paqRcFlush(pa, true)
+    },
+    maskAllInputs: true,
+    blockClass: 'paaq-block',
+    maskTextClass: 'paaq-mask',
+    checkoutEveryNms: 15000,
+  })
+  pa.__tl = setInterval(function(){ __paqRcFlush(pa, true) }, 10000)
+}
+function __paqRcFlush(pa, keepalive) {
+  if (!pa.sessionId || !(pa.__buf||[]).length) return
+  var b = pa.__buf.splice(0)
+  var qs = new URLSearchParams({session_id:pa.sessionId,kind:'dom',sequence:String(pa.__seq||0),captured_at:new Date().toISOString()})
+  pa.__seq = (pa.__seq||0)+1
+  var h
+  try { h = (pa._headers || pa._h)() } catch(e) { return }
+  fetch(pa.base + ('/session-recording-upload?' + qs.toString()), { method:'POST', headers:h, body:JSON.stringify(b), keepalive:(keepalive ?? true) })
+    .catch(function(){})
+}
+`
+// One line to slot into each web template's init() after sessionId is set.
+// Gated on (default-on), matching the packaged SDK's always-on replay.
+const __WIRE_RECORDING_INTO_INIT = '    if (window.__PAAQ_RECORDING_ENABLED !== false) __paqRcStart(this)\n'
 
 function snippetNextjs(sdkToken: string, projectKey: string): string {
   return `// lib/paaq.ts — create this file in your Next.js project
@@ -64,7 +112,7 @@ export const paaq = {
     const data = await res?.json().catch(() => null)
     if (data?.ok) {
       this.sessionId = data.sessionId
-      console.log('[PAAQ] Connected', this.sessionId)
+${__WIRE_RECORDING_INTO_INIT}      console.log('[PAAQ] Connected', this.sessionId)
     }
   },
 
@@ -78,6 +126,7 @@ export const paaq = {
   },
 }
 
+${RECORDING_IMPL}
 // src/main.ts: import { paaq } from './paaq'; paaq.init()`
 }
 
@@ -121,7 +170,7 @@ export const paaq = {
     const data = await res?.json().catch(() => null)
     if (data?.ok) {
       this.sessionId = data.sessionId  // always use the server-assigned ID
-      console.log('[PAAQ] Connected', this.sessionId)
+${__WIRE_RECORDING_INTO_INIT}      console.log('[PAAQ] Connected', this.sessionId)
     }
   },
 
@@ -135,6 +184,7 @@ export const paaq = {
   },
 }
 
+${RECORDING_IMPL}
 // src/main.jsx: import { paaq } from './paaq'; paaq.init()`
 }
 
@@ -178,7 +228,7 @@ export const paaq = {
     const data = await res?.json().catch(() => null)
     if (data?.ok) {
       this.sessionId = data.sessionId
-      console.log('[PAAQ] Connected', this.sessionId)
+${__WIRE_RECORDING_INTO_INIT}      console.log('[PAAQ] Connected', this.sessionId)
     }
   },
 
@@ -192,6 +242,7 @@ export const paaq = {
   },
 }
 
+${RECORDING_IMPL}
 // src/main.js: import { paaq } from './paaq'; paaq.init()`
 }
 
@@ -234,7 +285,10 @@ const paaq = {
       body: JSON.stringify({ appVersion: this.appVersion || undefined, deviceMetadata: getDeviceMeta() }),
     }).catch(() => null)
     const data = await res?.json().catch(() => null)
-    if (data?.ok) { this.sessionId = data.sessionId; console.log('[PAAQ] Connected', this.sessionId) }
+    if (data?.ok) {
+      this.sessionId = data.sessionId
+${__WIRE_RECORDING_INTO_INIT}      console.log('[PAAQ] Connected', this.sessionId)
+    }
   },
 
   async track(event, props) {
@@ -247,8 +301,7 @@ const paaq = {
   },
 }
 
-paaq.init().then(() => paaq.track('page_view', { title: document.title }))
-</script>`
+paaq.init().then(() => paaq.track('page_view', { title: document.title }))${RECORDING_IMPL}</script>`
 }
 
 function snippetNodejs(sdkToken: string, projectKey: string): string {

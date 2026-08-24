@@ -26,7 +26,7 @@ type AskUser = {
 }
 
 // onboard-agent (apps/api/supabase/functions/onboard-agent/index.ts) always
-// stores message content as an Anthropic-style content-block array (even a
+// stores message content as a content-block array (even a
 // single text turn is `[{type:'text', text}]`) — assistant/user rows are
 // arrays of {type:'text', text} blocks; tool rows are arrays of
 // {type:'tool_result', tool_use_id, content: '<JSON-encoded tool output>'}.

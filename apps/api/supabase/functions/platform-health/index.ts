@@ -61,39 +61,31 @@ async function probeAuth(): Promise<Probe> {
   })
 }
 
-async function probeClaude(): Promise<Probe> {
+async function probeAi(): Promise<Probe> {
   const config = getAiConfig()
-  if (!config) return { ok: false, error: 'No AI API key configured. Set GEMINI_API_KEY or ANTHROPIC_API_KEY in Supabase secrets.' }
-
-  if (config.provider === 'gemini') {
-    return timed(async () => {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${config.apiKey}`)
-      if (!res.ok) throw new Error(`Gemini models endpoint returned ${res.status}`)
-    })
-  }
+  if (!config) return { ok: false, error: 'No AI API key configured. Set OPENROUTER_API_KEY in Supabase secrets.' }
 
   return timed(async () => {
-    const res = await fetch('https://api.anthropic.com/v1/models', {
-      headers: {
-        'x-api-key': config.apiKey,
-        'anthropic-version': '2023-06-01',
-      },
+    // OpenRouter exposes GET /api/v1/models (public) and /api/v1/key (auth'd).
+    // /key proves the API key itself is valid, which is the point of the probe.
+    const res = await fetch('https://openrouter.ai/api/v1/key', {
+      headers: { Authorization: `Bearer ${config.apiKey}` },
     })
-    if (!res.ok) throw new Error(`Anthropic models endpoint returned ${res.status}`)
+    if (!res.ok) throw new Error(`OpenRouter key endpoint returned ${res.status}`)
   })
 }
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: cors() })
 
-  const [realtime, storage, auth, claude] = await Promise.all([
+  const [realtime, storage, auth, ai] = await Promise.all([
     probeRealtime(),
     probeStorage(),
     probeAuth(),
-    probeClaude(),
+    probeAi(),
   ])
 
-  return new Response(JSON.stringify({ realtime, storage, auth, claude }), {
+  return new Response(JSON.stringify({ realtime, storage, auth, ai }), {
     headers: { 'Content-Type': 'application/json', ...cors() },
   })
 })

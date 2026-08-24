@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import 'rrweb-player/dist/style.css'
+import type { eventWithTime } from 'rrweb'
 import { Card, CardHead } from '@/components/kit'
 import { Video } from 'lucide-react'
 
@@ -24,6 +25,10 @@ export function DomReplayPlayer({ sessionId, seekToIso }: { sessionId: string; s
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}` },
           body: JSON.stringify({ session_id: sessionId }),
         })
+        if (!res.ok) {
+          if (!cancelled) setState('error')
+          return
+        }
         const data = await res.json()
         if (cancelled) return
 
@@ -32,11 +37,20 @@ export function DomReplayPlayer({ sessionId, seekToIso }: { sessionId: string; s
           return
         }
 
-        const chunkArrays = await Promise.all(
-          data.recording.chunks.map((c: { url: string }) => fetch(c.url).then((r) => r.json())),
-        )
-        if (cancelled) return
-        const events = chunkArrays.flat()
+        let events: eventWithTime[]
+        try {
+          const eventsRaw = await Promise.all(
+            data.recording.chunks.map((c: { url: string }) => fetch(c.url).then((r) => {
+              if (!r.ok) throw new Error(`chunk ${c.url} failed (${r.status})`)
+              return r.json()
+            })),
+          )
+          if (cancelled) return
+          events = eventsRaw.flat() as eventWithTime[]
+        } catch {
+          if (!cancelled) setState('error')
+          return
+        }
 
         if (events.length === 0) {
           setState('none')
@@ -45,7 +59,7 @@ export function DomReplayPlayer({ sessionId, seekToIso }: { sessionId: string; s
 
         // rrweb-player renders itself into the DOM directly — dynamically
         // imported since it touches window/document at module load time.
-        const firstTs = events.map((e: Record<string, unknown>) => e.timestamp as number | undefined).find((t: number | undefined): t is number => typeof t === 'number')
+        const firstTs = events.map((e) => e.timestamp).find((t): t is number => typeof t === 'number')
         recordingStartMsRef.current = firstTs ?? null
 
         const { default: RrwebPlayer } = await import('rrweb-player')
