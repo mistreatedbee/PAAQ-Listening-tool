@@ -117,7 +117,7 @@ Rules:
 - success = things working well, worth doubling down on
 - confidence is 0.0–1.0 based on how much data you have
 - Never say "consider monitoring" — be specific about WHAT and WHY`,
-    maxTokens: 2048,
+    maxTokens: 4096,
   })
 
   const cleanText = text.replace(/```json?\n?/g, '').replace(/```/g, '').trim()

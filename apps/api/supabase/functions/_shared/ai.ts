@@ -98,6 +98,20 @@ type ChatOptions = {
 }
 
 /**
+ * stealth/ox-alpha is a reasoning-style model: it emits internal "thinking"
+ * tokens that count against max_tokens before any visible answer text.
+ * Budgets sized for plain chat models (a few hundred tokens) get consumed by
+ * reasoning alone, ending the response truncated with empty content — so
+ * callers must reserve generous headroom. This floor is applied to every
+ * call that doesn't set an explicit budget.
+ */
+export const MIN_COMPLETION_TOKENS = 4096
+
+function effectiveMaxTokens(requested?: number): number {
+  return Math.max(requested ?? 0, MIN_COMPLETION_TOKENS)
+}
+
+/**
  * Single non-streaming chat completion against OpenRouter.
  * Returns the assistant message plus finish reason.
  */
@@ -117,7 +131,7 @@ export async function openRouterChat(options: ChatOptions): Promise<{
     body: JSON.stringify({
       model: options.model ?? OPENROUTER_MODEL,
       messages: options.messages,
-      max_tokens: options.maxTokens,
+      max_tokens: effectiveMaxTokens(options.maxTokens),
       temperature: options.temperature,
       ...(options.tools ? { tools: options.tools, tool_choice: options.toolChoice ?? 'auto' } : {}),
     }),
@@ -170,6 +184,9 @@ export async function askModel({
   })
 
   const text = message.content?.trim()
+  if (!text && finishReason === 'length') {
+    throw new Error('AI spent its whole token budget on reasoning before answering — retry or raise max_tokens')
+  }
   if (!text && finishReason !== 'tool_calls') {
     throw new Error(`OpenRouter returned no text content (finish_reason: ${finishReason ?? 'unknown'})`)
   }

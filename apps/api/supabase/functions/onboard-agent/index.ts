@@ -314,7 +314,7 @@ async function runLoop(runId: string, tenantId: string, projectId: string): Prom
       response = await openRouterChat({
         apiKey,
         messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...history],
-        maxTokens: 4096,
+        maxTokens: 8192,
         tools: toolDefs(),
       })
     } catch (err) {

@@ -89,7 +89,7 @@ Rules:
   try {
     raw = (await askModel({
       prompt,
-      maxTokens: 1024,
+      maxTokens: 4096,
     })).replace(/```json?\n?/g, '').replace(/```/g, '').trim()
   } catch (err) {
     return respond({ error: `AI error: ${err instanceof Error ? err.message : String(err)}` }, 500)

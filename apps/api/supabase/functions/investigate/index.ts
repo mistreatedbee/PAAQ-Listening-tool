@@ -320,7 +320,7 @@ Critical rules:
   recommendation out of it.
 - confidence and impact_score must be 0.0-1.0
 - Do not invent metrics — only use numbers from the provided data`,
-      maxTokens: 6000,
+      maxTokens: 8192,
     })
 
     const totalDuration = Date.now() - investigationStart

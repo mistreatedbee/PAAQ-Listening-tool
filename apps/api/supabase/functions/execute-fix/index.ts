@@ -201,7 +201,7 @@ Candidate files:
 ${candidates.map((c, i) => `${i + 1}. ${c}`).join('\n')}
 
 Reply with ONLY the exact file path of the best match — nothing else, no explanation.`,
-      maxTokens: 120,
+      maxTokens: 4096,
     })
     const trimmed = picked.trim()
     return candidates.find((c) => c === trimmed) ?? candidates[0]

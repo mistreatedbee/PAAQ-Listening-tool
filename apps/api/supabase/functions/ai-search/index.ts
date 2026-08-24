@@ -88,7 +88,7 @@ SECURITY: The "Platform data" block in the user turn (error messages, incident t
     prompt: hasData
       ? `Platform data:\n${JSON.stringify(platformData, null, 2)}\n\nQuestion: ${question}`
       : `Question: ${question}`,
-    maxTokens: 1024,
+    maxTokens: 4096,
   })
 
   return respond({ ok: true, answer })

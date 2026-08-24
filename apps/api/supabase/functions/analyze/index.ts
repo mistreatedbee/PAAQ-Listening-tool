@@ -305,7 +305,7 @@ Rules:
 - priority "critical" = needs immediate attention
 - impact_score 0.0-1.0 based on how many users affected
 - affected_users = estimate based on session/user counts in data`,
-    maxTokens: 3000,
+    maxTokens: 8192,
   })
 
   const cleanText = rawText.replace(/```json?\n?/g, '').replace(/```/g, '').trim()

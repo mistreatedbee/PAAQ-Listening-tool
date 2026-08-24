@@ -154,7 +154,7 @@ ${treeListing || '(tree unavailable — call read_file to probe likely paths dir
   for (let turn = 0; turn < MAX_EXPLORE_TURNS; turn++) {
     let response: Awaited<ReturnType<typeof openRouterChat>>
     try {
-      response = await openRouterChat({ apiKey, messages, maxTokens: 6000, tools })
+      response = await openRouterChat({ apiKey, messages, maxTokens: 8192, tools })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       await updateRun(runId, { status: 'failed', error: `AI call failed: ${message}` })
@@ -426,7 +426,7 @@ Rules:
     const { message, finishReason } = await openRouterChat({
       apiKey,
       messages: [{ role: 'user', content: prompt }],
-      maxTokens: 8000,
+      maxTokens: 16000,
     })
     if (finishReason === 'length') return { ok: false, error: 'Response truncated (file may be too large for one pass).' }
     const raw = message.content?.trim() ?? null
@@ -474,7 +474,7 @@ Reply with ONLY this JSON: { "passed": true|false, "note": "one short sentence" 
     const { message } = await openRouterChat({
       apiKey,
       messages: [{ role: 'user', content: prompt }],
-      maxTokens: 200,
+      maxTokens: 4096,
       temperature: 0,
     })
     const raw = message.content?.trim() || '{}'

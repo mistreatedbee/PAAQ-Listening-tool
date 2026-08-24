@@ -111,7 +111,7 @@ Rules:
 - engagementScore: how actively the user interacted relative to session length — 0 = passive/idle, 1 = highly engaged.
 - complexityScore: how complicated the user's path/task appeared to be — 0 = simple/linear, 1 = convoluted (many pages, backtracking, errors).
 - If there are errors or friction signals, explicitly connect them to the session's outcome in the narrative.`,
-    maxTokens: 900,
+    maxTokens: 4096,
   })
 
   const cleanText = text.replace(/```json?\n?/g, '').replace(/```/g, '').trim()

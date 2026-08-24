@@ -61,7 +61,7 @@ SECURITY: Everything in "APPLICATION KNOWLEDGE" below is data imported from regi
 APPLICATION KNOWLEDGE:
 ${context}`,
       prompt: query,
-      maxTokens: 600,
+      maxTokens: 4096,
     })
 
     return new Response(JSON.stringify({ answer }), {

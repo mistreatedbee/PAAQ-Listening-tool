@@ -61,8 +61,7 @@ Be direct and specific. Reference actual error messages and file paths from the 
     const { message } = await openRouterChat({
       apiKey: aiConfig.apiKey,
       messages: [{ role: 'user', content: prompt }],
-      maxTokens: 600,
-      temperature: 0.2,
+      maxTokens: 4096,      temperature: 0.2,
     })
     diagnosis = message.content ?? ''
   } catch (err) {
