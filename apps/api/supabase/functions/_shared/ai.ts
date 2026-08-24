@@ -59,6 +59,10 @@ export async function openRouterError(res: Response): Promise<Error> {
     detail = await res.text().catch(() => '')
   }
 
+  // Retry-After (seconds or HTTP-date) tells us how long the quota window is.
+  const retryAfterHeader = res.headers.get('retry-after')
+  const retryAfterSec = retryAfterHeader ? Number(retryAfterHeader) || 0 : 0
+
   switch (res.status) {
     case 400:
       return new Error(`OpenRouter bad request (${res.status}): ${detail || 'check model name and payload shape'}`)
@@ -69,7 +73,12 @@ export async function openRouterError(res: Response): Promise<Error> {
     case 408:
       return new Error(`OpenRouter timeout (${res.status}): upstream model took too long — retry or lower max_tokens`)
     case 429:
-      return new Error(`OpenRouter rate limited (${res.status}): slow down or check quota`)
+      // Distinguish a short burst limit (worth retrying) from an exhausted
+      // hourly/daily free-tier window (retrying inside this request is futile).
+      if (retryAfterSec > 60) {
+        return new Error(`OpenRouter quota exhausted (429): resets in ~${Math.ceil(retryAfterSec / 60)} min — add credits at openrouter.ai/credits or wait`)
+      }
+      return new Error(`OpenRouter rate limited (429): slow down or check quota`)
     default:
       if (res.status >= 500) {
         return new Error(`OpenRouter provider error (${res.status}): ${detail || 'upstream model/provider failed — retry shortly'}`)
@@ -114,24 +123,33 @@ function effectiveMaxTokens(requested?: number): number {
 /**
  * Single non-streaming chat completion against OpenRouter.
  * Returns the assistant message plus finish reason.
- * Retries once (short backoff) on transient failures — 429 rate limiting
- * and upstream provider 5xx are common on shared inference endpoints and
- * almost always clear within seconds.
+ * Retries transient failures (429 bursts, upstream 5xx, dropped responses)
+ * with exponential backoff, honoring Retry-After when provided. Auth,
+ * credit and malformed-request failures fail fast — retrying them would
+ * just reproduce the error.
  */
 export async function openRouterChat(options: ChatOptions): Promise<{
   message: { role: 'assistant'; content: string | null; tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> }
   finishReason: string | null
 }> {
+  const MAX_ATTEMPTS = 4
   let lastError: Error | null = null
-  for (let attempt = 0; attempt < 2; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, 3000))
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    if (attempt > 1) {
+      // Exponential backoff: 2s, 6s, 14s. Long quota windows (detected via
+      // the message) abort immediately instead of burning the deadline.
+      const backoffMs = /quota exhausted/i.test(lastError?.message ?? '')
+        ? 0
+        : Math.min(2000 * 3 ** (attempt - 2), 15000)
+      if (!backoffMs) throw lastError
+      await new Promise((r) => setTimeout(r, backoffMs))
+    }
     try {
       return await openRouterChatOnce(options)
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err))
-      // Only transient classes are worth retrying; auth/credit/bad-request
-      // failures would just fail again identically.
-      if (!/rate limited|provider error|no choices|timeout/i.test(lastError.message)) throw lastError
+      const transient = /rate limited|provider error|no choices|timeout|failed to parse ai response/i.test(lastError.message)
+      if (!transient || attempt === MAX_ATTEMPTS) throw lastError
     }
   }
   throw lastError ?? new Error('OpenRouter request failed')
