@@ -5,6 +5,7 @@ import { createClient } from '@/utils/supabase/client'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { PageHeader, Card, CardHead } from '@/components/kit'
 import { AiButton } from '@/components/kit-ai-button'
+import { AiProgressModal } from '@/components/kit-ai-progress-modal'
 import { cn } from '@/lib/utils'
 import { toneText } from '@/lib/tones'
 import { BarChart3, Sparkles } from 'lucide-react'
@@ -48,6 +49,7 @@ export default function ProductAnalyticsPage() {
   const [userCount, setUserCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [analysing, setAnalysing] = useState(false)
+  const [progressOpen, setProgressOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
   const showToast = (msg: string) => {
@@ -79,7 +81,7 @@ export default function ProductAnalyticsPage() {
 
   const runAnalysis = async () => {
     setAnalysing(true)
-    showToast('Running AI analysis on product data…')
+    setProgressOpen(true)
     const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/analyze`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}` },
@@ -88,6 +90,7 @@ export default function ProductAnalyticsPage() {
     const data = await res.json()
     if (!res.ok) showToast(`Analysis failed — ${data.error ?? 'unknown error'}`)
     else showToast('Analysis complete — Feature Health and User Journey pages updated')
+    setProgressOpen(false)
     setAnalysing(false)
   }
 
@@ -143,6 +146,21 @@ export default function ProductAnalyticsPage() {
           {toast}
         </div>
       )}
+
+      <AiProgressModal
+        open={progressOpen}
+        onClose={() => setProgressOpen(false)}
+        progress={{
+          title: 'AI product analysis',
+          stages: [
+            'Collecting events…',
+            'Scoring features…',
+            'Rebuilding journeys…',
+            'Detecting anomalies…',
+            'Writing summaries…',
+          ],
+        }}
+      />
 
       <PageHeader
         icon={<BarChart3 className="h-5 w-5" />}

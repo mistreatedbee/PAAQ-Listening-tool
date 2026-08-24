@@ -5,6 +5,7 @@ import { createClient } from '@/utils/supabase/client'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { PageHeader, Card, CardHead, ToneBadge } from '@/components/kit'
 import { AiButton } from '@/components/kit-ai-button'
+import { AiProgressModal } from '@/components/kit-ai-progress-modal'
 import { cn } from '@/lib/utils'
 import { Blocks, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 import type { Tone } from '@/lib/data'
@@ -45,6 +46,7 @@ export default function FeaturesPage() {
   const [features, setFeatures] = useState<Feature[]>([])
   const [loading, setLoading] = useState(true)
   const [analysing, setAnalysing] = useState(false)
+  const [progressOpen, setProgressOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
   const showToast = (msg: string) => {
@@ -66,7 +68,7 @@ export default function FeaturesPage() {
 
   const runAnalysis = async () => {
     setAnalysing(true)
-    showToast('Running AI analysis across all features…')
+    setProgressOpen(true)
     const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/analyze`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}` },
@@ -79,6 +81,7 @@ export default function FeaturesPage() {
       await fetchFeatures()
       showToast(`Analysis complete — ${data?.features ?? 0} features scored, ${data?.insights ?? 0} insights generated`)
     }
+    setProgressOpen(false)
     setAnalysing(false)
   }
 
@@ -92,6 +95,21 @@ export default function FeaturesPage() {
           {toast}
         </div>
       )}
+
+      <AiProgressModal
+        open={progressOpen}
+        onClose={() => setProgressOpen(false)}
+        progress={{
+          title: 'AI feature analysis',
+          stages: [
+            'Scoring feature usage…',
+            'Weighing errors…',
+            'Computing health scores…',
+            'Writing summaries…',
+            'Almost there…',
+          ],
+        }}
+      />
 
       <PageHeader
         icon={<Blocks className="h-5 w-5" />}

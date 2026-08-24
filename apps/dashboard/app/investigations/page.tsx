@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import { toneText } from '@/lib/tones'
 import { Search, Sparkles, CheckCircle2, Clock, AlertTriangle, Loader2, ChevronRight, Bot } from 'lucide-react'
 import { AiButton } from '@/components/kit-ai-button'
+import { AiProgressModal, type AiProgress } from '@/components/kit-ai-progress-modal'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import type { Tone } from '@/lib/data'
 
@@ -53,6 +54,7 @@ export default function InvestigationsPage() {
   const [investigations, setInvestigations] = useState<DbInvestigation[]>([])
   const [loading, setLoading] = useState(true)
   const [triggering, setTriggering] = useState(false)
+  const [invProgress, setInvProgress] = useState<AiProgress | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
   const showToast = (msg: string) => {
@@ -77,7 +79,17 @@ export default function InvestigationsPage() {
 
   const handleTrigger = async () => {
     setTriggering(true)
-    showToast('Dispatching 8 AI agents…')
+    setInvProgress({
+      title: 'Full platform investigation',
+      stages: [
+        'Collecting live telemetry…',
+        'Reading errors and sessions…',
+        'Dispatching 8 AI agents…',
+        'Correlating evidence…',
+        'Writing root cause…',
+      ],
+      agents: ['incident', 'root_cause', 'product', 'ux', 'qa', 'performance', 'security', 'executive'],
+    })
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/investigate`, {
         method: 'POST',
@@ -91,6 +103,7 @@ export default function InvestigationsPage() {
     } catch (err) {
       showToast(`Failed — ${err instanceof Error ? err.message : 'check Supabase logs'}`)
     }
+    setInvProgress(null)
     setTriggering(false)
   }
 
@@ -114,6 +127,12 @@ export default function InvestigationsPage() {
           {toast}
         </div>
       )}
+
+      <AiProgressModal
+        open={invProgress !== null}
+        onClose={() => setInvProgress(null)}
+        progress={invProgress}
+      />
 
       <PageHeader
         icon={<Search className="h-5 w-5 text-ai" />}

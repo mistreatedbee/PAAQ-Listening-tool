@@ -346,6 +346,25 @@
   animation: ai-dot 1.2s ease-in-out infinite;
 }
 
+/* ─── AI progress modal — orbit ring ─────────────────────────────────────── */
+@keyframes turn {
+  to { transform: rotate(360deg); }
+}
+.animate-turn-slow {
+  animation: turn 2.4s linear infinite;
+}
+.animate-turn-rev {
+  animation: turn 3.8s linear infinite reverse;
+}
+
+@keyframes ring-contract {
+  0% { transform: scale(0.6); opacity: 0.7; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+.animate-ring-contract {
+  animation: ring-contract 1.8s ease-out infinite;
+}
+
 /* ─── Admin scope — isolated from dashboard theme ─────────────────────────── */
 .admin-scope {
   --bg:          #080d12;

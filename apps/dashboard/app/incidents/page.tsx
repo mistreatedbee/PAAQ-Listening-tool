@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils'
 import { toneText } from '@/lib/tones'
 import { AlertTriangle, Clock, ArrowRight, Plus, X, Search } from 'lucide-react'
 import { AiButton } from '@/components/kit-ai-button'
+import { AiProgressModal, type AiProgress } from '@/components/kit-ai-progress-modal'
 import type { Tone } from '@/lib/data'
 
 type DbIncident = {
@@ -48,6 +49,7 @@ export default function IncidentsPage() {
   const [form, setForm] = useState({ title: '', severity: 'medium', description: '' })
   const [saving, setSaving] = useState(false)
   const [fixingId, setFixingId] = useState<string | null>(null)
+  const [invProgress, setInvProgress] = useState<AiProgress | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const bulk = useBulkSelection()
   const [confirmMode, setConfirmMode] = useState<'selected' | 'all' | null>(null)
@@ -101,7 +103,17 @@ export default function IncidentsPage() {
 
   const handleInvestigate = async (inc: DbIncident) => {
     setFixingId(inc.id)
-    showToast('Dispatching AI agents to investigate this incident…')
+    setInvProgress({
+      title: inc.title,
+      stages: [
+        'Collecting live telemetry…',
+        'Reading errors and sessions…',
+        'Mapping to source files…',
+        'Agents correlating evidence…',
+        'Preparing recommendations…',
+      ],
+      agents: ['incident', 'root_cause', 'product', 'ux', 'qa', 'performance', 'security', 'executive'],
+    })
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/investigate`, {
         method: 'POST',
@@ -118,6 +130,7 @@ export default function IncidentsPage() {
     } catch (err) {
       showToast(`Failed — ${err instanceof Error ? err.message : 'check Supabase logs'}`)
     }
+    setInvProgress(null)
     setFixingId(null)
   }
 
@@ -147,6 +160,12 @@ export default function IncidentsPage() {
           {toast}
         </div>
       )}
+
+      <AiProgressModal
+        open={invProgress !== null}
+        onClose={() => setInvProgress(null)}
+        progress={invProgress}
+      />
 
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">

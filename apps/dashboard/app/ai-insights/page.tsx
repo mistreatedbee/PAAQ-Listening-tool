@@ -7,6 +7,7 @@ import { PageHeader, Card, ToneBadge } from '@/components/kit'
 import { useBulkSelection, RowCheckbox, BulkActionsBar, ConfirmDeleteDialog } from '@/components/kit-bulk-actions'
 import { InsightCard } from '@/components/insight-card'
 import { AiButton } from '@/components/kit-ai-button'
+import { AiProgressModal } from '@/components/kit-ai-progress-modal'
 import { Sparkles } from 'lucide-react'
 import type { Insight, Tone } from '@/lib/data'
 
@@ -67,6 +68,7 @@ export default function AIInsightsPage() {
   const [raw, setRaw] = useState<DbInsight[]>([])
   const [loading, setLoading] = useState(true)
   const [regenerating, setRegenerating] = useState(false)
+  const [progressOpen, setProgressOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [filter, setFilter] = useState('All')
   const bulk = useBulkSelection()
@@ -99,7 +101,7 @@ export default function AIInsightsPage() {
 
   const handleRegenerate = async () => {
     setRegenerating(true)
-    showToast('Running full AI analysis…')
+    setProgressOpen(true)
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/analyze`, {
         method: 'POST',
@@ -113,6 +115,7 @@ export default function AIInsightsPage() {
     } catch (err) {
       showToast(`Analysis failed — ${err instanceof Error ? err.message : 'check Supabase logs'}`)
     }
+    setProgressOpen(false)
     setRegenerating(false)
   }
 
@@ -159,6 +162,21 @@ export default function AIInsightsPage() {
           {toast}
         </div>
       )}
+
+      <AiProgressModal
+        open={progressOpen}
+        onClose={() => setProgressOpen(false)}
+        progress={{
+          title: 'AI insight generation',
+          stages: [
+            'Gathering insights data…',
+            'Analysing patterns…',
+            'Prioritising findings…',
+            'Writing recommendations…',
+            'Almost there…',
+          ],
+        }}
+      />
 
       <PageHeader
         icon={<Sparkles className="h-5 w-5 text-ai" />}

@@ -10,15 +10,26 @@ import { toneBg } from '@/lib/tones'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { Sparkles, Users, TrendingUp, ArrowRight } from 'lucide-react'
 import { AiButton } from '@/components/kit-ai-button'
+import { AiProgressModal, type AiProgress } from '@/components/kit-ai-progress-modal'
+
+const INVESTIGATE_STAGES = [
+  'Collecting live telemetry…',
+  'Reading errors and sessions…',
+  'Mapping to source files…',
+  'Agents correlating evidence…',
+  'Preparing recommendations…',
+]
 
 export function InsightCard({ insight, compact }: { insight: Insight; compact?: boolean }) {
   const { app } = useConnectedApp()
   const router = useRouter()
   const [investigating, setInvestigating] = useState(false)
+  const [progressOpen, setProgressOpen] = useState(false)
 
   const handleInvestigate = async () => {
     if (app.id === '__loading__' || investigating) return
     setInvestigating(true)
+    setProgressOpen(true)
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/investigate`, {
         method: 'POST',
@@ -33,11 +44,24 @@ export function InsightCard({ insight, compact }: { insight: Insight; compact?: 
     } catch {
       // fall through — button just re-enables below
     }
+    setProgressOpen(false)
     setInvestigating(false)
+  }
+
+  // Navigation unmounts this card; keep the modal visible until then.
+  const progress: AiProgress = {
+    title: insight.title,
+    stages: INVESTIGATE_STAGES,
+    agents: ['incident', 'root_cause', 'product', 'ux', 'qa', 'performance', 'security', 'executive'],
   }
 
   return (
     <Card className="flex flex-col p-4 transition-colors hover:border-border">
+      <AiProgressModal
+        open={progressOpen}
+        onClose={() => setProgressOpen(false)}
+        progress={progress}
+      />
       <div className="flex items-start gap-3">
         <span className={cn('mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', 'bg-ai/12 text-ai')}>
           <Sparkles className="h-4 w-4" />
