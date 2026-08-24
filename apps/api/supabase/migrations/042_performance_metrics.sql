@@ -44,6 +44,8 @@ CREATE INDEX IF NOT EXISTS idx_performance_metrics_type
 
 ALTER TABLE performance_metrics ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS performance_metrics_tenant_isolation ON performance_metrics;
+
 CREATE POLICY performance_metrics_tenant_isolation 
   ON performance_metrics
   FOR ALL 
