@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
+import { track } from '@vercel/analytics/react'
 import { createClient } from '@/utils/supabase/client'
 import {
   Sparkles, Building2, Globe, Server, Smartphone, Boxes,
@@ -591,6 +592,7 @@ export default function OnboardingPage() {
         secretKey:     data.tokens.secretKey,
         webhookSecret: data.tokens.webhookSecret,
       })
+      track('onboarding_project_created', { platform: platformId })
       setScreen('sdk')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Something went wrong. Please try again.')
@@ -654,7 +656,7 @@ export default function OnboardingPage() {
               ))}
             </div>
 
-            <PrimaryButton onClick={() => setScreen('org')} className="w-full">
+            <PrimaryButton onClick={() => { track('onboarding_started'); setScreen('org') }} className="w-full">
               Get started <ArrowRight className="h-4 w-4" />
             </PrimaryButton>
             <p className="text-center text-xs" style={{ color: C.textMuted }}>
@@ -871,7 +873,7 @@ export default function OnboardingPage() {
               ))}
             </div>
             <Rule />
-            <PrimaryButton onClick={() => { router.push('/dashboard'); router.refresh() }} className="w-full">
+            <PrimaryButton onClick={() => { track('onboarding_completed'); router.push('/dashboard'); router.refresh() }} className="w-full">
               <CheckCircle2 className="h-4 w-4" /> Open my dashboard
             </PrimaryButton>
             <p className="text-center text-xs" style={{ color: C.textMuted }}>

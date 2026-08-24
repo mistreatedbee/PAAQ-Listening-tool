@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
+import { track } from '@vercel/analytics/react'
 import { createClient } from '@/utils/supabase/client'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { ToneBadge } from '@/components/kit'
@@ -385,9 +386,14 @@ export default function SetupPage() {
   }
 
   const handleMarkDone = (id: string) => {
-    setDone((prev) => ({ ...prev, [id]: !prev[id] }))
+    setDone((prev) => {
+      const next = { ...prev, [id]: !prev[id] }
+      if (next[id]) track('setup_step_done', { step: id })
+      return next
+    })
     if (id === 'verify') {
       startVerification()
+      track('setup_verified')
       setStep(5)
     }
   }
