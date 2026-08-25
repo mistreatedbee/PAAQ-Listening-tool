@@ -32,12 +32,14 @@ const MAX_TREE_ENTRIES = 1200
 const MAX_FILE_CHARS = 12000
 const MAX_PLAN_STEPS = 8
 // Wall-clock ceiling for the explore loop inside one invocation. The whole
-// loop runs synchronously in a single edge-function call, so past ~105s we
+// loop runs synchronously in a single edge-function call, so past ~75s we
 // stop exploring and force convergence rather than risk the platform
 // killing the function mid-flight (which would strand the run in
 // 'exploring' forever — the same failure mode the per-step execution
-// design exists to prevent).
-const EXPLORE_TIME_BUDGET_MS = 105_000
+// design exists to prevent). Sized so the forced plan-proposal call that
+// follows still fits inside a ~150s platform limit even when the primary
+// AI model stalls and we fall back.
+const EXPLORE_TIME_BUDGET_MS = 75_000
 
 export type PlanStep = {
   step: number
@@ -215,7 +217,7 @@ Turn 1 of ${MAX_EXPLORE_TURNS}. You have ${MAX_EXPLORE_TURNS} turns total; propo
     // convergence immediately rather than risk the platform killing the
     // function mid-call and stranding the run in 'exploring'.
     const timeLeft = EXPLORE_TIME_BUDGET_MS - (Date.now() - startedAt)
-    if (turn > 0 && timeLeft < 25_000 && explored.length > 0) {
+    if (turn > 0 && timeLeft < 20_000 && explored.length > 0) {
       await appendLog(runId, 'Time budget nearly spent — forcing plan proposal from findings so far…')
       messages.push({
         role: 'user',

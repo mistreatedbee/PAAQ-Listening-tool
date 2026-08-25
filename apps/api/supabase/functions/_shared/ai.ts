@@ -16,6 +16,13 @@
 
 export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
 export const OPENROUTER_MODEL = 'stealth/ox-alpha'
+/**
+ * Fallback models tried in order when the primary model stalls or fails
+ * transiently. The free-tier primary is occasionally queued upstream for
+ * minutes; a fast secondary keeps user-facing flows (fix agent, onboarding,
+ * investigate) responsive instead of failing after a 100s deadline.
+ */
+export const OPENROUTER_FALLBACK_MODELS = ['google/gemini-2.0-flash-001', 'meta-llama/llama-3.3-70b-instruct']
 
 export type AiProvider = 'openrouter'
 
@@ -134,6 +141,12 @@ export async function openRouterChat(options: ChatOptions): Promise<{
 }> {
   const MAX_ATTEMPTS = 4
   let lastError: Error | null = null
+  // Model chain: the primary first, then fallbacks. A transient stall on the
+  // free-tier primary (upstream queueing, burst limits) promotes the next
+  // model in the chain instead of failing the whole call — the caller keeps
+  // working with a slightly different model rather than getting an error.
+  // Explicit per-call models (rare) are respected and get no fallback.
+  const models = [options.model ?? OPENROUTER_MODEL, ...(options.model ? [] : OPENROUTER_FALLBACK_MODELS)]
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     if (attempt > 1) {
       // Exponential backoff: 2s, 6s, 14s. Long quota windows (detected via
@@ -145,7 +158,7 @@ export async function openRouterChat(options: ChatOptions): Promise<{
       await new Promise((r) => setTimeout(r, backoffMs))
     }
     try {
-      return await openRouterChatOnce(options)
+      return await openRouterChatOnce({ ...options, model: models[Math.min(attempt - 1, models.length - 1)] })
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err))
       const transient = /rate limited|provider error|no choices|timeout|failed to parse ai response/i.test(lastError.message)
