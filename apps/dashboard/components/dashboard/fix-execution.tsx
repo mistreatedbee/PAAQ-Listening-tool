@@ -9,7 +9,7 @@ import { createClient } from '@/utils/supabase/client'
 import {
   CheckCircle2, XCircle, X, GitBranch, ExternalLink,
   ShieldAlert, Settings, Rocket, FileCode2, Sparkles, GitMerge,
-  GitPullRequest, Wrench, Eye, ThumbsDown, RotateCcw, Loader2, Clock, ListChecks, FileSearch,
+  GitPullRequest, Wrench, Eye, ThumbsDown, RotateCcw, Loader2, Clock, ListChecks, FileSearch, AlertTriangle,
 } from 'lucide-react'
 
 type Phase =
@@ -502,6 +502,14 @@ export function FixExecution({
           {/* ── Review diff: STOP before any repo mutation ────────────────── */}
           {phase === 'review_diff' && (
             <div className="space-y-4">
+              {run?.error && (
+                <div className="flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                  <p className="text-xs text-foreground leading-relaxed">
+                    {run.error} — the diff below may be incomplete. Review it carefully before opening a PR, or regenerate.
+                  </p>
+                </div>
+              )}
               {genMeta?.summary && (
                 <div className="rounded-xl border border-ai/20 bg-ai/5 px-4 py-3">
                   <div className="flex items-center gap-1.5 mb-1">

@@ -168,6 +168,11 @@ async function openRouterChatOnce(options: ChatOptions): Promise<{
       'HTTP-Referer': 'https://paaq.ai',
       'X-Title': 'PAAQ Intelligence',
     },
+    // Free-tier models can sit in an upstream queue far past the edge
+    // function's own idle timeout. Failing at ~100s with a retryable error
+    // lets the caller (or the resumable run loop) try again cleanly instead
+    // of the platform killing the function mid-flight with an opaque 504.
+    signal: AbortSignal.timeout(100_000),
     body: JSON.stringify({
       model: options.model ?? OPENROUTER_MODEL,
       messages: options.messages,

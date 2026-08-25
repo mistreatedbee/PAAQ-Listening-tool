@@ -47,6 +47,24 @@ export type PlanStep = {
   detail?: string
 }
 
+/**
+ * Parses JSON the model emitted inside a plain-text response. Reasoning-style
+ * models occasionally emit raw control characters (literal newlines/tabs) in
+ * string literals instead of \n escapes — strict JSON.parse rejects those
+ * whole payloads, so fall back to sanitizing just enough to recover them.
+ */
+function tolerantJsonParse<T>(raw: string): T {
+  try {
+    return JSON.parse(raw) as T
+  } catch {
+    // Strip literal control chars (except escaped sequences, which JSON.parse
+    // handles) and retry. Losing a raw newline inside one string is far better
+    // than failing an entire fix step.
+    const sanitized = raw.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+    return JSON.parse(sanitized) as T
+  }
+}
+
 async function updateRun(runId: string, patch: Record<string, unknown>) {
   await supabase.from('fix_runs').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', runId)
 }
@@ -531,30 +549,96 @@ Current content:
 ${currentContent.slice(0, 14000)}
 \`\`\`${retryText}
 
-Return ONLY this JSON, no markdown, no explanation:
-{ "newContent": "<the complete file content after this step's change>" }
+Return ONLY search/replace blocks, no explanation. For each distinct change:
+
+<<<<<<< SEARCH
+[exact consecutive lines from the current file to replace]
+=======
+[replacement lines]
+>>>>>>> REPLACE
 
 Rules:
-- newContent must be the COMPLETE file after the change, not a diff or snippet.
+- SEARCH must match the current file EXACTLY (copy the lines verbatim, including whitespace). Keep each SEARCH block as small as possible while staying unique in the file.
+- Multiple blocks are allowed for changes in different places; they apply top to bottom.
+- Do NOT rewrite the whole file — only the lines this step changes.
 - Only make the change described by this step — later steps handle the rest.`
 
   try {
     const { message, finishReason } = await openRouterChat({
       apiKey,
       messages: [{ role: 'user', content: prompt }],
-      maxTokens: 16000,
+      // Search/replace hunks are tiny compared to whole-file echoes, so a
+      // modest budget suffices even with reasoning overhead.
+      maxTokens: 8192,
+      temperature: 0,
     })
-    if (finishReason === 'length') return { ok: false, error: 'Response truncated (file may be too large for one pass).' }
+    if (finishReason === 'length') return { ok: false, error: 'Response truncated (change too large for one pass).' }
     const raw = message.content?.trim() ?? null
     if (!raw) return { ok: false, error: 'No response from the AI model' }
-    const start = raw.indexOf('{')
-    const end = raw.lastIndexOf('}')
-    const parsed = JSON.parse(start >= 0 && end > start ? raw.slice(start, end + 1) : raw) as { newContent: string }
-    if (!parsed.newContent) return { ok: false, error: 'No newContent in response' }
-    return { ok: true, newContent: parsed.newContent }
+
+    const applied = applySearchReplaceBlocks(currentContent, raw)
+    if (!applied.ok) return { ok: false, error: applied.error }
+    if (applied.newContent === currentContent) return { ok: false, error: 'The model returned no applicable changes (SEARCH blocks matched nothing or changed nothing).' }
+    return { ok: true, newContent: applied.newContent }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
+}
+
+/**
+ * Applies Aider-style SEARCH/REPLACE blocks to file content. Every block must
+ * match exactly once; a block that matches zero or several times fails the
+ * whole step with a precise message so the model's next attempt (or the user)
+ * knows exactly which hunk went wrong.
+ */
+function applySearchReplaceBlocks(
+  content: string,
+  raw: string,
+): { ok: true; newContent: string } | { ok: false; error: string } {
+  const blocks = raw.split('<<<<<<< SEARCH').slice(1)
+  if (blocks.length === 0) return { ok: false, error: 'Response contained no <<<<<<< SEARCH / ======= / >>>>>>> REPLACE blocks.' }
+
+  let result = content
+  let appliedCount = 0
+  for (const [i, block] of blocks.entries()) {
+    const sep = block.indexOf('\n=======\n') !== -1 ? '\n=======\n' : '\n=======\r\n'
+    const sepIdx = block.indexOf(sep)
+    const endMatch = block.match(/\n?>>>>>>>(?:>|>)? REPLACE\r?\n?$/)
+    if (sepIdx === -1 || !endMatch) {
+      return { ok: false, error: `Block ${i + 1} is malformed — missing ======= separator or >>>>>>> REPLACE terminator.` }
+    }
+    const search = block.slice(0, sepIdx)
+    const replace = block.slice(sepIdx + sep.length, endMatch.index)
+
+    const occurrences = countOccurrences(result, search)
+    if (occurrences === 0) {
+      // Tolerate the model echoing the fence markers inside its first line.
+      const trimmedSearch = search.replace(/^[`*\s]*```[a-z]*\n?/, '').replace(/\n```\s*$/, '')
+      const trimmedOccurrences = countOccurrences(result, trimmedSearch)
+      if (trimmedOccurrences !== 1) {
+        return { ok: false, error: `Block ${i + 1}: SEARCH text not found in the file (${occurrences} exact match(es)). Copy the lines verbatim from the current content.` }
+      }
+      result = result.replace(trimmedSearch, () => replace)
+    } else if (occurrences > 1) {
+      return { ok: false, error: `Block ${i + 1}: SEARCH text matches ${occurrences} places — make the SEARCH block more specific (include surrounding unique lines).` }
+    } else {
+      result = result.replace(search, () => replace)
+    }
+    appliedCount++
+  }
+  if (appliedCount === 0) return { ok: false, error: 'No SEARCH/REPLACE blocks were applied.' }
+  return { ok: true, newContent: result }
+}
+
+function countOccurrences(haystack: string, needle: string): number {
+  if (!needle) return 0
+  let count = 0
+  let pos = haystack.indexOf(needle)
+  while (pos !== -1) {
+    count++
+    pos = haystack.indexOf(needle, pos + needle.length)
+  }
+  return count
 }
 
 /**
@@ -596,7 +680,7 @@ Reply with ONLY this JSON: { "passed": true|false, "note": "one short sentence" 
     const raw = message.content?.trim() || '{}'
     const start = raw.indexOf('{')
     const end = raw.lastIndexOf('}')
-    const parsed = JSON.parse(start >= 0 && end > start ? raw.slice(start, end + 1) : raw) as { passed: boolean; note: string }
+    const parsed = tolerantJsonParse<{ passed: boolean; note: string }>(start >= 0 && end > start ? raw.slice(start, end + 1) : raw)
     return { passed: !!parsed.passed, note: parsed.note ?? '' }
   } catch {
     // Review call itself failing shouldn't block the pipeline — treat as pass-through.
