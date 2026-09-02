@@ -132,7 +132,7 @@ export default function AiMonitorPage() {
         <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--text)' }}>Models in Use</h2>
         <div className="grid grid-cols-3 gap-3">
           {[
-            { model: 'stealth/ox-alpha', use: 'Error analysis, insights, agents, generate-fix', status: 'active' },
+            { model: 'anthropic/claude-fable-5.1', use: 'Error analysis, insights, agents, generate-fix', status: 'active' },
           ].map((m) => (
             <div key={m.model} className="rounded-xl p-4" style={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
               <p className="font-mono text-xs font-semibold" style={{ color: 'var(--accent)' }}>{m.model}</p>

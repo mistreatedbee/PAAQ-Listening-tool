@@ -90,7 +90,7 @@ From the repo root:
 
 - **Frontend:** Next.js (App Router), React, Tailwind CSS, lucide-react
 - **Backend:** Supabase (Postgres, Auth, Storage, Edge Functions on Deno)
-- **AI:** OpenRouter (`stealth/ox-alpha`) via a single OpenAI-compatible client
+- **AI:** OpenRouter (`anthropic/claude-fable-5.1`) via a single OpenAI-compatible client
 - **SDKs:** TypeScript (web/server/RN), Swift, Kotlin, Dart
 
 ## Contributing

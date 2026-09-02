@@ -234,7 +234,7 @@ Use these exact paths when identifying affected_files in recommendations.`
 
     const AI_DEADLINE_MS = 105_000 // leave ~45s for telemetry gather + DB writes before the 150s wall clock
 
-    // Latency profile of stealth/ox-alpha on this platform: short answers
+    // Latency profile of claude-fable-5.1 on this platform: short answers
     // (~150 words, ai-search) return in ~13s; long structured JSON takes
     // 100s+. The core prompt therefore demands BREVITY FIRST — tight caps
     // on every field keep the reasoning+emission inside the deadline.

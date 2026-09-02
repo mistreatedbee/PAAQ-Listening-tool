@@ -2,7 +2,7 @@
  * Shared AI access via OpenRouter (OpenAI-compatible Chat Completions API).
  *
  * OpenRouter is now the only AI path: one key (`OPENROUTER_API_KEY`), one
- * model default (`stealth/ox-alpha`). Gemini support was removed in the
+ * model default (`anthropic/claude-fable-5.1`). Gemini support was removed in the
  * Claude→OpenRouter migration; `askModel` keeps its signature so every call
  * site stays unchanged.
  *
@@ -15,11 +15,10 @@
  */
 
 export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
-export const OPENROUTER_MODEL = 'stealth/ox-alpha'
+export const OPENROUTER_MODEL = 'anthropic/claude-fable-5.1'
 /**
  * Fallback models tried in order when the primary model stalls or fails
- * transiently. The free-tier primary is occasionally queued upstream for
- * minutes; a fast secondary keeps user-facing flows (fix agent, onboarding,
+ * transiently. A fast secondary keeps user-facing flows (fix agent, onboarding,
  * investigate) responsive instead of failing after a 100s deadline.
  */
 export const OPENROUTER_FALLBACK_MODELS = ['google/gemini-2.0-flash-001', 'meta-llama/llama-3.3-70b-instruct']
@@ -114,7 +113,7 @@ type ChatOptions = {
 }
 
 /**
- * stealth/ox-alpha is a reasoning-style model: it emits internal "thinking"
+ * claude-fable-5.1 is a reasoning-style model: it emits internal "thinking"
  * tokens that count against max_tokens before any visible answer text.
  * Budgets sized for plain chat models (a few hundred tokens) get consumed by
  * reasoning alone, ending the response truncated with empty content — so

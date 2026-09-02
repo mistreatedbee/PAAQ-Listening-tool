@@ -17,7 +17,7 @@
  * existing merge gate (fix-engine.ts performMerge) already requires to pass.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { getAiConfig, openRouterChat, OPENROUTER_MODEL, type ChatMessage } from './ai.ts'
+import { getAiConfig, openRouterChat, type ChatMessage } from './ai.ts'
 import { loadGitAdapter, type GitProvider } from './git-providers/load-adapter.ts'
 import type { RepoRef } from './git-providers/types.ts'
 import type { RecRow } from './fix-engine.ts'
