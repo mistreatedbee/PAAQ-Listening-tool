@@ -1,10 +1,9 @@
 /**
- * Deletes session recordings (DOM/screenshot chunks + their Storage
- * objects) when they are old or the session's errors are all resolved,
- * so the session-recordings bucket doesn't grow unbounded.
+ * Deletes replay data for a single session — called when an error is marked
+ * resolved/ignored so Storage is freed once the issue no longer needs replay.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { runSessionRecordingCleanup } from '../_shared/session-recording-cleanup.ts'
+import { deleteRecordingForSession } from '../_shared/session-recording-cleanup.ts'
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -17,21 +16,29 @@ function checkInternalSecret(req: Request): boolean {
   return expected.length > 0 && provided === expected
 }
 
-// Hourly — storage pressure from replay chunks builds quickly on active projects.
-Deno.cron('session-recording-cleanup', '0 * * * *', async () => {
-  const result = await runSessionRecordingCleanup(supabase)
-  console.log(`session-recording-cleanup-cron: deleted ${result.deletedRecordings} recordings, ${result.deletedFiles} files, skipped ${result.skipped}`)
-})
-
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: cors() })
+  if (req.method !== 'POST') {
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405, headers: { 'Content-Type': 'application/json', ...cors() },
+    })
+  }
   if (!checkInternalSecret(req)) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), {
       status: 401, headers: { 'Content-Type': 'application/json', ...cors() },
     })
   }
-  const result = await runSessionRecordingCleanup(supabase)
-  return new Response(JSON.stringify({ ok: true, ...result }), {
+
+  const body = await req.json().catch(() => ({}))
+  const sessionId = body.session_id as string | undefined
+  if (!sessionId) {
+    return new Response(JSON.stringify({ error: 'session_id is required' }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...cors() },
+    })
+  }
+
+  const result = await deleteRecordingForSession(supabase, sessionId)
+  return new Response(JSON.stringify({ ok: result.ok, deletedFiles: result.deletedFiles }), {
     headers: { 'Content-Type': 'application/json', ...cors() },
   })
 })

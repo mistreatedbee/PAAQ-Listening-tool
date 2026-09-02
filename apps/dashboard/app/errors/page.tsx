@@ -8,6 +8,7 @@ import { Bug, CheckCircle2, EyeOff, Radio, LayoutList, Layers } from 'lucide-rea
 import { PageHeader, Card, ToneBadge } from '@/components/kit'
 import { useBulkSelection, RowCheckbox, BulkActionsBar, ConfirmDeleteDialog } from '@/components/kit-bulk-actions'
 import { cn } from '@/lib/utils'
+import { cleanupSessionRecording } from '@/lib/cleanup-session-recording'
 import type { Tone } from '@/lib/data'
 
 const severityTone: Record<string, Tone> = {
@@ -20,6 +21,7 @@ const severityWeight: Record<string, number> = { fatal: 4, error: 3, warning: 2,
 
 type DbError = {
   id: string
+  session_id: string | null
   error_type: string
   message: string
   severity: string
@@ -96,7 +98,7 @@ export default function ErrorsPage() {
 
     const load = () => {
       Promise.all([
-        sb.from('errors').select('id, error_type, message, severity, status, screen, created_at').eq('project_id', app.id).order('created_at', { ascending: false }).limit(200),
+        sb.from('errors').select('id, session_id, error_type, message, severity, status, screen, created_at').eq('project_id', app.id).order('created_at', { ascending: false }).limit(200),
         sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
         sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', app.id).eq('status', 'open'),
         sb.from('errors').select('*', { count: 'exact', head: true }).eq('project_id', app.id).eq('status', 'resolved'),
@@ -135,6 +137,7 @@ export default function ErrorsPage() {
 
   const handleUpdateStatus = async (errorId: string, newStatus: string) => {
     setUpdating(errorId)
+    const row = rows.find((r) => r.id === errorId)
     const sb = createClient()
     const { error: dbErr } = await sb.from('errors').update({ status: newStatus }).eq('id', errorId)
     if (!dbErr) {
@@ -147,6 +150,9 @@ export default function ErrorsPage() {
           resolved: newStatus === 'resolved' ? prev.resolved + 1 : (was === 'resolved' ? prev.resolved - 1 : prev.resolved),
         }
       })
+      if ((newStatus === 'resolved' || newStatus === 'ignored') && row?.session_id) {
+        cleanupSessionRecording(row.session_id)
+      }
     }
     setUpdating(null)
   }

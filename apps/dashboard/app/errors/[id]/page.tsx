@@ -12,6 +12,7 @@ import { GenerateFix } from '@/components/dashboard/generate-fix'
 import { FixExecution } from '@/components/dashboard/fix-execution'
 import { ReplayMomentModal, type PrecedingItem } from '@/components/sessions/replay-moment-modal'
 import { useSessionRecording } from '@/lib/use-session-recording'
+import { cleanupSessionRecording } from '@/lib/cleanup-session-recording'
 import type { Tone } from '@/lib/data'
 
 type DbError = {
@@ -172,6 +173,9 @@ export default function ErrorDetailPage() {
       }
       setError({ ...error, status: newStatus })
       showToast(`Error marked as ${newStatus}`)
+      if ((newStatus === 'resolved' || newStatus === 'ignored') && error.session_id) {
+        cleanupSessionRecording(error.session_id)
+      }
     } catch {
       showToast('Update failed: network or unexpected error')
     } finally {

@@ -117,13 +117,25 @@ type ChatOptions = {
  * tokens that count against max_tokens before any visible answer text.
  * Budgets sized for plain chat models (a few hundred tokens) get consumed by
  * reasoning alone, ending the response truncated with empty content — so
- * callers must reserve generous headroom. This floor is applied to every
- * call that doesn't set an explicit budget.
+ * callers must reserve generous headroom when credits allow. OpenRouter
+ * pre-checks max_tokens against the account balance — requesting more than
+ * you can afford returns 402 even when the key is valid — so keep this
+ * floor modest; individual call sites can still pass higher maxTokens when
+ * the account has sufficient credits.
  */
-export const MIN_COMPLETION_TOKENS = 4096
+export const MIN_COMPLETION_TOKENS = 768
+
+/** Upper bound per completion; OpenRouter rejects requests when max_tokens exceeds credit balance. */
+function completionTokenCap(): number {
+  const fromEnv = Deno.env.get('OPENROUTER_MAX_COMPLETION_TOKENS')
+  const parsed = fromEnv ? Number(fromEnv) : 768
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 768
+}
 
 function effectiveMaxTokens(requested?: number): number {
-  return Math.max(requested ?? 0, MIN_COMPLETION_TOKENS)
+  const cap = completionTokenCap()
+  const budget = requested ?? cap
+  return Math.min(Math.max(budget, MIN_COMPLETION_TOKENS), cap)
 }
 
 /**

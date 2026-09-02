@@ -6,7 +6,7 @@ const BASE_URL = 'https://mookyonwpovxscsbqwwl.supabase.co/functions/v1'
 // every install of this SDK has been wrong the entire time, which made
 // "is a customer actually running the new build" impossible to answer
 // from server-side logs alone. Now kept in lockstep with package.json.
-const SDK_VERSION = '1.2.6'
+const SDK_VERSION = '1.2.7'
 
 type ErrorPayload = {
   error_type: string
@@ -749,12 +749,21 @@ function installSessionEndHandlers(): void {
   window.addEventListener('beforeunload', () => { void flush(); void flushPerf() })
 }
 
+function teardownDomRecording(): void {
+  _recordingStop?.()
+  _recordingStop = null
+  if (_recordingFlushTimer) {
+    clearInterval(_recordingFlushTimer)
+    _recordingFlushTimer = null
+  }
+  _recordingBuffer = []
+}
+
 function endOnce(outcome: string): void {
   void flush()
   void flushPerf()
-  _recordingStop?.()
-  if (_recordingFlushTimer) clearInterval(_recordingFlushTimer)
   void flushRecording()
+  teardownDomRecording()
   void endSession(outcome)
 }
 
@@ -921,7 +930,12 @@ let _recordingStop: (() => void) | null = null
 const RECORDING_SNAPSHOT_EVENT_TYPES = new Set([2, 4])
 
 function installDomRecording(): void {
-  if (typeof document === 'undefined' || _recordingStop) return
+  if (typeof document === 'undefined') return
+  // A previous session may have left a live recorder handle — init() runs
+  // again on every new session in the same tab, and without resetting here
+  // the second+ session silently skips recording entirely.
+  teardownDomRecording()
+  _recordingSequence = 0
   _recordingStop = record({
     emit(event) {
       _recordingBuffer.push(event)

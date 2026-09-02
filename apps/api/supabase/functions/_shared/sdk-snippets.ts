@@ -31,7 +31,11 @@ export const FRAMEWORK_LABELS: Record<Framework, string> = {
 // setting window.__PAAQ_RECORDING_ENABLED = false before init().
 const RECORDING_IMPL = `
 function __paqRcStart(pa) {
-  if (typeof document === 'undefined' || pa.__rc) return
+  if (typeof document === 'undefined') return
+  if (pa.__rc) { try { pa.__rc() } catch(e) {} pa.__rc = null }
+  if (pa.__tl) { clearInterval(pa.__tl); pa.__tl = null }
+  pa.__seq = 0
+  pa.__buf = []
   if (!window.__paqRcRrweb) {
     var s = document.createElement('script')
     s.src = 'https://cdn.jsdelivr.net/npm/rrweb@2/dist/rrweb-all.min.js'

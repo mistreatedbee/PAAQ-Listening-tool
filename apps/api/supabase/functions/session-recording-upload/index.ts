@@ -109,9 +109,13 @@ Deno.serve(async (req) => {
       contentType: req.headers.get('content-type') ?? 'application/octet-stream',
       upsert: true,
     })
-  if (uploadError) return respond({ error: uploadError.message }, 500)
+  if (uploadError) {
+    const msg = uploadError.message ?? 'Storage upload failed'
+    const status = /quota|storage|space|limit|exceeded|full/i.test(msg) ? 507 : 500
+    return respond({ error: msg }, status)
+  }
 
-  await supabase.from('session_recording_chunks').insert({
+  const { error: chunkError } = await supabase.from('session_recording_chunks').insert({
     recording_id: recording.id,
     project_id: project.id,
     sequence,
@@ -119,11 +123,17 @@ Deno.serve(async (req) => {
     captured_at: capturedAt,
     byte_size: body.byteLength,
   })
+  // Duplicate sequence uploads (SDK retry) are harmless — storage upsert already succeeded.
+  if (chunkError && chunkError.code !== '23505') {
+    return respond({ error: chunkError.message }, 500)
+  }
 
-  await supabase.from('session_recordings').update({
-    chunk_count: (recording.chunk_count ?? 0) + 1,
-    ended_at: capturedAt,
-  }).eq('id', recording.id)
+  if (!chunkError) {
+    await supabase.from('session_recordings').update({
+      chunk_count: (recording.chunk_count ?? 0) + 1,
+      ended_at: capturedAt,
+    }).eq('id', recording.id)
+  }
 
   return respond({ ok: true })
 })
