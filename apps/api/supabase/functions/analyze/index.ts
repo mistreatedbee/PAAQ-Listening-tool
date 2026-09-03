@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { getAiConfig, askModel } from '../_shared/ai.ts'
+import { getAiConfig, askModel, AI_TOKEN_BUDGETS } from '../_shared/ai.ts'
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -289,14 +289,7 @@ Return this exact structure:
 }
 
 Rules:
-- Generate 4-6 insights, and make them span DIFFERENT dimensions of the data
-  — don't generate multiple insights about the same error or the same
-  screen. Deliberately look across sessions.outcomes/platforms/devices,
-  behaviorFriction (rage/dead clicks, form abandons), pages (which specific
-  page paths have the most visits/errors/lowest scroll depth/longest
-  dwell), problemFormFields (which specific field has the highest error or
-  abandon rate), features, errors, and anomalies — pull from as many of
-  these sections as have real data, not just "errors."
+- Generate 3-5 insights spanning different dimensions — don't repeat the same error/screen.
 - Reference actual numbers AND actual names (real page paths, real field
   names, real platforms/devices) from the data — never generic filler like
   "the checkout flow" if the data doesn't name a checkout flow.
@@ -305,7 +298,8 @@ Rules:
 - priority "critical" = needs immediate attention
 - impact_score 0.0-1.0 based on how many users affected
 - affected_users = estimate based on session/user counts in data`,
-    maxTokens: 8192,
+    maxTokens: AI_TOKEN_BUDGETS.investigation,
+    nvidiaTimeoutMs: 55_000,
   })
 
   const cleanText = rawText.replace(/```json?\n?/g, '').replace(/```/g, '').trim()

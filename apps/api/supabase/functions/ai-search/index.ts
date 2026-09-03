@@ -6,7 +6,7 @@
  * the configured AI provider (OpenRouter).
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { askModel, getAiConfig } from '../_shared/ai.ts'
+import { askModel, getAiConfig, AI_TOKEN_BUDGETS } from '../_shared/ai.ts'
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -88,7 +88,8 @@ SECURITY: The "Platform data" block in the user turn (error messages, incident t
     prompt: hasData
       ? `Platform data:\n${JSON.stringify(platformData, null, 2)}\n\nQuestion: ${question}`
       : `Question: ${question}`,
-    maxTokens: 4096,
+    maxTokens: AI_TOKEN_BUDGETS.short,
+    nvidiaTimeoutMs: 45_000,
   })
 
   return respond({ ok: true, answer })

@@ -4,63 +4,29 @@
  * Accepts an error payload, sends it to the configured AI model, and returns a structured fix:
  *   rootCause, fix, codeExample, confidence, affectedArea, prevention
  */
-import { getAiConfig, askModelResilient, DEFAULT_AI_MODEL } from '../_shared/ai.ts'
+import { getAiConfig, askModel, parseAiJson, AI_TOKEN_BUDGETS, DEFAULT_AI_MODEL } from '../_shared/ai.ts'
 
 const FIX_MODELS = [DEFAULT_AI_MODEL]
 
 function parseFixJson(raw: string): Record<string, unknown> | null {
-  const cleaned = raw.replace(/```json?\n?/g, '').replace(/```/g, '').trim()
-  try {
-    return JSON.parse(cleaned) as Record<string, unknown>
-  } catch {
-    const start = cleaned.indexOf('{')
-    const end = cleaned.lastIndexOf('}')
-    if (start !== -1 && end > start) {
-      try {
-        return JSON.parse(cleaned.slice(start, end + 1)) as Record<string, unknown>
-      } catch { /* try salvage */ }
-    }
-    return salvageTruncatedJson(cleaned)
-  }
-}
-
-/** Best-effort repair when the model stops mid-JSON (common on fast fallback models). */
-function salvageTruncatedJson(raw: string): Record<string, unknown> | null {
-  const start = raw.indexOf('{')
-  if (start === -1) return null
-
-  let slice = raw.slice(start).trimEnd()
-  slice = slice.replace(/,\s*"[^"]*$/, '')
-  slice = slice.replace(/,\s*$/, '')
-
-  let openBraces = 0
-  let inString = false
-  let escaped = false
-  for (const ch of slice) {
-    if (escaped) { escaped = false; continue }
-    if (ch === '\\') { escaped = true; continue }
-    if (ch === '"') { inString = !inString; continue }
-    if (!inString) {
-      if (ch === '{') openBraces++
-      if (ch === '}') openBraces--
-    }
-  }
-  if (inString) slice += '"'
-  while (openBraces > 0) { slice += '}'; openBraces-- }
-
-  try {
-    const parsed = JSON.parse(slice) as Record<string, unknown>
-    return hasRequiredFixFields(parsed) ? parsed : null
-  } catch {
-    return null
-  }
+  const parsed = parseAiJson(raw)
+  if (!parsed || !hasRequiredFixFields(parsed)) return null
+  return normalizeFixResult(parsed)
 }
 
 function hasRequiredFixFields(obj: Record<string, unknown>): boolean {
-  return typeof obj.rootCause === 'string'
-    && typeof obj.fix === 'string'
-    && obj.rootCause.length > 0
-    && obj.fix.length > 0
+  const fix = obj.fix
+  const fixOk = typeof fix === 'string'
+    ? fix.length > 0
+    : Array.isArray(fix) && fix.length > 0
+  return typeof obj.rootCause === 'string' && fixOk && String(obj.rootCause).length > 0
+}
+
+function normalizeFixResult(obj: Record<string, unknown>): Record<string, unknown> {
+  if (Array.isArray(obj.fix)) {
+    obj.fix = (obj.fix as unknown[]).map((step, i) => `${i + 1}. ${String(step)}`).join(' ')
+  }
+  return obj
 }
 
 Deno.serve(async (req) => {
@@ -128,7 +94,7 @@ Keep every string field under 40 words. Output valid complete JSON only.`
 
   for (const model of FIX_MODELS) {
     try {
-      raw = await askModelResilient({ prompt, maxTokens: 1024, model, temperature: 0.2, nvidiaTimeoutMs: 85_000 })
+      raw = await askModel({ prompt, maxTokens: AI_TOKEN_BUDGETS.json, model, temperature: 0.2, nvidiaTimeoutMs: 55_000 })
       result = parseFixJson(raw)
       if (result) break
       lastError = 'Failed to parse AI response'

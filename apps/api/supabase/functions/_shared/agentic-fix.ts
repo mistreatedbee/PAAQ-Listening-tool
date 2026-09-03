@@ -17,7 +17,7 @@
  * existing merge gate (fix-engine.ts performMerge) already requires to pass.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { getAiConfig, openRouterChat, type ChatMessage } from './ai.ts'
+import { getAiConfig, openRouterChat, AI_TOKEN_BUDGETS, type ChatMessage } from './ai.ts'
 import { loadGitAdapter, type GitProvider } from './git-providers/load-adapter.ts'
 import type { RepoRef } from './git-providers/types.ts'
 import type { RecRow } from './fix-engine.ts'
@@ -227,7 +227,7 @@ Turn 1 of ${MAX_EXPLORE_TURNS}. You have ${MAX_EXPLORE_TURNS} turns total; propo
 
     let response: Awaited<ReturnType<typeof openRouterChat>>
     try {
-      response = await openRouterChat({ apiKey, messages, maxTokens: 8192, tools })
+      response = await openRouterChat({ apiKey, messages, maxTokens: AI_TOKEN_BUDGETS.code, tools })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       await updateRun(runId, { status: 'failed', error: `AI call failed: ${message}` })
@@ -366,7 +366,7 @@ Turn 1 of ${MAX_EXPLORE_TURNS}. You have ${MAX_EXPLORE_TURNS} turns total; propo
       content: `The ${MAX_EXPLORE_TURNS}-turn investigation budget is now exhausted. Call propose_plan immediately with the best plan you can support from the files you already read. Set confidence honestly (below 40 if uncertain) and explain remaining unknowns in summary.`,
     })
     try {
-      const { message: finalMsg } = await openRouterChat({ apiKey, messages, maxTokens: 8192, tools })
+      const { message: finalMsg } = await openRouterChat({ apiKey, messages, maxTokens: AI_TOKEN_BUDGETS.code, tools })
       const planCall = (finalMsg.tool_calls ?? []).find((c) => c.function.name === 'propose_plan')
       if (planCall) {
         const input = JSON.parse(planCall.function.arguments) as { summary: string; confidence: number; steps: { description: string; path: string }[] }
@@ -571,7 +571,7 @@ Rules:
       messages: [{ role: 'user', content: prompt }],
       // Search/replace hunks are tiny compared to whole-file echoes, so a
       // modest budget suffices even with reasoning overhead.
-      maxTokens: 8192,
+      maxTokens: AI_TOKEN_BUDGETS.code,
       temperature: 0,
     })
     if (finishReason === 'length') return { ok: false, error: 'Response truncated (change too large for one pass).' }

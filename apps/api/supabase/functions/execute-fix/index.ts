@@ -8,7 +8,7 @@
  * Actions: generate | open_pr | merge | status
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { askModel, getAiConfig } from '../_shared/ai.ts'
+import { askModel, getAiConfig, AI_TOKEN_BUDGETS } from '../_shared/ai.ts'
 import { loadGitAdapter } from '../_shared/git-providers/load-adapter.ts'
 import type { RepoRef } from '../_shared/git-providers/types.ts'
 import { getRepoAndToken, getApprovalMode, markFailed, performMerge, recordMerge, type RecRow } from '../_shared/fix-engine.ts'
@@ -201,7 +201,7 @@ Candidate files:
 ${candidates.map((c, i) => `${i + 1}. ${c}`).join('\n')}
 
 Reply with ONLY the exact file path of the best match — nothing else, no explanation.`,
-      maxTokens: 4096,
+      maxTokens: AI_TOKEN_BUDGETS.tiny,
     })
     const trimmed = picked.trim()
     return candidates.find((c) => c === trimmed) ?? candidates[0]
@@ -320,7 +320,8 @@ Rules:
 
   const raw = await askModel({
     prompt,
-    maxTokens: isLargeFile ? 8000 : 16000,
+    maxTokens: isLargeFile ? AI_TOKEN_BUDGETS.code : AI_TOKEN_BUDGETS.investigation,
+    nvidiaTimeoutMs: 55_000,
   })
   if (!raw) return respond({ ok: false, error: 'No response from AI' }, 500)
 

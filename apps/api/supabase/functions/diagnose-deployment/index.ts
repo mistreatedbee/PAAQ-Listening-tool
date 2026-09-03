@@ -8,7 +8,7 @@
  * that include a build_log, and also callable manually from the dashboard.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { getAiConfig, openRouterChat } from '../_shared/ai.ts'
+import { getAiConfig, openRouterChat, AI_TOKEN_BUDGETS } from '../_shared/ai.ts'
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -60,8 +60,12 @@ Be direct and specific. Reference actual error messages and file paths from the 
   try {
     const { message } = await openRouterChat({
       apiKey: aiConfig.apiKey,
+      baseUrl: aiConfig.baseUrl,
+      provider: aiConfig.provider,
       messages: [{ role: 'user', content: prompt }],
-      maxTokens: 4096,      temperature: 0.2,
+      maxTokens: AI_TOKEN_BUDGETS.analysis,
+      temperature: 0.2,
+      timeoutMs: aiConfig.provider === 'nvidia' ? 55_000 : undefined,
     })
     diagnosis = message.content ?? ''
   } catch (err) {
