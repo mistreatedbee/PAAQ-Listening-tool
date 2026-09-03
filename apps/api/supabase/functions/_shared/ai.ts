@@ -1,29 +1,22 @@
 /**
- * Shared AI access via OpenRouter (OpenAI-compatible Chat Completions API).
+ * Shared AI access via OpenAI-compatible Chat Completions APIs.
  *
- * OpenRouter is now the only AI path: one key (`OPENROUTER_API_KEY`), one
- * model default (`anthropic/claude-fable-5.1`). Gemini support was removed in the
- * Claude→OpenRouter migration; `askModel` keeps its signature so every call
- * site stays unchanged.
+ * Primary: NVIDIA Integrate API (`NVIDIA_API_KEY`, model `moonshotai/kimi-k3`).
+ * Fallback: OpenRouter (`OPENROUTER_API_KEY`) when NVIDIA is not configured.
  *
- * Error mapping (surfaced to callers as Error with a descriptive message):
- * - 401 → invalid/missing OPENROUTER_API_KEY
- * - 402 → insufficient credits
- * - 408/timeout → upstream model timeout
- * - 429 → rate limited
- * - 5xx → provider/model failure
+ * `askModel` / `openRouterChat` signatures are unchanged for call sites.
  */
 
+export const NVIDIA_BASE_URL = 'https://integrate.api.nvidia.com/v1'
+export const DEFAULT_AI_MODEL = 'moonshotai/kimi-k3'
+
+/** @deprecated Use DEFAULT_AI_MODEL — kept for existing imports */
+export const OPENROUTER_MODEL = DEFAULT_AI_MODEL
 export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
-export const OPENROUTER_MODEL = 'anthropic/claude-fable-5.1'
-/**
- * Fallback models tried in order when the primary model stalls or fails
- * transiently. A fast secondary keeps user-facing flows (fix agent, onboarding,
- * investigate) responsive instead of failing after a 100s deadline.
- */
-export const OPENROUTER_FALLBACK_MODELS = ['google/gemini-2.0-flash-001', 'meta-llama/llama-3.3-70b-instruct']
+/** OpenRouter-only fallbacks; unused when NVIDIA is the active provider. */
+export const OPENROUTER_FALLBACK_MODELS = ['google/gemini-2.5-flash', 'meta-llama/llama-3.3-70b-instruct']
 
-export type AiProvider = 'openrouter'
+export type AiProvider = 'nvidia' | 'openrouter'
 
 export type AiRequest = {
   system?: string
@@ -37,26 +30,55 @@ export type AiConfig = {
   provider: AiProvider
   apiKey: string
   model: string
+  baseUrl: string
 }
 
 export function getAiConfig(): AiConfig | null {
-  const apiKey = Deno.env.get('OPENROUTER_API_KEY')
-  if (!apiKey) return null
-  return { provider: 'openrouter', apiKey, model: OPENROUTER_MODEL }
+  const nvidiaKey = Deno.env.get('NVIDIA_API_KEY')
+  if (nvidiaKey) {
+    return {
+      provider: 'nvidia',
+      apiKey: nvidiaKey,
+      model: Deno.env.get('AI_MODEL') ?? DEFAULT_AI_MODEL,
+      baseUrl: Deno.env.get('NVIDIA_API_BASE_URL') ?? NVIDIA_BASE_URL,
+    }
+  }
+
+  const openRouterKey = Deno.env.get('OPENROUTER_API_KEY')
+  if (openRouterKey) {
+    return {
+      provider: 'openrouter',
+      apiKey: openRouterKey,
+      model: Deno.env.get('AI_MODEL') ?? 'anthropic/claude-fable-5.1',
+      baseUrl: OPENROUTER_BASE_URL,
+    }
+  }
+
+  return null
 }
 
 export function getAiApiKey(): string | undefined {
   return getAiConfig()?.apiKey
 }
 
-/** Kept for call-site compatibility — OpenRouter is a single configured provider. */
-export function getAiConfigs(): AiConfig[] {
-  const config = getAiConfig()
-  return config ? [config] : []
+export function getOpenRouterFallbackConfig(): AiConfig | null {
+  const openRouterKey = Deno.env.get('OPENROUTER_API_KEY')
+  if (!openRouterKey) return null
+  return {
+    provider: 'openrouter',
+    apiKey: openRouterKey,
+    model: Deno.env.get('AI_MODEL') ?? 'google/gemini-2.5-flash',
+    baseUrl: OPENROUTER_BASE_URL,
+  }
 }
 
-/** Maps an OpenRouter/OpenAI-style HTTP failure to a human-actionable message. */
-export async function openRouterError(res: Response): Promise<Error> {
+function providerLabel(provider: AiProvider): string {
+  return provider === 'nvidia' ? 'NVIDIA' : 'OpenRouter'
+}
+
+/** Maps an OpenAI-compatible HTTP failure to a human-actionable message. */
+export async function openRouterError(res: Response, provider: AiProvider = 'openrouter'): Promise<Error> {
+  const label = providerLabel(provider)
   let detail = ''
   try {
     const body = await res.json() as { error?: { message?: string } | string }
@@ -65,35 +87,32 @@ export async function openRouterError(res: Response): Promise<Error> {
     detail = await res.text().catch(() => '')
   }
 
-  // Retry-After (seconds or HTTP-date) tells us how long the quota window is.
   const retryAfterHeader = res.headers.get('retry-after')
   const retryAfterSec = retryAfterHeader ? Number(retryAfterHeader) || 0 : 0
 
   switch (res.status) {
     case 400:
-      return new Error(`OpenRouter bad request (${res.status}): ${detail || 'check model name and payload shape'}`)
+      return new Error(`${label} bad request (${res.status}): ${detail || 'check model name and payload shape'}`)
     case 401:
-      return new Error(`OpenRouter auth failed (${res.status}): invalid or missing OPENROUTER_API_KEY`)
+      return new Error(`${label} auth failed (${res.status}): invalid or missing API key`)
     case 402:
-      return new Error(`OpenRouter credits exhausted (${res.status}): add credits at openrouter.ai/credits`)
+      return new Error(`${label} credits exhausted (${res.status}): add credits or check quota`)
     case 408:
-      return new Error(`OpenRouter timeout (${res.status}): upstream model took too long — retry or lower max_tokens`)
+      return new Error(`${label} timeout (${res.status}): upstream model took too long — retry or lower max_tokens`)
     case 429:
-      // Distinguish a short burst limit (worth retrying) from an exhausted
-      // hourly/daily free-tier window (retrying inside this request is futile).
       if (retryAfterSec > 60) {
-        return new Error(`OpenRouter quota exhausted (429): resets in ~${Math.ceil(retryAfterSec / 60)} min — add credits at openrouter.ai/credits or wait`)
+        return new Error(`${label} quota exhausted (429): resets in ~${Math.ceil(retryAfterSec / 60)} min`)
       }
-      return new Error(`OpenRouter rate limited (429): slow down or check quota`)
+      return new Error(`${label} rate limited (429): slow down or check quota`)
     default:
       if (res.status >= 500) {
-        return new Error(`OpenRouter provider error (${res.status}): ${detail || 'upstream model/provider failed — retry shortly'}`)
+        return new Error(`${label} provider error (${res.status}): ${detail || 'upstream model failed — retry shortly'}`)
       }
-      return new Error(`OpenRouter request failed (${res.status}): ${detail}`)
+      return new Error(`${label} request failed (${res.status}): ${detail}`)
   }
 }
 
-/** OpenAI-style chat message used by the OpenRouter wire format. */
+/** OpenAI-style chat message used by the completions wire format. */
 export type ChatMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool'
   // deno-lint-ignore no-explicit-any
@@ -104,109 +123,125 @@ export type ChatMessage = {
 
 type ChatOptions = {
   apiKey: string
+  baseUrl: string
+  provider: AiProvider
   messages: ChatMessage[]
   model?: string
   maxTokens?: number
   temperature?: number
   tools?: unknown[]
   toolChoice?: 'auto' | 'none'
+  /** Per-request fetch timeout; defaults to 90s (NVIDIA) / 100s (OpenRouter). */
+  timeoutMs?: number
 }
 
-/**
- * claude-fable-5.1 is a reasoning-style model: it emits internal "thinking"
- * tokens that count against max_tokens before any visible answer text.
- * Budgets sized for plain chat models (a few hundred tokens) get consumed by
- * reasoning alone, ending the response truncated with empty content — so
- * callers must reserve generous headroom when credits allow. OpenRouter
- * pre-checks max_tokens against the account balance — requesting more than
- * you can afford returns 402 even when the key is valid — so keep this
- * floor modest; individual call sites can still pass higher maxTokens when
- * the account has sufficient credits.
- */
-export const MIN_COMPLETION_TOKENS = 768
+export const MIN_COMPLETION_TOKENS = 256
 
-/** Upper bound per completion; OpenRouter rejects requests when max_tokens exceeds credit balance. */
-function completionTokenCap(): number {
-  const fromEnv = Deno.env.get('OPENROUTER_MAX_COMPLETION_TOKENS')
-  const parsed = fromEnv ? Number(fromEnv) : 768
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 768
+function completionTokenCap(provider: AiProvider): number {
+  const envKey = provider === 'nvidia' ? 'AI_MAX_COMPLETION_TOKENS' : 'OPENROUTER_MAX_COMPLETION_TOKENS'
+  const fromEnv = Deno.env.get(envKey) ?? Deno.env.get('AI_MAX_COMPLETION_TOKENS')
+  const fallback = provider === 'nvidia' ? 4096 : 384
+  const parsed = fromEnv ? Number(fromEnv) : fallback
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
-function effectiveMaxTokens(requested?: number): number {
-  const cap = completionTokenCap()
+function effectiveMaxTokens(requested: number | undefined, provider: AiProvider): number {
+  const cap = completionTokenCap(provider)
   const budget = requested ?? cap
   return Math.min(Math.max(budget, MIN_COMPLETION_TOKENS), cap)
 }
 
 /**
- * Single non-streaming chat completion against OpenRouter.
- * Returns the assistant message plus finish reason.
- * Retries transient failures (429 bursts, upstream 5xx, dropped responses)
- * with exponential backoff, honoring Retry-After when provided. Auth,
- * credit and malformed-request failures fail fast — retrying them would
- * just reproduce the error.
+ * Non-streaming chat completion. Retries transient failures and, on OpenRouter
+ * only, promotes through the fallback model chain on credit/model errors.
  */
-export async function openRouterChat(options: ChatOptions): Promise<{
+export async function openRouterChat(options: Partial<ChatOptions> & Pick<ChatOptions, 'messages'>): Promise<{
   message: { role: 'assistant'; content: string | null; tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> }
   finishReason: string | null
 }> {
-  const MAX_ATTEMPTS = 4
+  const config = getAiConfig()
+  if (!config) {
+    throw new Error('No AI API key configured. Set NVIDIA_API_KEY (or OPENROUTER_API_KEY) in Supabase secrets.')
+  }
+
+  const resolved: ChatOptions = {
+    apiKey: options.apiKey ?? config.apiKey,
+    baseUrl: options.baseUrl ?? config.baseUrl,
+    provider: options.provider ?? config.provider,
+    messages: options.messages,
+    model: options.model ?? config.model,
+    maxTokens: options.maxTokens,
+    temperature: options.temperature,
+    tools: options.tools,
+    toolChoice: options.toolChoice,
+    timeoutMs: options.timeoutMs,
+  }
+
   let lastError: Error | null = null
-  // Model chain: the primary first, then fallbacks. A transient stall on the
-  // free-tier primary (upstream queueing, burst limits) promotes the next
-  // model in the chain instead of failing the whole call — the caller keeps
-  // working with a slightly different model rather than getting an error.
-  // Explicit per-call models (rare) are respected and get no fallback.
-  const models = [options.model ?? OPENROUTER_MODEL, ...(options.model ? [] : OPENROUTER_FALLBACK_MODELS)]
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+  const models = resolved.model && options.model
+    ? [resolved.model]
+    : resolved.provider === 'nvidia'
+      ? [config.model]
+      : [config.model, ...OPENROUTER_FALLBACK_MODELS]
+
+  for (let attempt = 1; attempt <= models.length; attempt++) {
     if (attempt > 1) {
-      // Exponential backoff: 2s, 6s, 14s. Long quota windows (detected via
-      // the message) abort immediately instead of burning the deadline.
       const backoffMs = /quota exhausted/i.test(lastError?.message ?? '')
         ? 0
         : Math.min(2000 * 3 ** (attempt - 2), 15000)
-      if (!backoffMs) throw lastError
-      await new Promise((r) => setTimeout(r, backoffMs))
+      if (backoffMs) await new Promise((r) => setTimeout(r, backoffMs))
     }
     try {
-      return await openRouterChatOnce({ ...options, model: models[Math.min(attempt - 1, models.length - 1)] })
+      return await chatCompletionsOnce({ ...resolved, model: models[attempt - 1] })
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err))
+      const tryNextModel = resolved.provider === 'openrouter'
+        && /credits exhausted|no endpoints found|not a valid model|bad request/i.test(lastError.message)
+      if (tryNextModel && attempt < models.length) continue
       const transient = /rate limited|provider error|no choices|timeout|failed to parse ai response/i.test(lastError.message)
-      if (!transient || attempt === MAX_ATTEMPTS) throw lastError
+      if (!transient || attempt === models.length) throw lastError
     }
   }
-  throw lastError ?? new Error('OpenRouter request failed')
+  throw lastError ?? new Error('AI chat request failed')
 }
 
-async function openRouterChatOnce(options: ChatOptions): Promise<{
+async function chatCompletionsOnce(options: ChatOptions): Promise<{
   message: { role: 'assistant'; content: string | null; tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> }
   finishReason: string | null
 }> {
-  const res = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${options.apiKey}`,
-      'Content-Type': 'application/json',
-      // Optional attribution headers recommended by OpenRouter.
-      'HTTP-Referer': 'https://paaq.ai',
-      'X-Title': 'PAAQ Intelligence',
-    },
-    // Free-tier models can sit in an upstream queue far past the edge
-    // function's own idle timeout. Failing at ~100s with a retryable error
-    // lets the caller (or the resumable run loop) try again cleanly instead
-    // of the platform killing the function mid-flight with an opaque 504.
-    signal: AbortSignal.timeout(100_000),
-    body: JSON.stringify({
-      model: options.model ?? OPENROUTER_MODEL,
-      messages: options.messages,
-      max_tokens: effectiveMaxTokens(options.maxTokens),
-      temperature: options.temperature,
-      ...(options.tools ? { tools: options.tools, tool_choice: options.toolChoice ?? 'auto' } : {}),
-    }),
-  })
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${options.apiKey}`,
+    'Content-Type': 'application/json',
+  }
+  if (options.provider === 'openrouter') {
+    headers['HTTP-Referer'] = 'https://paaq.ai'
+    headers['X-Title'] = 'PAAQ Intelligence'
+  }
 
-  if (!res.ok) throw await openRouterError(res)
+  const body: Record<string, unknown> = {
+    model: options.model,
+    messages: options.messages,
+    max_tokens: effectiveMaxTokens(options.maxTokens, options.provider),
+    temperature: options.temperature,
+    ...(options.tools ? { tools: options.tools, tool_choice: options.toolChoice ?? 'auto' } : {}),
+  }
+
+  // Kimi on NVIDIA: default to low reasoning for edge-fn latency (override via NVIDIA_REASONING_EFFORT).
+  if (options.provider === 'nvidia' && options.model?.includes('kimi')) {
+    body.reasoning_effort = Deno.env.get('NVIDIA_REASONING_EFFORT') ?? 'low'
+  }
+
+  const timeoutMs = options.timeoutMs ?? (options.provider === 'nvidia' ? 90_000 : 100_000)
+  const fetchInit: RequestInit = {
+    method: 'POST',
+    headers,
+    signal: AbortSignal.timeout(timeoutMs),
+    body: JSON.stringify(body),
+  }
+
+  const res = await fetch(`${options.baseUrl}/chat/completions`, fetchInit)
+
+  if (!res.ok) throw await openRouterError(res, options.provider)
 
   const data = await res.json() as {
     choices?: Array<{
@@ -216,13 +251,14 @@ async function openRouterChatOnce(options: ChatOptions): Promise<{
     error?: { message?: string }
   }
 
-  if (data.error) throw new Error(`OpenRouter error: ${data.error.message ?? 'unknown error'}`)
+  if (data.error) throw new Error(`${providerLabel(options.provider)} error: ${data.error.message ?? 'unknown error'}`)
 
   const choice = data.choices?.[0]
-  if (!choice?.message) throw new Error('OpenRouter returned no choices — the model may be unavailable; retry or check status.openrouter.ai')
+  if (!choice?.message) {
+    throw new Error(`${providerLabel(options.provider)} returned no choices — the model may be unavailable`)
+  }
 
   return {
-    // Some models emit reasoning-only responses with empty content; normalize to null so callers can branch cleanly.
     message: { ...choice.message, content: choice.message.content ?? null },
     finishReason: choice.finish_reason ?? null,
   }
@@ -237,7 +273,7 @@ export async function askModel({
 }: AiRequest): Promise<string> {
   const config = getAiConfig()
   if (!config) {
-    throw new Error('No AI API key configured. Set OPENROUTER_API_KEY in Supabase secrets.')
+    throw new Error('No AI API key configured. Set NVIDIA_API_KEY (or OPENROUTER_API_KEY) in Supabase secrets.')
   }
 
   const messages: ChatMessage[] = []
@@ -246,6 +282,8 @@ export async function askModel({
 
   const { message, finishReason } = await openRouterChat({
     apiKey: config.apiKey,
+    baseUrl: config.baseUrl,
+    provider: config.provider,
     messages,
     model: model ?? config.model,
     maxTokens,
@@ -257,8 +295,79 @@ export async function askModel({
     throw new Error('AI spent its whole token budget on reasoning before answering — retry or raise max_tokens')
   }
   if (!text && finishReason !== 'tool_calls') {
-    throw new Error(`OpenRouter returned no text content (finish_reason: ${finishReason ?? 'unknown'})`)
+    throw new Error(`AI returned no text content (finish_reason: ${finishReason ?? 'unknown'})`)
   }
 
   return text ?? ''
+}
+
+/**
+ * Tries the configured primary provider (NVIDIA Kimi when set), then falls back to
+ * OpenRouter fast models when NVIDIA is slow or unavailable — keeps edge functions
+ * inside the ~150s wall clock.
+ */
+export async function askModelResilient({
+  system,
+  prompt,
+  model,
+  maxTokens = 2048,
+  temperature = 0.2,
+  nvidiaTimeoutMs = 90_000,
+}: AiRequest & { nvidiaTimeoutMs?: number }): Promise<string> {
+  const primary = getAiConfig()
+  if (!primary) {
+    throw new Error('No AI API key configured. Set NVIDIA_API_KEY (or OPENROUTER_API_KEY) in Supabase secrets.')
+  }
+
+  const messages: ChatMessage[] = []
+  if (system) messages.push({ role: 'system', content: system })
+  messages.push({ role: 'user', content: prompt })
+
+  const runOnce = async (config: AiConfig, chosenModel: string, timeoutMs?: number) => {
+    const { message, finishReason } = await openRouterChat({
+      apiKey: config.apiKey,
+      baseUrl: config.baseUrl,
+      provider: config.provider,
+      messages,
+      model: chosenModel,
+      maxTokens,
+      temperature,
+      timeoutMs,
+    })
+    const text = message.content?.trim()
+    if (!text && finishReason === 'length') {
+      throw new Error('AI spent its whole token budget on reasoning before answering — retry or raise max_tokens')
+    }
+    if (!text && finishReason !== 'tool_calls') {
+      throw new Error(`AI returned no text content (finish_reason: ${finishReason ?? 'unknown'})`)
+    }
+    return text ?? ''
+  }
+
+  const primaryModel = model ?? primary.model
+  try {
+    return await runOnce(
+      primary,
+      primaryModel,
+      primary.provider === 'nvidia' ? nvidiaTimeoutMs : undefined,
+    )
+  } catch (primaryErr) {
+    if (primary.provider !== 'nvidia') throw primaryErr
+    const fallback = getOpenRouterFallbackConfig()
+    if (!fallback) throw primaryErr
+
+    const models = [primaryModel, ...OPENROUTER_FALLBACK_MODELS.filter((m) => m !== primaryModel)]
+    let lastError = primaryErr instanceof Error ? primaryErr : new Error(String(primaryErr))
+
+    for (const fallbackModel of models) {
+      try {
+        return await runOnce(fallback, fallbackModel)
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err))
+        const tryNext = /credits exhausted|no endpoints found|not a valid model|bad request/i.test(lastError.message)
+        if (!tryNext) break
+      }
+    }
+    throw lastError
+  }
 }

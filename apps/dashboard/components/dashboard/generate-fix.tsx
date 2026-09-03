@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { FunctionsHttpError } from '@supabase/supabase-js'
 import { createClient } from '@/utils/supabase/client'
 import { cn } from '@/lib/utils'
 import { Sparkles, Loader2, ChevronDown, ChevronUp, Copy, Check, AlertTriangle, Lightbulb, ShieldCheck, Code2, Route } from 'lucide-react'
@@ -89,7 +90,16 @@ export function GenerateFix({ payload, compact = false, autoRun = false }: { pay
           userIdentity: payload.userIdentity,
         },
       })
-      if (error) throw new Error(error.message)
+      if (error) {
+        let detail = error.message
+        if (error instanceof FunctionsHttpError) {
+          try {
+            const body = await error.context.json() as { error?: string }
+            if (body?.error) detail = body.error
+          } catch { /* use default message */ }
+        }
+        throw new Error(detail)
+      }
       if (!data?.ok || !data?.fix) throw new Error(data?.error ?? 'No fix returned')
       setResult(data.fix as FixResult)
       setState('done')

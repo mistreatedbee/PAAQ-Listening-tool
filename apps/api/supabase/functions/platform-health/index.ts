@@ -63,11 +63,16 @@ async function probeAuth(): Promise<Probe> {
 
 async function probeAi(): Promise<Probe> {
   const config = getAiConfig()
-  if (!config) return { ok: false, error: 'No AI API key configured. Set OPENROUTER_API_KEY in Supabase secrets.' }
+  if (!config) return { ok: false, error: 'No AI API key configured. Set NVIDIA_API_KEY in Supabase secrets.' }
 
   return timed(async () => {
-    // OpenRouter exposes GET /api/v1/models (public) and /api/v1/key (auth'd).
-    // /key proves the API key itself is valid, which is the point of the probe.
+    if (config.provider === 'nvidia') {
+      const res = await fetch(`${config.baseUrl}/models`, {
+        headers: { Authorization: `Bearer ${config.apiKey}` },
+      })
+      if (!res.ok) throw new Error(`NVIDIA API returned ${res.status}`)
+      return
+    }
     const res = await fetch('https://openrouter.ai/api/v1/key', {
       headers: { Authorization: `Bearer ${config.apiKey}` },
     })

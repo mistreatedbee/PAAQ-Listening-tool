@@ -23,7 +23,7 @@ AI-native product intelligence. PAAQ captures errors, sessions, journeys, perfor
 2. **Analyze** scores feature health, rebuilds user journeys and detects anomalies.
 3. **Investigate** runs 8 specialist agents (incident, root cause, product, UX, QA, performance, security, executive) that correlate live telemetry with your connected repository.
 4. **Generate / Execute Fix** produces structured patch plans with affected files, evidence and confidence scores.
-5. All AI calls route through [OpenRouter](https://openrouter.ai) using an OpenAI-compatible client.
+5. All AI calls route through an OpenAI-compatible client — **NVIDIA Integrate API** (`moonshotai/kimi-k3`) when `NVIDIA_API_KEY` is set, with **OpenRouter** as fallback when Kimi is slow or unavailable.
 
 ## Getting started
 
@@ -31,7 +31,7 @@ AI-native product intelligence. PAAQ captures errors, sessions, journeys, perfor
 
 - Node.js 20+
 - A [Supabase](https://supabase.com) project
-- An [OpenRouter](https://openrouter.ai) API key
+- An [NVIDIA API](https://build.nvidia.com) key (`NVIDIA_API_KEY`) and/or an [OpenRouter](https://openrouter.ai) API key (fallback)
 
 ### 1. Install dependencies
 
@@ -50,6 +50,8 @@ cp .env.example .env.local
 Dashboard values go in `apps/dashboard/.env.local`. Edge function secrets are set via the Supabase CLI:
 
 ```bash
+supabase secrets set NVIDIA_API_KEY=nvapi-...
+# Optional fallback when Kimi exceeds edge-fn latency:
 supabase secrets set OPENROUTER_API_KEY=sk-or-v1-...
 ```
 
@@ -90,7 +92,7 @@ From the repo root:
 
 - **Frontend:** Next.js (App Router), React, Tailwind CSS, lucide-react
 - **Backend:** Supabase (Postgres, Auth, Storage, Edge Functions on Deno)
-- **AI:** OpenRouter (`anthropic/claude-fable-5.1`) via a single OpenAI-compatible client
+- **AI:** NVIDIA Integrate API (`moonshotai/kimi-k3`) with OpenRouter fallback
 - **SDKs:** TypeScript (web/server/RN), Swift, Kotlin, Dart
 
 ## Contributing

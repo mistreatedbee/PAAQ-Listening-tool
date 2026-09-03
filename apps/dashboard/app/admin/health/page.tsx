@@ -57,7 +57,7 @@ export default function SystemHealthPage() {
       { name: 'Storage',             category: 'Core Infrastructure', status: statusFor(remote?.storage),  latencyMs: remote?.storage?.latencyMs,  note: remote?.storage?.error },
       { name: 'Auth',                category: 'Core Infrastructure', status: statusFor(remote?.auth),      latencyMs: remote?.auth?.latencyMs,      note: remote?.auth?.error },
       { name: 'Edge Functions',      category: 'Compute',             status: remoteErr ? 'down' : 'healthy', latencyMs: edgeMs, note: remoteErr?.message },
-      { name: 'OpenRouter AI',       category: 'AI Services',         status: statusFor(remote?.ai),        latencyMs: remote?.ai?.latencyMs,       note: remote?.ai?.error ?? 'openrouter.ai API' },
+      { name: 'NVIDIA AI (Kimi K3)', category: 'AI Services',         status: statusFor(remote?.ai),        latencyMs: remote?.ai?.latencyMs,       note: remote?.ai?.error ?? 'integrate.api.nvidia.com' },
       { name: 'Stripe Webhooks',     category: 'Integrations',        status: 'not_monitored', note: 'No Stripe integration found in this codebase' },
       { name: 'Agora SDK',           category: 'Integrations',        status: 'not_monitored', note: 'No Agora integration found in this codebase' },
       { name: 'Next.js Dashboard',   category: 'Applications',        status: 'healthy', note: 'You are viewing this page right now' },
