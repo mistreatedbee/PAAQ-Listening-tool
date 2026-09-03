@@ -15,13 +15,52 @@ function parseFixJson(raw: string): Record<string, unknown> | null {
   } catch {
     const start = cleaned.indexOf('{')
     const end = cleaned.lastIndexOf('}')
-    if (start === -1 || end === -1 || end <= start) return null
-    try {
-      return JSON.parse(cleaned.slice(start, end + 1)) as Record<string, unknown>
-    } catch {
-      return null
+    if (start !== -1 && end > start) {
+      try {
+        return JSON.parse(cleaned.slice(start, end + 1)) as Record<string, unknown>
+      } catch { /* try salvage */ }
+    }
+    return salvageTruncatedJson(cleaned)
+  }
+}
+
+/** Best-effort repair when the model stops mid-JSON (common on fast fallback models). */
+function salvageTruncatedJson(raw: string): Record<string, unknown> | null {
+  const start = raw.indexOf('{')
+  if (start === -1) return null
+
+  let slice = raw.slice(start).trimEnd()
+  slice = slice.replace(/,\s*"[^"]*$/, '')
+  slice = slice.replace(/,\s*$/, '')
+
+  let openBraces = 0
+  let inString = false
+  let escaped = false
+  for (const ch of slice) {
+    if (escaped) { escaped = false; continue }
+    if (ch === '\\') { escaped = true; continue }
+    if (ch === '"') { inString = !inString; continue }
+    if (!inString) {
+      if (ch === '{') openBraces++
+      if (ch === '}') openBraces--
     }
   }
+  if (inString) slice += '"'
+  while (openBraces > 0) { slice += '}'; openBraces-- }
+
+  try {
+    const parsed = JSON.parse(slice) as Record<string, unknown>
+    return hasRequiredFixFields(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function hasRequiredFixFields(obj: Record<string, unknown>): boolean {
+  return typeof obj.rootCause === 'string'
+    && typeof obj.fix === 'string'
+    && obj.rootCause.length > 0
+    && obj.fix.length > 0
 }
 
 Deno.serve(async (req) => {
@@ -78,10 +117,10 @@ Deno.serve(async (req) => {
 Error: type=${errorType ?? 'unknown'}, severity=${severity ?? 'unknown'}, screen=${screen ?? 'unknown'}
 Message: ${cap(message, 2000)}${stackBlock}${contextBlock}${userBlock}${timelineBlock}
 
-Return JSON:
-{"rootCause":"one sentence","whatHappened":"1-2 sentences from evidence only","fix":"2-4 numbered steps","codeExample":"short snippet or null","language":"typescript|javascript|dart|null","confidence":0-100,"affectedArea":"module/screen","prevention":"one sentence","severity":"critical|high|medium|low"}
+Return JSON (codeExample must be null unless a one-liner is obvious):
+{"rootCause":"one sentence","whatHappened":"1-2 sentences","fix":"2-4 numbered steps","codeExample":null,"language":"typescript|javascript|dart|null","confidence":0-100,"affectedArea":"module/screen","prevention":"one sentence","severity":"critical|high|medium|low"}
 
-Keep every field concise — total JSON under 250 tokens. codeExample max 3 lines or null.`
+Keep every string field under 40 words. Output valid complete JSON only.`
 
   let raw: string | null = null
   let result: Record<string, unknown> | null = null
@@ -89,7 +128,7 @@ Keep every field concise — total JSON under 250 tokens. codeExample max 3 line
 
   for (const model of FIX_MODELS) {
     try {
-      raw = await askModelResilient({ prompt, maxTokens: 768, model, temperature: 0.2, nvidiaTimeoutMs: 85_000 })
+      raw = await askModelResilient({ prompt, maxTokens: 1024, model, temperature: 0.2, nvidiaTimeoutMs: 85_000 })
       result = parseFixJson(raw)
       if (result) break
       lastError = 'Failed to parse AI response'
