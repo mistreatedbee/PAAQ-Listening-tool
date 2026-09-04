@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { DatabaseConnectorForm } from '@/components/settings/database-connector-form'
+import { RemoveApplicationPanel } from '@/components/settings/remove-application-panel'
 import { Card, CardHead, ToneBadge, PageHeader } from '@/components/kit'
 import { cn } from '@/lib/utils'
 import {
@@ -148,6 +149,7 @@ export default function SettingsPage() {
 
           {/* ── Workspace ─────────────────────────────────────────────── */}
           {tab === 'workspace' && (
+            <>
             <Card>
               <CardHead
                 title="Workspace"
@@ -187,6 +189,8 @@ export default function SettingsPage() {
                 />
               </div>
             </Card>
+            <RemoveApplicationPanel projectId={app.id} projectName={app.name} />
+            </>
           )}
 
           {/* ── Team ──────────────────────────────────────────────────── */}

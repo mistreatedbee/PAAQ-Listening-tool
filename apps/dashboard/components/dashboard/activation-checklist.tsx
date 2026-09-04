@@ -47,27 +47,34 @@ export function ActivationChecklist() {
 
   if (!shouldShow) return null
 
-  // Define activation steps
+  // Define activation steps — links go to the page that helps complete each step.
+  // Traffic steps auto-complete when events land in PAAQ (no dashboard button).
+  const manageHref = app.id !== '__loading__' ? `/apps/${app.id}` : '/setup'
+
   const steps: ChecklistStep[] = [
     {
       id: 'connect',
       label: 'Connect your first app',
-      description: 'Install the SDK and send your first event',
-      href: '/setup',
+      description: eventCount === 0
+        ? 'Install the SDK in your app and send your first event'
+        : 'First event received — SDK is working',
+      href: eventCount === 0 ? '/connect' : manageHref,
       completed: anyConnected && eventCount > 0,
     },
     {
       id: 'events',
       label: 'Send production traffic',
-      description: 'Deploy to production and send 10+ events',
-      href: '/setup',
+      description: eventCount < 10
+        ? `Deploy with the SDK live and generate traffic (${eventCount ?? 0}/10 events received)`
+        : 'Production traffic is flowing',
+      href: manageHref,
       completed: eventCount >= 10,
     },
     {
       id: 'team',
       label: 'Invite your team',
       description: 'Collaborate with teammates on insights',
-      href: '/settings',
+      href: '/settings?tab=team',
       completed: false, // TODO: check if team members exist
     },
     {
@@ -98,7 +105,7 @@ export function ActivationChecklist() {
             </span>
           </div>
           <p className="text-xs text-muted-foreground mb-4">
-            Complete these steps to unlock the full power of AI-native product intelligence.
+            These steps complete automatically as your app sends data. Use the links below for SDK keys and setup help.
           </p>
 
           {/* Checklist */}

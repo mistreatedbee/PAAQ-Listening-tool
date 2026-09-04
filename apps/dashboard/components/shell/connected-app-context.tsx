@@ -136,6 +136,7 @@ type ConnectedAppCtx = {
   setApp: (id: string) => void
   allApps: ConnectedApp[]
   loading: boolean
+  reloadApps: () => void
 }
 
 // Minimal placeholder used only during initial load to avoid null errors
@@ -164,6 +165,7 @@ const ConnectedAppContext = createContext<ConnectedAppCtx>({
   setApp: () => {},
   allApps: [],
   loading: true,
+  reloadApps: () => {},
 })
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
@@ -171,6 +173,12 @@ export function ConnectedAppProvider({ children }: { children: ReactNode }) {
   const [apps, setApps] = useState<ConnectedApp[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [refreshNonce, setRefreshNonce] = useState(0)
+
+  const reloadApps = useCallback(() => {
+    setLoading(true)
+    setRefreshNonce((n) => n + 1)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -202,6 +210,9 @@ export function ConnectedAppProvider({ children }: { children: ReactNode }) {
       if (cancelled) return
 
       if (!projects?.length) {
+        setApps([])
+        setActiveId(null)
+        localStorage.removeItem('paaq_active_project')
         setLoading(false)
         return
       }
@@ -219,9 +230,12 @@ export function ConnectedAppProvider({ children }: { children: ReactNode }) {
         setApps(mapped)
         // Preserve current selection on refresh; restore from localStorage on first load
         setActiveId((prev) => {
-          if (prev) return prev
+          if (prev && mapped.some((a) => a.id === prev)) return prev
           const saved = localStorage.getItem('paaq_active_project')
-          return (mapped.find((a) => a.id === saved) ?? mapped[0])?.id ?? null
+          const next = mapped.find((a) => a.id === saved) ?? mapped[0]
+          if (next) localStorage.setItem('paaq_active_project', next.id)
+          else localStorage.removeItem('paaq_active_project')
+          return next?.id ?? null
         })
         setLoading(false)
       }
@@ -243,7 +257,7 @@ export function ConnectedAppProvider({ children }: { children: ReactNode }) {
       clearInterval(timer)
       sb.removeChannel(channel)
     }
-  }, [])
+  }, [refreshNonce])
 
   const setApp = useCallback((id: string) => {
     setActiveId(id)
@@ -253,7 +267,7 @@ export function ConnectedAppProvider({ children }: { children: ReactNode }) {
   const app = apps.find((a) => a.id === activeId) ?? LOADING_APP
 
   return (
-    <ConnectedAppContext.Provider value={{ app, setApp, allApps: apps, loading }}>
+    <ConnectedAppContext.Provider value={{ app, setApp, allApps: apps, loading, reloadApps }}>
       {loading ? (
         <LoadingShell />
       ) : apps.length === 0 ? (

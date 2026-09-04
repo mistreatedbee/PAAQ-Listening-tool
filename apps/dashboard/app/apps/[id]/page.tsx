@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { SiGithub, SiGitlab, SiBitbucket } from 'react-icons/si'
 import type { Tone } from '@/lib/data'
+import { RemoveApplicationPanel } from '@/components/settings/remove-application-panel'
 
 // ── Types ─────────────────────────────────────────────────────────────
 type ProjectRow = {
@@ -1058,6 +1059,11 @@ export default function AppManagementPage() {
               ))}
             </div>
           )}
+
+          <RemoveApplicationPanel
+            projectId={project.id}
+            projectName={project.name}
+          />
         </div>
       </div>
     </div>

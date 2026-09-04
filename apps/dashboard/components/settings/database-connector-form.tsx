@@ -38,10 +38,52 @@ const STEP_LABELS: Record<Step, string> = {
 const ERROR_MESSAGES: Record<string, string> = {
   bad_host: 'Could not reach the host — check the hostname and port.',
   auth_failed: 'Authentication failed — check the username and password.',
-  not_read_only: 'This credential has write access. PAAQ requires a read-only user.',
+  not_read_only: 'This credential has write access. PAAQ requires a read-only user — see the setup steps below.',
   unsupported_engine: 'Unsupported database engine.',
   invalid_auth: 'Could not authenticate this request — try refreshing the page.',
   unknown: 'Something went wrong testing this connection.',
+}
+
+const READONLY_SETUP: Partial<Record<Engine, { title: string; steps: string[]; sql?: string }>> = {
+  postgres: {
+    title: 'PostgreSQL read-only user',
+    steps: [
+      'Run the SQL below in your database (as an admin user).',
+      'Build a connection string with the new user: postgresql://paaq_readonly:YOUR_PASSWORD@HOST:5432/DATABASE',
+      'Do not use the default postgres superuser — it always has write access.',
+    ],
+    sql: `-- Run while connected to your target database
+CREATE ROLE paaq_readonly WITH LOGIN PASSWORD 'choose_a_strong_password';
+
+GRANT USAGE ON SCHEMA public TO paaq_readonly;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO paaq_readonly;
+GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO paaq_readonly;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO paaq_readonly;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON SEQUENCES TO paaq_readonly;`,
+  },
+  supabase: {
+    title: 'Supabase read-only user',
+    steps: [
+      'Open your Supabase project → SQL Editor and run the SQL below.',
+      'Use the direct (not pooler) connection string with the new user from Project Settings → Database.',
+      'Never paste the service_role key or the postgres superuser string — both have full write access.',
+    ],
+    sql: `-- Supabase: read-only role for PAAQ (run in SQL Editor)
+CREATE ROLE paaq_readonly WITH LOGIN PASSWORD 'choose_a_strong_password';
+
+GRANT USAGE ON SCHEMA public TO paaq_readonly;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO paaq_readonly;
+GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO paaq_readonly;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO paaq_readonly;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON SEQUENCES TO paaq_readonly;`,
+  },
+  mysql: {
+    title: 'MySQL read-only user',
+    steps: [
+      'Create a user with SELECT only on your database.',
+      'Example: CREATE USER \'paaq_readonly\'@\'%\' IDENTIFIED BY \'password\'; GRANT SELECT ON mydb.* TO \'paaq_readonly\'@\'%\';',
+    ],
+  },
 }
 
 async function fetchCredentials(projectId: string) {
@@ -73,6 +115,7 @@ export function DatabaseConnectorForm() {
   const [currentStep, setCurrentStep] = useState<Step | null>(null)
   const [errorCategory, setErrorCategory] = useState<string | null>(null)
   const [failedStep, setFailedStep] = useState<Step | null>(null)
+  const [showReadonlyHelp, setShowReadonlyHelp] = useState(false)
 
   async function callConnector(sdkTok: string, action: string, body: Record<string, unknown> = {}) {
     const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/db-connector`, {
@@ -124,6 +167,7 @@ export function DatabaseConnectorForm() {
       setFailedStep((data.step as Step) ?? 'connect')
       setErrorCategory(data.errorCategory ?? 'unknown')
       setCurrentStep(null)
+      if (data.errorCategory === 'not_read_only') setShowReadonlyHelp(true)
     }
   }
 
@@ -168,6 +212,7 @@ export function DatabaseConnectorForm() {
   }
 
   const showForm = !status?.connected || replacing
+  const readonlyGuide = READONLY_SETUP[engine]
 
   return (
     <Card className="p-5 space-y-4">
@@ -253,6 +298,38 @@ export function DatabaseConnectorForm() {
                 {ERROR_MESSAGES[errorCategory] ?? ERROR_MESSAGES.unknown}
                 {failedStep && <span className="text-muted-foreground">({STEP_LABELS[failedStep]})</span>}
               </p>
+            )}
+
+            {readonlyGuide && (
+              <details
+                className="mt-3 rounded-lg border border-border/60 bg-muted/30"
+                open={showReadonlyHelp || errorCategory === 'not_read_only'}
+              >
+                <summary className="cursor-pointer px-3 py-2.5 text-xs font-semibold text-foreground">
+                  How to create a read-only user ({readonlyGuide.title})
+                </summary>
+                <div className="border-t border-border/50 px-3 py-3 space-y-2">
+                  <ol className="list-decimal pl-4 space-y-1 text-[11px] text-muted-foreground">
+                    {readonlyGuide.steps.map((step) => (
+                      <li key={step}>{step}</li>
+                    ))}
+                  </ol>
+                  {readonlyGuide.sql && (
+                    <div className="relative">
+                      <pre className="overflow-x-auto rounded-md border border-border/50 bg-background p-2.5 font-mono text-[10px] text-foreground whitespace-pre-wrap">
+                        {readonlyGuide.sql}
+                      </pre>
+                      <button
+                        type="button"
+                        onClick={() => navigator.clipboard.writeText(readonlyGuide.sql!)}
+                        className="absolute right-2 top-2 rounded border border-border/60 bg-card px-2 py-0.5 text-[9px] font-medium text-muted-foreground hover:text-foreground"
+                      >
+                        Copy SQL
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </details>
             )}
             {testPassed && (
               <p className="mt-1.5 flex items-center gap-1.5 text-xs text-healthy">
