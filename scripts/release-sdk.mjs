@@ -86,6 +86,8 @@ function resolvePackages(target, catalog) {
 async function announceRelease(npmName, version, catalog, releaseNotes) {
   const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL
   const secret = process.env.REPO_CONNECTOR_INTERNAL_SECRET
+  const anonKey =
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY
   if (!supabaseUrl || !secret) {
     console.warn(
       '\nSkipping announce-sdk-release: set SUPABASE_URL and REPO_CONNECTOR_INTERNAL_SECRET',
@@ -96,6 +98,10 @@ async function announceRelease(npmName, version, catalog, releaseNotes) {
     console.warn('  Then run: node scripts/announce-sdk-release.mjs web')
     return
   }
+  if (!anonKey) {
+    console.warn('\nSkipping announce-sdk-release: set NEXT_PUBLIC_SUPABASE_ANON_KEY')
+    return
+  }
 
   const pkg = catalog.packages[npmName]
   const platforms = pkg.platforms ?? []
@@ -104,6 +110,8 @@ async function announceRelease(npmName, version, catalog, releaseNotes) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      Authorization: `Bearer ${anonKey}`,
+      apikey: anonKey,
       'x-internal-secret': secret,
     },
     body: JSON.stringify({

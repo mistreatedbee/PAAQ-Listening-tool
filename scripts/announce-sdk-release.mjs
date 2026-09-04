@@ -71,6 +71,8 @@ const platforms = pkg.platforms ?? []
 
 const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL
 const secret = process.env.REPO_CONNECTOR_INTERNAL_SECRET
+const anonKey =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY
 
 if (!supabaseUrl || !secret) {
   console.error(
@@ -80,10 +82,20 @@ if (!supabaseUrl || !secret) {
   process.exit(1)
 }
 
+if (!anonKey) {
+  console.error(
+    'Missing NEXT_PUBLIC_SUPABASE_ANON_KEY (required by Supabase gateway).\n' +
+      'Add it to apps/dashboard/.env.local or repo root .env.local',
+  )
+  process.exit(1)
+}
+
 const res = await fetch(`${supabaseUrl}/functions/v1/announce-sdk-release`, {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
+    Authorization: `Bearer ${anonKey}`,
+    apikey: anonKey,
     'x-internal-secret': secret,
   },
   body: JSON.stringify({
