@@ -110,6 +110,24 @@ async function announceRelease(npmName, version, catalog, releaseNotes) {
   console.log('Release announced:', body)
 }
 
+function npmPublishedVersion(npmName) {
+  try {
+    return execSync(`npm view ${npmName} version`, { encoding: 'utf8' }).trim()
+  } catch {
+    return null
+  }
+}
+
+function semverGte(a, b) {
+  const pa = a.replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0)
+  const pb = b.replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0)
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] ?? 0) > (pb[i] ?? 0)) return true
+    if ((pa[i] ?? 0) < (pb[i] ?? 0)) return false
+  }
+  return true
+}
+
 async function releaseOne(npmName, opts, catalog) {
   const pkg = catalog.packages[npmName]
   const cwd = path.join(ROOT, pkg.path)
@@ -123,8 +141,18 @@ async function releaseOne(npmName, opts, catalog) {
 
   run('npm pack --dry-run', cwd)
 
+  const published = npmPublishedVersion(npmName)
+  const alreadyOnNpm = published && semverGte(published, version)
+
   if (opts.dryRun || opts.skipPublish) {
     console.log(`(skipping npm publish${opts.dryRun ? ' — dry-run' : ''})`)
+  } else if (alreadyOnNpm) {
+    console.log(
+      `\n✓ ${npmName}@${version} is already on npm (registry: ${published}). Skipping publish.`,
+    )
+    console.log(
+      '  To ship a new version: bump packages/sdk-versions.json, then run sdk:release again.',
+    )
   } else {
     run('npm publish --access public', cwd)
   }

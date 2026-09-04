@@ -20,7 +20,14 @@ npm run sdk:release:dry-run
 Run from **repo root** or **`apps/dashboard`** (both work):
 
 ```bash
-# Requires npm login + env in /.env.local (see ENV-SETUP.md)
+npm run sdk:release
+```
+
+If the version is **already on npm**, publish is skipped automatically and announce still runs.
+
+**Next release:** bump the version in `packages/sdk-versions.json` first (e.g. `1.2.9` → `1.3.0`), then:
+
+```bash
 npm run sdk:release
 ```
 
