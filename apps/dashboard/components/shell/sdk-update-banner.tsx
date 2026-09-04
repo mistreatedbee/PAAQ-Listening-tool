@@ -8,7 +8,7 @@ import {
   latestForPlatformRemote,
   isSdkOutdated,
   buildSdkUpgradePrompt,
-  isNpmSdkPlatform,
+  shouldCheckSdkUpgrade,
 } from '@/lib/use-sdk-versions'
 import { Rocket, X, Copy, Check } from 'lucide-react'
 
@@ -16,6 +16,7 @@ type Installation = {
   id: string
   platform: string
   sdk_version: string
+  device_id: string
   last_seen: string
 }
 
@@ -41,13 +42,13 @@ export function SdkUpdateBanner() {
     const sb = createClient()
     const { data } = await sb
       .from('sdk_installations')
-      .select('id, platform, sdk_version, last_seen')
+      .select('id, platform, sdk_version, device_id, last_seen')
       .eq('project_id', projectId)
       .eq('status', 'active')
       .order('last_seen', { ascending: false })
 
     const stale = (data ?? []).filter((inst) =>
-      isNpmSdkPlatform(inst.platform) &&
+      shouldCheckSdkUpgrade(inst.platform, inst.sdk_version, inst.device_id) &&
       isSdkOutdated(inst.sdk_version, latestForPlatformRemote(versions, inst.platform)),
     ) as Installation[]
     setOutdated(stale)

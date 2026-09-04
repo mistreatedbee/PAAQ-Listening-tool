@@ -150,7 +150,7 @@ Deno.serve(async (req) => {
   //    The web app is serving users, so its backend API is running too.
   if (FRONTEND_PLATFORMS.has(platform)) {
     heartbeatCalls.push(
-      heartbeat(tokenRow.tenant_id, project.id, 'nodejs', 'events-proxy-backend', '0'),
+      heartbeat(tokenRow.tenant_id, project.id, 'nodejs', 'events-proxy-backend', sdkVersion),
     )
   }
 

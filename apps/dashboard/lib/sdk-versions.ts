@@ -50,6 +50,34 @@ export function isNpmSdkPlatform(platform: string): boolean {
   return !DATABASE_PLATFORMS.has(platform.toLowerCase())
 }
 
+/** Synthetic heartbeat rows — not a real SDK install to upgrade. */
+export const INTERNAL_SDK_DEVICE_IDS = new Set([
+  'events-proxy-backend',
+  'db-connector',
+])
+
+export function isInternalSdkInstallation(deviceId: string | null | undefined): boolean {
+  if (!deviceId) return false
+  return INTERNAL_SDK_DEVICE_IDS.has(deviceId)
+}
+
+export function isPlaceholderSdkVersion(version: string | null | undefined): boolean {
+  const v = (version ?? '').trim().toLowerCase()
+  if (!v || v === '0' || v === '0.0.0' || v === 'unknown' || v === 'n/a') return true
+  return false
+}
+
+export function shouldCheckSdkUpgrade(
+  platform: string,
+  sdkVersion: string,
+  deviceId?: string | null,
+): boolean {
+  if (!isNpmSdkPlatform(platform)) return false
+  if (isInternalSdkInstallation(deviceId)) return false
+  if (isPlaceholderSdkVersion(sdkVersion)) return false
+  return true
+}
+
 export function parseSemver(v: string): [number, number, number] {
   const parts = v.replace(/^v/i, '').split('.').map((n) => parseInt(n, 10) || 0)
   return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0]

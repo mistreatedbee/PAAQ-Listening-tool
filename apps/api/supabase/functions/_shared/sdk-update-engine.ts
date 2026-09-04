@@ -4,8 +4,8 @@ import {
   buildSdkUpgradePrompt,
   buildSdkReleaseMessage,
   LATEST_SDK_VERSIONS,
-  isNpmSdkPlatform,
   latestForPlatform,
+  shouldCheckSdkUpgrade,
 } from './sdk-versions.ts'
 
 export type SyncSdkUpdatesResult = { notified: number; outdated: number }
@@ -21,8 +21,11 @@ export async function loadLatestVersions(
 
   if (error || !data?.length) return merged
 
+  // Bundled catalog is authoritative for customer platforms; DB only adds extras.
   for (const row of data) {
-    merged[row.platform] = row.latest_version
+    if (!(row.platform in LATEST_SDK_VERSIONS)) {
+      merged[row.platform] = row.latest_version
+    }
   }
   return merged
 }
@@ -31,11 +34,7 @@ function latestFor(
   versions: Record<string, string>,
   platform: string,
 ): string {
-  const key = platform.toLowerCase()
-  if (!isNpmSdkPlatform(key)) {
-    return versions[key] ?? latestForPlatform(key)
-  }
-  return versions[key] ?? versions.web ?? latestForPlatform(key)
+  return versions[platform.toLowerCase()] ?? latestForPlatform(platform)
 }
 
 /** Create in-app notifications for SDK installations running behind latest. */
@@ -48,7 +47,7 @@ export async function syncSdkUpdateNotifications(
 
   const { data: installations } = await supabase
     .from('sdk_installations')
-    .select('id, platform, sdk_version, last_seen')
+    .select('id, platform, sdk_version, device_id, last_seen')
     .eq('project_id', projectId)
     .eq('status', 'active')
     .gte('last_seen', recentCutoff)
@@ -74,7 +73,7 @@ export async function syncSdkUpdateNotifications(
   const seenPlatforms = new Set<string>()
 
   for (const inst of installations ?? []) {
-    if (!isNpmSdkPlatform(inst.platform)) continue
+    if (!shouldCheckSdkUpgrade(inst.platform, inst.sdk_version, inst.device_id)) continue
     const latest = latestFor(versions, inst.platform)
     if (!isSdkOutdated(inst.sdk_version, latest)) continue
     if (seenPlatforms.has(inst.platform)) continue
