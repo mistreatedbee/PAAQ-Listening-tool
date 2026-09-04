@@ -24,8 +24,21 @@ const STEP_ORDER = [
   'remove_setup_page',
 ]
 
+const STEP_LABELS: Record<string, string> = {
+  connect_repository: 'Connect repository',
+  understand_project: 'Understand project',
+  generate_sdk: 'Generate SDK',
+  configure_connections: 'Configure connections',
+  verify_backend: 'Verify backend',
+  verify_frontend: 'Verify frontend',
+  verify_database: 'Verify database',
+  start_learning: 'Start learning',
+  activate_monitoring: 'Activate monitoring',
+  remove_setup_page: 'Finish setup',
+}
+
 function titleCase(stepKey: string) {
-  return stepKey.split('_').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ')
+  return STEP_LABELS[stepKey] ?? stepKey.split('_').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ')
 }
 
 type StepRow = {

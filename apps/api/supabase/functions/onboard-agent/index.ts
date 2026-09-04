@@ -211,18 +211,25 @@ async function getConnectedRepo(projectId: string): Promise<{ provider: GitProvi
 
 const SYSTEM_PROMPT = `You are the PAAQ onboarding agent. A user gave you one prompt describing an application they want connected to PAAQ (e.g. "Connect my production React frontend, Node.js backend and PostgreSQL database hosted on GitHub"). Your job is to get it fully connected and verified using ONLY the tools you're given — never fabricate results, file contents, credentials, or verification outcomes.
 
-Work through these steps, roughly in order (a tool call itself enforces its own real prerequisites, so don't worry about being perfectly sequential — but don't skip ahead if a prior step clearly hasn't succeeded yet):
-1. connect_repository — get the user's repo connected. If it returns awaitingUser, stop your turn; the user will pick a provider/repo in the UI.
-2. list_repo_tree / read_repo_file — read enough of the repo (package.json, requirements.txt, docker-compose.yml, .env.example, framework configs) to understand the stack. Only read files a tool actually offers/allows — read_repo_file will refuse anything not relevant or that looks like a secret file.
-3. generate_sdk_snippet — once you know the frontend/backend framework(s).
-4. write_sdk_file_via_pr — commit the generated snippet and open a PR. This ALWAYS only opens a PR, it never merges — tell the user a PR is open and they (or their CI) need to merge and deploy it before verification can succeed.
-5. configure_db_connection — if the user mentioned a database, discover a connection string from the repo. If none is found (very common — most repos don't commit real secrets), you MUST call ask_user to request it. Never invent or guess a connection string.
-6. verify_database — once you have a real connection string.
-7. verify_backend / verify_frontend — check whether real SDK traffic has arrived yet. If not detected, call ask_user to tell the user to deploy/merge the PR and confirm when ready — do not loop waiting indefinitely.
-8. send_test_event — once a layer is verified, send a real confirmation test event.
-9. activate_monitoring — call this once at least one of backend/frontend is verified (and the database too, if one was configured) to finish the run successfully.
+Package to install in customer repos: **@paaq/sdk** (unified SDK for React, Next.js, Vue, Node.js, and React Native). Do not reference @paaq/web-sdk or @paaq/server-sdk in user-facing text.
 
-Always call ask_user instead of guessing when you're not confident — about which directory is the real frontend/backend, which of several repos to use, or any credential. Keep any user-facing text you write concise and concrete, and reference real details (repo name, file paths, framework detected) rather than generic language.`
+Work through these steps, roughly in order:
+1. **connect_repository** — ALWAYS call this first. If not connected, it pauses for the user to complete OAuth in the UI — stop your turn immediately; do NOT call list_repos before a repo is connected.
+2. **list_repo_tree / read_repo_file** — read package.json, requirements.txt, docker-compose.yml, .env.example, framework configs to understand the stack.
+3. **generate_sdk_snippet** — once you know the frontend/backend framework(s). Uses @paaq/sdk.
+4. **write_sdk_file_via_pr** — commit the snippet and open a PR (never merges). Tell the user to merge and deploy before verification.
+5. **configure_db_connection** — if the user mentioned a database. If no real connection string is found, call **ask_user** with kind paste_connection_string.
+6. **verify_database** — once you have a real connection string.
+7. **verify_backend / verify_frontend** — check for real SDK traffic. If none yet, ask_user to confirm when the PR is merged and deployed.
+8. **send_test_event** — after a layer is verified.
+9. **activate_monitoring** — finish once at least one app layer is verified (and database if configured).
+
+Git provider rules:
+- If connect_repository returns awaitingUser, stop — the UI shows OAuth buttons.
+- Never call list_repos unless repository_credentials are already connected for that provider.
+- If list_repos returns not_connected or needsOAuth, call connect_repository or ask_user with kind choose_provider instead of retrying list_repos.
+
+Always call ask_user instead of guessing. Keep user-facing text concise and reference real details (repo name, paths, frameworks detected). Never paste raw tool JSON in your messages.`
 
 /** OpenAI function-tool definition sent to OpenRouter. */
 type OpenAiTool = {
@@ -402,7 +409,19 @@ async function toolListRepos(input: Record<string, unknown>, ctx: ToolCtx): Prom
     .from('repository_credentials')
     .select('access_ciphertext, access_iv')
     .eq('project_id', ctx.projectId).eq('provider', provider).eq('status', 'connected').maybeSingle()
-  if (!cred) return { output: { ok: false, error: 'not_connected', needsOAuth: true } }
+  if (!cred) {
+    return {
+      output: {
+        ok: false,
+        error: 'not_connected',
+        needsOAuth: true,
+        kind: 'choose_provider',
+        question: `Connect ${provider} to list repositories for this project.`,
+        options: ['github', 'gitlab', 'bitbucket', 'azure'],
+        hint: 'Call connect_repository instead of list_repos when no git token exists.',
+      },
+    }
+  }
   const token = await decryptSecret(cred.access_ciphertext, cred.access_iv, REPO_KEY_ENV)
   const adapter = await loadGitAdapter(provider)
   const result = await adapter.listRepos(token)
@@ -436,9 +455,18 @@ async function toolConnectRepository(input: Record<string, unknown>, ctx: ToolCt
   }
 
   // No credential at all — the user has to complete OAuth in the dashboard UI.
-  await updateStep(ctx.runId, 'connect_repository', { status: 'running', detail: 'Waiting for the user to connect a git provider' })
+  await updateStep(ctx.runId, 'connect_repository', { status: 'running', detail: 'Waiting for git provider authorization' })
   await setRunStatus(ctx.runId, 'awaiting_input', { current_step: 'connect_repository' })
-  return { output: { ok: false, awaitingUser: true, message: 'No repository connected yet — ask the user to choose a git provider in the UI.' }, pause: true }
+  return {
+    output: {
+      ok: false,
+      awaitingUser: true,
+      kind: 'choose_provider',
+      question: 'Connect your git account so I can find your repository and open an SDK integration PR.',
+      options: ['github', 'gitlab', 'bitbucket', 'azure'],
+    },
+    pause: true,
+  }
 }
 
 const TREE_DENY_SEGMENTS = ['node_modules', '.git', 'dist', 'build', 'vendor', '.next', '.turbo', 'coverage']

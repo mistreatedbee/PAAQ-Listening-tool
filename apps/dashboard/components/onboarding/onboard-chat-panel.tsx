@@ -4,8 +4,15 @@ import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { cn } from '@/lib/utils'
 import { Bot, User, Wrench, ArrowUp, Loader2 } from 'lucide-react'
-import { SiGithub, SiGitlab, SiBitbucket } from 'react-icons/si'
-import { CloudCog } from 'lucide-react'
+import { GitProviderButtons } from '@/components/connect/git-provider-buttons'
+import {
+  findPendingUserInput,
+  sanitizeAssistantText,
+  toolResultLabel,
+  inferToolLabelFromAssistantText,
+  type AskUser,
+} from '@/lib/onboarding-chat'
+import type { GitProviderId } from '@/lib/repo-providers'
 
 type RunStatus = 'running' | 'awaiting_input' | 'succeeded' | 'failed' | 'cancelled'
 
@@ -16,20 +23,6 @@ type MessageRow = {
   created_at: string
 }
 
-// Shape the onboard-agent uses when it needs something from the user —
-// surfaced inside a role:'tool' row's content. Not formally typed on the
-// DB side (content is jsonb), so this is deliberately loose/defensive.
-type AskUser = {
-  question: string
-  kind: 'text' | 'confirm' | 'choose_provider' | 'paste_connection_string'
-  options?: string[]
-}
-
-// onboard-agent (apps/api/supabase/functions/onboard-agent/index.ts) always
-// stores message content as a content-block array (even a
-// single text turn is `[{type:'text', text}]`) — assistant/user rows are
-// arrays of {type:'text', text} blocks; tool rows are arrays of
-// {type:'tool_result', tool_use_id, content: '<JSON-encoded tool output>'}.
 function textOf(content: unknown): string | null {
   if (typeof content === 'string') return content
   if (Array.isArray(content)) {
@@ -46,40 +39,16 @@ function textOf(content: unknown): string | null {
   return null
 }
 
-// Searches a role:'tool' row's content-block array for an ask_user tool's
-// result — each block's own `content` field is the JSON-encoded string of
-// whatever the tool handler returned (see dispatchTool/appendMessage in
-// onboard-agent), so it has to be parsed before its shape can be checked.
-function findAskUser(content: unknown): AskUser | null {
-  if (!Array.isArray(content)) return null
-  for (const block of content) {
-    if (!block || typeof block !== 'object') continue
-    const raw = (block as Record<string, unknown>).content
-    if (typeof raw !== 'string') continue
-    let parsed: unknown
-    try { parsed = JSON.parse(raw) } catch { continue }
-    if (parsed && typeof parsed === 'object') {
-      const p = parsed as Record<string, unknown>
-      if (typeof p.question === 'string' && typeof p.kind === 'string') return p as unknown as AskUser
-    }
-  }
-  return null
-}
-
-const PROVIDER_ICONS: Record<string, typeof SiGithub> = {
-  github: SiGithub,
-  gitlab: SiGitlab,
-  bitbucket: SiBitbucket,
-}
-
 export function OnboardChatPanel({
   runId,
   projectId,
   status,
+  currentStep,
 }: {
   runId: string
   projectId: string
   status: RunStatus
+  currentStep?: string | null
 }) {
   const [messages, setMessages] = useState<MessageRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -123,12 +92,13 @@ export function OnboardChatPanel({
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages, status])
 
-  // Find the most recent ask_user payload — checked across the tail of
-  // messages since it may arrive as a tool row alongside/after the
-  // assistant's text explaining the question.
-  let askUser: AskUser | null = null
-  for (let i = messages.length - 1; i >= 0 && !askUser; i--) {
-    if (messages[i].role === 'tool') askUser = findAskUser(messages[i].content)
+  let askUser: AskUser | null = findPendingUserInput(messages)
+  const needsGitConnect = status === 'awaiting_input' && currentStep === 'connect_repository' && !askUser
+  if (needsGitConnect) {
+    askUser = {
+      question: 'Connect your git account so the agent can find your repository and open an SDK integration PR.',
+      kind: 'choose_provider',
+    }
   }
 
   async function submitAnswer(value: string) {
@@ -146,9 +116,10 @@ export function OnboardChatPanel({
     }
   }
 
+  const returnTo = `/connect/${runId}`
+
   return (
     <div className="flex h-full flex-col rounded-2xl border border-border/70 bg-sidebar overflow-hidden">
-      {/* Header */}
       <div className="flex h-14 items-center gap-2.5 border-b border-border/60 px-4">
         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-ai/15 text-ai">
           <Bot className="h-4 w-4" />
@@ -165,7 +136,6 @@ export function OnboardChatPanel({
         </div>
       </div>
 
-      {/* Messages */}
       <div ref={scrollRef} className="scrollbar-thin flex-1 space-y-4 overflow-y-auto p-4">
         {loading ? (
           <div className="flex items-center justify-center py-12">
@@ -174,16 +144,18 @@ export function OnboardChatPanel({
         ) : (
           messages.map((m) => {
             if (m.role === 'tool') {
-              // Raw tool_use/tool_result JSON isn't meant for direct display —
-              // just a subtle one-line indicator that something ran.
+              const label = toolResultLabel(m.content) ?? 'Completed a step'
               return (
                 <div key={m.id} className="flex items-center gap-2 pl-9 text-[11px] text-muted-foreground/70">
-                  <Wrench className="h-3 w-3" />
-                  used a tool
+                  <Wrench className="h-3 w-3 shrink-0" />
+                  {label}
                 </div>
               )
             }
-            const text = textOf(m.content) ?? JSON.stringify(m.content)
+            const raw = textOf(m.content)
+            const text = raw ? sanitizeAssistantText(raw) : null
+            const inferredTool = !text && raw ? inferToolLabelFromAssistantText(raw) : null
+            if (!text && !inferredTool) return null
             return (
               <div key={m.id} className={cn('flex gap-2.5', m.role === 'user' && 'flex-row-reverse')}>
                 <span className={cn(
@@ -198,7 +170,7 @@ export function OnboardChatPanel({
                     ? 'bg-intel text-primary-foreground'
                     : 'border border-border/60 bg-card text-card-foreground',
                 )}>
-                  {text}
+                  {text ?? inferredTool}
                 </div>
               </div>
             )
@@ -225,27 +197,16 @@ export function OnboardChatPanel({
         )}
       </div>
 
-      {/* Input affordance */}
       {status === 'awaiting_input' && askUser && (
         <div className="border-t border-border/60 px-4 py-3 space-y-2">
           <p className="text-xs font-medium text-foreground">{askUser.question}</p>
 
-          {askUser.kind === 'choose_provider' && (
-            <div className="flex flex-wrap gap-2">
-              {(askUser.options ?? ['github', 'gitlab', 'azure', 'bitbucket']).map((p) => {
-                const Icon = PROVIDER_ICONS[p] ?? CloudCog
-                return (
-                  <a
-                    key={p}
-                    href={`/api/auth/${p}?project_id=${projectId}&returnTo=${encodeURIComponent(`/connect/${runId}`)}`}
-                    className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:border-ai/40 hover:bg-ai/5"
-                  >
-                    <Icon className="h-3.5 w-3.5" />
-                    {p[0].toUpperCase() + p.slice(1)}
-                  </a>
-                )
-              })}
-            </div>
+          {askUser.kind === 'choose_provider' && projectId && (
+            <GitProviderButtons
+              projectId={projectId}
+              returnTo={returnTo}
+              options={askUser.options as GitProviderId[] | undefined}
+            />
           )}
 
           {askUser.kind === 'confirm' && (
@@ -275,7 +236,7 @@ export function OnboardChatPanel({
               <input
                 value={answer}
                 onChange={(e) => setAnswer(e.target.value)}
-                placeholder={askUser.kind === 'paste_connection_string' ? 'postgres://…' : 'Type your answer…'}
+                placeholder={askUser.kind === 'paste_connection_string' ? 'postgres://user:pass@host:5432/dbname' : 'Type your answer…'}
                 className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
                 autoFocus
               />

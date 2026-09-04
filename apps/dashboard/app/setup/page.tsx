@@ -421,6 +421,30 @@ export default function SetupPage() {
         )}
       </div>
 
+      {/* Recommended: AI-guided connect */}
+      <div className="rounded-2xl border border-ai/25 bg-gradient-to-br from-ai/10 via-card to-card p-5 sm:p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <Bot className="h-4 w-4 text-ai" />
+              <span className="text-xs font-semibold uppercase tracking-widest text-ai">Recommended</span>
+            </div>
+            <h2 className="text-base font-semibold text-foreground">Connect with the Onboarding Agent</h2>
+            <p className="text-sm text-muted-foreground max-w-xl">
+              Describe your stack in plain English — React + Node + Postgres on GitHub, for example.
+              The agent connects your repo, generates an <code className="text-xs">@paaq/sdk</code> PR, wires your database, and verifies monitoring.
+            </p>
+          </div>
+          <Link
+            href="/connect"
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-ai px-5 py-2.5 text-sm font-semibold text-ai-foreground hover:bg-ai/90 transition-colors"
+          >
+            <Sparkles className="h-4 w-4" />
+            Connect application
+          </Link>
+        </div>
+      </div>
+
       {/* Connected Applications */}
       {hasApps && !showWizard && (
         <div className="space-y-4">
@@ -448,15 +472,24 @@ export default function SetupPage() {
               <div>
                 <h2 className="text-lg font-semibold text-foreground">Connect your first application</h2>
                 <p className="mt-2 text-sm text-muted-foreground max-w-md mx-auto">
-                  PAAQ Intelligence will automatically begin learning how your organisation operates within minutes.
+                  Use the AI onboarding agent to connect GitHub, generate the SDK PR, and verify frontend, backend, and database in one flow.
                 </p>
               </div>
-              <button
-                onClick={() => setShowWizard(true)}
-                className="inline-flex items-center gap-2 rounded-xl bg-ai px-6 py-3 text-sm font-semibold text-white hover:bg-ai/90 transition-colors shadow-lg shadow-ai/20"
-              >
-                Get started <ArrowRight className="h-4 w-4" />
-              </button>
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                <Link
+                  href="/connect"
+                  className="inline-flex items-center gap-2 rounded-xl bg-ai px-6 py-3 text-sm font-semibold text-ai-foreground hover:bg-ai/90 transition-colors shadow-lg shadow-ai/20"
+                >
+                  <Bot className="h-4 w-4" />
+                  Connect with AI agent
+                </Link>
+                <button
+                  onClick={() => setShowWizard(true)}
+                  className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-card px-5 py-3 text-sm font-medium text-muted-foreground hover:text-foreground"
+                >
+                  Manual setup wizard
+                </button>
+              </div>
             </div>
           )}
 

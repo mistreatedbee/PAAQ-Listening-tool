@@ -102,8 +102,8 @@ export default function ConnectPage() {
         </div>
         <h1 className="text-2xl font-bold text-foreground">Connect Application</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Pick the example closest to your stack below (or write your own), then edit any details before sending —
-          the agent will connect your repository, generate the SDK, and wire up monitoring for you.
+          Pick the example closest to your stack below (or write your own), then edit any details before sending.
+          The agent will connect your Git repository, generate a <code className="text-[11px]">@paaq/sdk</code> integration PR, and verify monitoring.
         </p>
 
         <div className="mt-4 flex flex-wrap gap-2">

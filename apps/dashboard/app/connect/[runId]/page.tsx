@@ -1,12 +1,14 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useEffect, useState, useCallback } from 'react'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/utils/supabase/client'
 import { StepTimeline } from '@/components/onboarding/step-timeline'
 import { OnboardChatPanel } from '@/components/onboarding/onboard-chat-panel'
-import { Loader2, Sparkles, XCircle, X } from 'lucide-react'
+import { RepoPickerModal } from '@/components/connect/repo-picker-modal'
+import type { RepoListItem } from '@/lib/repo-providers'
+import { Loader2, Sparkles, XCircle, X, CheckCircle2 } from 'lucide-react'
 
 type RunStatus = 'running' | 'awaiting_input' | 'succeeded' | 'failed' | 'cancelled'
 
@@ -16,16 +18,28 @@ type RunRow = {
   status: RunStatus
   error: string | null
   prompt: string
+  current_step: string | null
 }
 
 export default function OnboardRunPage() {
   const params = useParams<{ runId: string }>()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const runId = params.runId
 
   const [run, setRun] = useState<RunRow | null>(null)
   const [loading, setLoading] = useState(true)
   const [cancelling, setCancelling] = useState(false)
+  const [notice, setNotice] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
+  const [repoPicker, setRepoPicker] = useState<{ provider: string; repos: RepoListItem[]; loading: boolean } | null>(null)
+
+  const resumeAgent = useCallback(async () => {
+    await fetch('/api/onboard', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'continue', runId }),
+    })
+  }, [runId])
 
   useEffect(() => {
     let cancelled = false
@@ -34,7 +48,7 @@ export default function OnboardRunPage() {
     async function load() {
       const { data } = await sb
         .from('onboarding_runs')
-        .select('id, project_id, status, error, prompt')
+        .select('id, project_id, status, error, prompt, current_step')
         .eq('id', runId)
         .maybeSingle()
       if (!cancelled) {
@@ -59,8 +73,50 @@ export default function OnboardRunPage() {
     }
   }, [runId])
 
-  // Auto-redirect to the app's management page a couple seconds after
-  // succeeding, so the user sees the "All connected!" state before leaving.
+  // OAuth return: ?repo_connected=github&needs_repo_pick=1
+  useEffect(() => {
+    const connected = searchParams.get('repo_connected')
+    const needsPick = searchParams.get('needs_repo_pick')
+    const repoError = searchParams.get('repo_error')
+    const projectId = run?.project_id
+
+    if (repoError) {
+      const msg = repoError === 'not_configured'
+        ? 'Git integration is not configured on this environment — contact your admin.'
+        : repoError === 'auth_failed'
+          ? 'Git authentication failed — please try again.'
+          : 'Repository connection failed — please try again.'
+      setNotice({ type: 'error', msg })
+      router.replace(`/connect/${runId}`, { scroll: false })
+      return
+    }
+
+    if (!connected || !projectId) return
+
+    router.replace(`/connect/${runId}`, { scroll: false })
+
+    if (needsPick) {
+      setRepoPicker({ provider: connected, repos: [], loading: true })
+      fetch(`/api/repo/list?project_id=${projectId}&provider=${connected}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.repos?.length) {
+            setRepoPicker({ provider: connected, repos: data.repos, loading: false })
+          } else {
+            setRepoPicker(null)
+            setNotice({ type: 'error', msg: 'Connected to git, but no repositories were found.' })
+          }
+        })
+        .catch(() => {
+          setRepoPicker(null)
+          setNotice({ type: 'error', msg: 'Failed to load repositories.' })
+        })
+    } else {
+      setNotice({ type: 'success', msg: `${connected} connected.` })
+      resumeAgent()
+    }
+  }, [searchParams, run?.project_id, runId, router, resumeAgent])
+
   useEffect(() => {
     if (run?.status === 'succeeded' && run.project_id) {
       const t = setTimeout(() => router.push(`/apps/${run.project_id}`), 2000)
@@ -80,6 +136,12 @@ export default function OnboardRunPage() {
     } finally {
       setCancelling(false)
     }
+  }
+
+  async function handleRepoSelected(repoFullName: string) {
+    setRepoPicker(null)
+    setNotice({ type: 'success', msg: `Repository ${repoFullName} connected. Resuming onboarding…` })
+    await resumeAgent()
   }
 
   if (loading) {
@@ -104,7 +166,13 @@ export default function OnboardRunPage() {
 
   return (
     <div className="max-w-6xl space-y-6">
-      {/* Header */}
+      {notice && (
+        <div className={cnNotice(notice.type)}>
+          {notice.type === 'success' ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <XCircle className="h-4 w-4 shrink-0" />}
+          <p className="text-sm">{notice.msg}</p>
+        </div>
+      )}
+
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
@@ -112,7 +180,7 @@ export default function OnboardRunPage() {
             <span className="text-xs font-semibold uppercase tracking-widest text-ai">PAAQ Intelligence</span>
           </div>
           <h1 className="text-2xl font-bold text-foreground">Connecting your application</h1>
-          <p className="mt-1 max-w-xl text-sm text-muted-foreground line-clamp-2">"{run.prompt}"</p>
+          <p className="mt-1 max-w-xl text-sm text-muted-foreground line-clamp-2">&ldquo;{run.prompt}&rdquo;</p>
         </div>
         {canCancel && (
           <button
@@ -137,7 +205,6 @@ export default function OnboardRunPage() {
         </div>
       )}
 
-      {/* Two-column layout: timeline + chat */}
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
         <div className="rounded-2xl border border-border/70 bg-card p-5">
           <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">Progress</p>
@@ -145,9 +212,31 @@ export default function OnboardRunPage() {
         </div>
 
         <div className="h-[560px] lg:h-auto">
-          <OnboardChatPanel runId={runId} projectId={run.project_id ?? ''} status={run.status} />
+          <OnboardChatPanel
+            runId={runId}
+            projectId={run.project_id ?? ''}
+            status={run.status}
+            currentStep={run.current_step}
+          />
         </div>
       </div>
+
+      {repoPicker && run.project_id && (
+        <RepoPickerModal
+          projectId={run.project_id}
+          provider={repoPicker.provider}
+          repos={repoPicker.repos}
+          loading={repoPicker.loading}
+          onClose={() => setRepoPicker(null)}
+          onSelected={handleRepoSelected}
+        />
+      )}
     </div>
   )
+}
+
+function cnNotice(type: 'success' | 'error') {
+  return type === 'success'
+    ? 'flex items-center gap-2 rounded-xl border border-healthy/30 bg-healthy/8 px-4 py-3 text-healthy'
+    : 'flex items-center gap-2 rounded-xl border border-critical/30 bg-critical/8 px-4 py-3 text-critical'
 }
