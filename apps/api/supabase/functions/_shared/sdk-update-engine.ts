@@ -4,6 +4,8 @@ import {
   buildSdkUpgradePrompt,
   buildSdkReleaseMessage,
   LATEST_SDK_VERSIONS,
+  isNpmSdkPlatform,
+  latestForPlatform,
 } from './sdk-versions.ts'
 
 export type SyncSdkUpdatesResult = { notified: number; outdated: number }
@@ -30,7 +32,10 @@ function latestFor(
   platform: string,
 ): string {
   const key = platform.toLowerCase()
-  return versions[key] ?? versions.web
+  if (!isNpmSdkPlatform(key)) {
+    return versions[key] ?? latestForPlatform(key)
+  }
+  return versions[key] ?? versions.web ?? latestForPlatform(key)
 }
 
 /** Create in-app notifications for SDK installations running behind latest. */
@@ -69,6 +74,7 @@ export async function syncSdkUpdateNotifications(
   const seenPlatforms = new Set<string>()
 
   for (const inst of installations ?? []) {
+    if (!isNpmSdkPlatform(inst.platform)) continue
     const latest = latestFor(versions, inst.platform)
     if (!isSdkOutdated(inst.sdk_version, latest)) continue
     if (seenPlatforms.has(inst.platform)) continue

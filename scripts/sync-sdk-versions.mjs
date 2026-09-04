@@ -32,6 +32,15 @@ export const LATEST_SDK_VERSIONS: Record<string, string> = ${JSON.stringify(LATE
 
 export const SDK_PACKAGES: Record<string, string> = ${JSON.stringify(PACKAGES, null, 2)}
 
+/** DB connector layers — not npm-installable app SDKs; never compare to web version. */
+export const DATABASE_PLATFORMS = new Set([
+  'postgres', 'mysql', 'mongodb', 'sqlite', 'redis', 'supabase', 'database',
+])
+
+export function isNpmSdkPlatform(platform: string): boolean {
+  return !DATABASE_PLATFORMS.has(platform.toLowerCase())
+}
+
 export function parseSemver(v: string): [number, number, number] {
   const parts = v.replace(/^v/i, '').split('.').map((n) => parseInt(n, 10) || 0)
   return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0]
@@ -47,17 +56,26 @@ export function isSdkOutdated(installed: string, latest: string): boolean {
 
 export function latestForPlatform(platform: string): string {
   const key = platform.toLowerCase()
+  if (DATABASE_PLATFORMS.has(key)) {
+    return LATEST_SDK_VERSIONS[key] ?? '1.0.0'
+  }
   return LATEST_SDK_VERSIONS[key] ?? LATEST_SDK_VERSIONS.web
 }
 
 export function packageForPlatform(platform: string): string {
   const key = platform.toLowerCase()
+  if (DATABASE_PLATFORMS.has(key)) {
+    return SDK_PACKAGES[key] ?? '@paaq/sdk-core'
+  }
   return SDK_PACKAGES[key] ?? SDK_PACKAGES.web
 }
 
 /** Agent-ready prompt for upgrading the PAAQ SDK in a connected project. */
 export function buildSdkUpgradePrompt(platform: string, current: string, latest: string): string {
   const pkg = packageForPlatform(platform)
+  if (DATABASE_PLATFORMS.has(platform.toLowerCase())) {
+    return \`Database connector (\${platform}) reports protocol v\${current}; latest catalog is v\${latest}. Re-test the connection in PAAQ Settings → Database if introspection or knowledge sync looks stale. No npm SDK install is required for database layers.\`
+  }
   return \`Upgrade the PAAQ SDK for this project from v\${current} to v\${latest} (\${platform}).
 
 1. Update the package: npm install \${pkg}@\${latest}

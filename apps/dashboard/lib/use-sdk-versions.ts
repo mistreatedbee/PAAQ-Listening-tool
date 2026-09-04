@@ -6,6 +6,8 @@ import {
   latestForPlatform as localLatest,
   isSdkOutdated,
   buildSdkUpgradePrompt,
+  isNpmSdkPlatform,
+  DATABASE_PLATFORMS,
 } from '@/lib/sdk-versions'
 
 type VersionsState = {
@@ -48,7 +50,10 @@ export function latestForPlatformRemote(
   platform: string,
 ): string {
   const key = platform.toLowerCase()
+  if (DATABASE_PLATFORMS.has(key)) {
+    return versions[key] ?? localLatest(key)
+  }
   return versions[key] ?? versions.web ?? localLatest(platform)
 }
 
-export { isSdkOutdated, buildSdkUpgradePrompt }
+export { isSdkOutdated, buildSdkUpgradePrompt, isNpmSdkPlatform, DATABASE_PLATFORMS }
