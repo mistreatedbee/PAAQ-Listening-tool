@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/utils/supabase/client'
-import { BookOpen, Cpu, Network, Route, Server, Rocket, FileText, BrainCircuit, ArrowRight, Plus, Sparkles, Search } from 'lucide-react'
+import { BookOpen, Cpu, Network, Route, Server, Rocket, FileText, BrainCircuit, ArrowRight, Plus, Sparkles, Search, RefreshCw } from 'lucide-react'
 import { Card, CardHead } from '@/components/kit'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 
@@ -27,27 +27,84 @@ const SECTIONS = [
   { label: 'Knowledge Graph',  href: '/knowledge/graph',        icon: BrainCircuit, key: null,      desc: 'Visual dependency map' },
 ]
 
+async function syncKnowledgeRegistries(projectId: string) {
+  const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/sync-knowledge-registries`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
+    },
+    body: JSON.stringify({ project_id: projectId }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(body.error ?? `Sync failed (${res.status})`)
+  }
+  return res.json() as Promise<{ inserted: number; updated: number; totals: Counts }>
+}
+
+async function loadCounts(projectId: string): Promise<Counts> {
+  const sb = createClient()
+  const [
+    { count: f },
+    { count: sc },
+    { count: a },
+    { count: j },
+    { count: sv },
+    { count: d },
+    { count: dc },
+  ] = await Promise.all([
+    sb.from('feature_registry').select('*', { count: 'exact', head: true }).eq('project_id', projectId),
+    sb.from('screen_registry').select('*', { count: 'exact', head: true }).eq('project_id', projectId),
+    sb.from('api_registry').select('*', { count: 'exact', head: true }).eq('project_id', projectId),
+    sb.from('journey_registry').select('*', { count: 'exact', head: true }).eq('project_id', projectId),
+    sb.from('service_registry').select('*', { count: 'exact', head: true }).eq('project_id', projectId),
+    sb.from('deployment_registry').select('*', { count: 'exact', head: true }).eq('project_id', projectId),
+    sb.from('knowledge_documents').select('*', { count: 'exact', head: true }).eq('project_id', projectId),
+  ])
+  return {
+    features: f ?? 0,
+    screens: sc ?? 0,
+    apis: a ?? 0,
+    journeys: j ?? 0,
+    services: sv ?? 0,
+    deployments: d ?? 0,
+    docs: dc ?? 0,
+  }
+}
+
 export default function KnowledgePage() {
   const { app } = useConnectedApp()
   const [counts, setCounts] = useState<Counts | null>(null)
   const [query, setQuery] = useState('')
   const [aiAnswer, setAiAnswer] = useState<string | null>(null)
   const [searching, setSearching] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [syncError, setSyncError] = useState<string | null>(null)
+  const [lastSync, setLastSync] = useState<{ inserted: number; updated: number } | null>(null)
+
+  const refresh = useCallback(async (projectId: string) => {
+    setCounts(await loadCounts(projectId))
+  }, [])
+
+  const runSync = useCallback(async (projectId: string) => {
+    setSyncing(true)
+    setSyncError(null)
+    try {
+      const result = await syncKnowledgeRegistries(projectId)
+      setLastSync({ inserted: result.inserted, updated: result.updated })
+      await refresh(projectId)
+    } catch (err) {
+      setSyncError(err instanceof Error ? err.message : 'Sync failed')
+      await refresh(projectId)
+    } finally {
+      setSyncing(false)
+    }
+  }, [refresh])
 
   useEffect(() => {
-    const sb = createClient()
-    const pid = app.id
-    Promise.all([
-      sb.from('feature_registry').select('*', { count: 'exact', head: true }).eq('project_id', pid),
-      sb.from('screen_registry').select('*', { count: 'exact', head: true }).eq('project_id', pid),
-      sb.from('api_registry').select('*', { count: 'exact', head: true }).eq('project_id', pid),
-      sb.from('journey_registry').select('*', { count: 'exact', head: true }).eq('project_id', pid),
-      sb.from('service_registry').select('*', { count: 'exact', head: true }).eq('project_id', pid),
-      sb.from('deployment_registry').select('*', { count: 'exact', head: true }).eq('project_id', pid),
-      sb.from('knowledge_documents').select('*', { count: 'exact', head: true }).eq('project_id', pid),
-    ]).then(([{ count: f }, { count: sc }, { count: a }, { count: j }, { count: sv }, { count: d }, { count: dc }]) => {
-      setCounts({ features: f ?? 0, screens: sc ?? 0, apis: a ?? 0, journeys: j ?? 0, services: sv ?? 0, deployments: d ?? 0, docs: dc ?? 0 })
-    })
+    void runSync(app.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync once per connected app
   }, [app.id])
 
   const handleSearch = async (e: React.FormEvent) => {
@@ -69,7 +126,7 @@ export default function KnowledgePage() {
   }
 
   const totalRegistered = counts
-    ? counts.features + counts.apis + counts.journeys + counts.services + counts.docs
+    ? counts.features + counts.apis + counts.journeys + counts.services + counts.docs + counts.screens
     : 0
 
   return (
@@ -82,12 +139,31 @@ export default function KnowledgePage() {
             <h1 className="text-xl font-bold">Application Knowledge</h1>
           </div>
           <p className="text-sm text-muted-foreground">
-            The AI's understanding of <span className="font-semibold text-foreground">{app.name}</span> — architecture, features, APIs, and more.
+            The AI builds understanding of <span className="font-semibold text-foreground">{app.name}</span> automatically — from SDK telemetry, AI analysis, database schema, and deployments. Manual import is optional.
           </p>
+          {lastSync && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Last discovery: {lastSync.inserted} new, {lastSync.updated} updated
+            </p>
+          )}
+          {syncError && (
+            <p className="mt-1 text-xs text-destructive">{syncError}</p>
+          )}
         </div>
-        <Link href="/knowledge/import" className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 transition-opacity">
-          <Plus className="h-4 w-4" /> Import Knowledge
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void runSync(app.id)}
+            disabled={syncing}
+            className="flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold hover:bg-muted/50 disabled:opacity-50 transition-colors"
+          >
+            <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
+            {syncing ? 'Discovering…' : 'Refresh knowledge'}
+          </button>
+          <Link href="/knowledge/import" className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 transition-opacity">
+            <Plus className="h-4 w-4" /> Import (optional)
+          </Link>
+        </div>
       </div>
 
       {/* AI Search */}
@@ -129,16 +205,20 @@ export default function KnowledgePage() {
       </Card>
 
       {/* Status banner if empty */}
-      {counts && totalRegistered === 0 && (
+      {counts && totalRegistered === 0 && !syncing && (
         <div className="rounded-2xl border border-dashed border-border bg-muted/30 px-6 py-10 text-center">
           <BrainCircuit className="mx-auto mb-3 h-10 w-10 text-muted-foreground/40" />
-          <h3 className="text-sm font-semibold">No knowledge imported yet</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Import your architecture, APIs, and documentation so the AI can understand your application.
+          <h3 className="text-sm font-semibold">Building your application knowledge</h3>
+          <p className="mt-1 text-sm text-muted-foreground max-w-md mx-auto">
+            Connect the SDK, run AI analysis, or link your database — the system will discover features, screens, APIs, journeys, and schema automatically. Nothing to register manually.
           </p>
-          <Link href="/knowledge/import" className="mt-4 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90">
-            <Plus className="h-4 w-4" /> Start Knowledge Import
-          </Link>
+          <button
+            type="button"
+            onClick={() => void runSync(app.id)}
+            className="mt-4 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90"
+          >
+            <RefreshCw className="h-4 w-4" /> Run discovery now
+          </button>
         </div>
       )}
 
@@ -165,8 +245,8 @@ export default function KnowledgePage() {
               </div>
               {count !== null && (
                 <p className="mt-3 text-2xl font-black tabular-nums text-foreground/90">
-                  {count}
-                  <span className="ml-1 text-xs font-normal text-muted-foreground">registered</span>
+                  {syncing && count === 0 ? '…' : count}
+                  <span className="ml-1 text-xs font-normal text-muted-foreground">discovered</span>
                 </p>
               )}
             </Link>

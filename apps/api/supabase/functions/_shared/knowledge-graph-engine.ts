@@ -1,4 +1,5 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { syncKnowledgeRegistries, type SyncKnowledgeRegistriesResult } from './knowledge-registry-engine.ts'
 
 export type GraphNodeInput = {
   node_key: string
@@ -20,6 +21,7 @@ export type SyncKnowledgeGraphResult = {
   nodes: number
   edges: number
   sources: Record<string, number>
+  registries?: SyncKnowledgeRegistriesResult
 }
 
 function nodeKey(type: string, id: string | null, label: string): string {
@@ -274,6 +276,13 @@ export async function syncKnowledgeGraph(
   supabase: SupabaseClient,
   projectId: string,
 ): Promise<SyncKnowledgeGraphResult> {
+  let registries: SyncKnowledgeRegistriesResult | undefined
+  try {
+    registries = await syncKnowledgeRegistries(supabase, projectId)
+  } catch {
+    /* non-fatal — graph can still build from telemetry */
+  }
+
   const { data: project } = await supabase
     .from('tenant_projects')
     .select('tenant_id')
@@ -291,7 +300,7 @@ export async function syncKnowledgeGraph(
   await supabase.from('knowledge_nodes').delete().eq('project_id', projectId)
 
   if (nodes.length === 0) {
-    return { nodes: 0, edges: 0, sources }
+    return { nodes: 0, edges: 0, sources, registries }
   }
 
   // Layout: cluster by type on a circle
@@ -357,5 +366,5 @@ export async function syncKnowledgeGraph(
     if (edgeError) throw new Error(`Failed to insert edges: ${edgeError.message}`)
   }
 
-  return { nodes: rows.length, edges: edgeRows.length, sources }
+  return { nodes: rows.length, edges: edgeRows.length, sources, registries }
 }

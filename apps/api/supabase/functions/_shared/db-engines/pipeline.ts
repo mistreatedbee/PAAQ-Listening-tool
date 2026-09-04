@@ -111,5 +111,12 @@ export async function saveDbConnection(
     { onConflict: 'tenant_id,project_id,device_id,platform' },
   )
 
+  try {
+    const { syncKnowledgeRegistries } = await import('../knowledge-registry-engine.ts')
+    await syncKnowledgeRegistries(supabase, projectId)
+  } catch {
+    /* non-fatal — connection is already saved */
+  }
+
   return result
 }
