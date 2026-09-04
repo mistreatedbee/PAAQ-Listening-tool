@@ -20,6 +20,8 @@ const catalog = JSON.parse(fs.readFileSync(path.join(ROOT, 'packages/sdk-version
 const ALIASES = {
   web: '@paaq/web-sdk',
   'web-sdk': '@paaq/web-sdk',
+  sdk: '@paaq/sdk',
+  unified: '@paaq/sdk',
   mcp: '@paaq/mcp-server',
   'mcp-server': '@paaq/mcp-server',
 }

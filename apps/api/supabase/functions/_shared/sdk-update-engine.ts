@@ -4,37 +4,35 @@ import {
   buildSdkUpgradePrompt,
   buildSdkReleaseMessage,
   LATEST_SDK_VERSIONS,
-  latestForPlatform,
+  mergeRemoteCatalog,
+  resolvedLatestVersion,
   shouldCheckSdkUpgrade,
 } from './sdk-versions.ts'
 
 export type SyncSdkUpdatesResult = { notified: number; outdated: number }
 
-/** Merge DB catalog over bundled defaults when the table exists. */
+/** Merge DB catalog with bundled defaults — bundled platforms always win. */
 export async function loadLatestVersions(
   supabase: SupabaseClient,
 ): Promise<Record<string, string>> {
-  const merged = { ...LATEST_SDK_VERSIONS }
   const { data, error } = await supabase
     .from('sdk_release_catalog')
     .select('platform, latest_version')
 
-  if (error || !data?.length) return merged
+  if (error || !data?.length) return { ...LATEST_SDK_VERSIONS }
 
-  // Bundled catalog is authoritative for customer platforms; DB only adds extras.
+  const remote: Record<string, string> = {}
   for (const row of data) {
-    if (!(row.platform in LATEST_SDK_VERSIONS)) {
-      merged[row.platform] = row.latest_version
-    }
+    remote[row.platform] = row.latest_version
   }
-  return merged
+  return mergeRemoteCatalog(remote)
 }
 
 function latestFor(
   versions: Record<string, string>,
   platform: string,
 ): string {
-  return versions[platform.toLowerCase()] ?? latestForPlatform(platform)
+  return resolvedLatestVersion(versions, platform)
 }
 
 /** Create in-app notifications for SDK installations running behind latest. */

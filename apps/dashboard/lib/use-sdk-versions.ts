@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import {
   LATEST_SDK_VERSIONS,
-  latestForPlatform as localLatest,
+  mergeRemoteCatalog,
+  resolvedLatestVersion,
   isSdkOutdated,
   buildSdkUpgradePrompt,
   isNpmSdkPlatform,
@@ -35,7 +36,7 @@ export function useSdkVersions(): VersionsState {
       .then((r) => r.json())
       .then((body) => {
         if (body?.versions) {
-          cached = body.versions as Record<string, string>
+          cached = mergeRemoteCatalog(body.versions as Record<string, string>)
           setVersions(cached)
         }
       })
@@ -50,11 +51,7 @@ export function latestForPlatformRemote(
   versions: Record<string, string>,
   platform: string,
 ): string {
-  const key = platform.toLowerCase()
-  if (DATABASE_PLATFORMS.has(key)) {
-    return versions[key] ?? localLatest(key)
-  }
-  return versions[key] ?? versions.web ?? localLatest(platform)
+  return resolvedLatestVersion(versions, platform)
 }
 
 export {
@@ -63,4 +60,6 @@ export {
   isNpmSdkPlatform,
   DATABASE_PLATFORMS,
   shouldCheckSdkUpgrade,
+  mergeRemoteCatalog,
+  resolvedLatestVersion,
 }

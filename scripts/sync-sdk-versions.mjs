@@ -90,6 +90,28 @@ export function latestForPlatform(platform: string): string {
   return LATEST_SDK_VERSIONS[key] ?? LATEST_SDK_VERSIONS.web
 }
 
+/** Remote DB catalog merged with bundled defaults — bundled platforms always win. */
+export function mergeRemoteCatalog(remote: Record<string, string>): Record<string, string> {
+  const merged = { ...LATEST_SDK_VERSIONS }
+  for (const [platform, version] of Object.entries(remote)) {
+    if (!(platform in LATEST_SDK_VERSIONS)) {
+      merged[platform] = version
+    }
+  }
+  return merged
+}
+
+export function resolvedLatestVersion(
+  remote: Record<string, string>,
+  platform: string,
+): string {
+  const key = platform.toLowerCase()
+  if (key in LATEST_SDK_VERSIONS) {
+    return LATEST_SDK_VERSIONS[key]
+  }
+  return remote[key] ?? remote.web ?? latestForPlatform(key)
+}
+
 export function packageForPlatform(platform: string): string {
   const key = platform.toLowerCase()
   if (DATABASE_PLATFORMS.has(key)) {
