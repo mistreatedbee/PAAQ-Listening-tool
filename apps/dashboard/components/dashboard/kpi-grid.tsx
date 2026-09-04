@@ -37,7 +37,18 @@ export function KpiGrid() {
 
     function load() {
       const yesterday = new Date(Date.now() - 86_400_000).toISOString()
+
+      const syncRisks = fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/sync-emerging-risks`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({ project_id: app.id }),
+      }).catch(() => null)
+
       Promise.all([
+        syncRisks,
         sb.from('events').select('user_id').gte('timestamp', yesterday).eq('project_id', app.id),
         sb.from('events').select('*', { count: 'exact', head: true }).eq('project_id', app.id),
         sb.from('errors').select('*', { count: 'exact', head: true }).eq('status', 'open').eq('project_id', app.id),

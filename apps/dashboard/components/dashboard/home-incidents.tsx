@@ -1,19 +1,20 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/utils/supabase/client'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { Card, CardHead, ToneBadge, StatusDot } from '@/components/kit'
 import { AlertTriangle, ArrowRight, Plus } from 'lucide-react'
 import type { Tone } from '@/lib/data'
-import { cn } from '@/lib/utils'
 
 type Incident = {
   id: string
   title: string
   severity: string
   status: string
+  source: string | null
+  impact_summary: string | null
   created_at: string
   ai_summary: string | null
 }
@@ -40,29 +41,52 @@ export function HomeIncidents() {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    if (app.id === '__loading__') return
+  const loadIncidents = useCallback((projectId: string) => {
     const sb = createClient()
-    Promise.all([
+    return Promise.all([
       sb.from('incidents')
-        .select('id, title, severity, status, created_at, ai_summary')
-        .eq('project_id', app.id)
+        .select('id, title, severity, status, source, impact_summary, created_at, ai_summary')
+        .eq('project_id', projectId)
         .neq('status', 'resolved')
         .order('created_at', { ascending: false })
         .limit(4),
-      sb.from('incidents').select('*', { count: 'exact', head: true }).eq('project_id', app.id).neq('status', 'resolved'),
+      sb.from('incidents').select('*', { count: 'exact', head: true }).eq('project_id', projectId).neq('status', 'resolved'),
     ]).then(([{ data }, { count }]) => {
       setIncidents((data ?? []) as Incident[])
       setTotal(count ?? 0)
       setLoading(false)
     })
-  }, [app.id])
+  }, [])
+
+  useEffect(() => {
+    if (app.id === '__loading__') return
+    let cancelled = false
+
+    async function syncAndLoad() {
+      setLoading(true)
+      try {
+        await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/sync-emerging-risks`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({ project_id: app.id }),
+        })
+      } catch { /* sync is best-effort; still load existing rows */ }
+      if (!cancelled) await loadIncidents(app.id)
+    }
+
+    syncAndLoad()
+    const timer = setInterval(() => { loadIncidents(app.id) }, 60_000)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [app.id, loadIncidents])
 
   return (
     <Card className="flex flex-col">
       <CardHead
         title="Emerging Risks"
-        desc="Potential issues detected before they become critical incidents"
+        desc="Auto-detected from errors, UX friction, anomalies and AI insights"
         action={
           <Link href="/incidents" className="flex items-center gap-1 text-xs font-medium text-intel hover:underline">
             All {total > 0 ? `(${total})` : ''} <ArrowRight className="h-3.5 w-3.5" />
@@ -80,25 +104,31 @@ export function HomeIncidents() {
               <AlertTriangle className="h-5 w-5 text-healthy" />
             </div>
             <p className="text-sm font-semibold text-foreground">No risks detected</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">Your organisation is operating normally</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">Risks appear automatically when errors or UX friction are detected</p>
           </div>
         ) : (
           incidents.map((inc) => {
             const tone = severityTone(inc.severity)
+            const summary = inc.impact_summary ?? inc.ai_summary
             return (
               <Link
                 key={inc.id}
                 href={`/incidents/${inc.id}`}
                 className="block rounded-lg border border-border/50 bg-background/30 px-3.5 py-2.5 transition-all hover:border-border hover:bg-accent/30"
               >
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <StatusDot tone={tone} pulse />
                   <ToneBadge tone={tone}>{inc.severity}</ToneBadge>
+                  {inc.source === 'auto' && (
+                    <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-warning">
+                      Auto-detected
+                    </span>
+                  )}
                   <span className="ml-auto text-[10px] text-muted-foreground">{timeAgo(inc.created_at)}</span>
                 </div>
                 <p className="mt-1 line-clamp-2 text-xs font-semibold text-foreground">{inc.title}</p>
-                {inc.ai_summary && (
-                  <p className="mt-0.5 line-clamp-1 text-[10px] text-muted-foreground">{inc.ai_summary}</p>
+                {summary && (
+                  <p className="mt-0.5 line-clamp-2 text-[10px] text-muted-foreground">{summary}</p>
                 )}
               </Link>
             )

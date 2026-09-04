@@ -19,8 +19,10 @@ type DbIncident = {
   title: string
   description: string | null
   ai_summary: string | null
+  impact_summary: string | null
   severity: string
   status: string
+  source: string | null
   created_at: string
 }
 
@@ -64,7 +66,7 @@ export default function IncidentsPage() {
     const sb = createClient()
     Promise.all([
       sb.from('incidents')
-        .select('id, title, description, ai_summary, severity, status, created_at')
+        .select('id, title, description, ai_summary, impact_summary, severity, status, source, created_at')
         .eq('project_id', projectId)
         .order('created_at', { ascending: false }),
       sb.from('incidents').select('*', { count: 'exact', head: true }).eq('project_id', projectId).neq('status', 'resolved'),
@@ -78,7 +80,15 @@ export default function IncidentsPage() {
 
   useEffect(() => {
     if (app.id === '__loading__') return
-    fetchIncidents(app.id)
+    fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/sync-emerging-risks`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({ project_id: app.id }),
+    })
+      .finally(() => fetchIncidents(app.id))
   }, [app.id])
 
   const handleDeclare = async () => {
@@ -314,9 +324,14 @@ export default function IncidentsPage() {
                       <h3 className="mt-2 text-pretty text-base font-semibold text-foreground hover:text-intel">{inc.title}</h3>
                     </Link>
                     <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-                      {inc.ai_summary ?? inc.description ?? 'No summary available.'}
+                      {inc.impact_summary ?? inc.ai_summary ?? inc.description ?? 'No summary available.'}
                     </p>
                     <div className="mt-3 flex flex-wrap items-center gap-2">
+                      {inc.source === 'auto' && (
+                        <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning">
+                          Auto-detected
+                        </span>
+                      )}
                       <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-card/60 px-2 py-0.5 text-[11px] text-muted-foreground">
                         <Clock className="h-3 w-3" /> {new Date(inc.created_at).toLocaleString()}
                       </span>

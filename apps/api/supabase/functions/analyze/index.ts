@@ -5,6 +5,7 @@ import {
   normalizeInsightRow,
   fallbackInsightsFromTelemetry,
 } from '../_shared/insights-parse.ts'
+import { syncEmergingRisks } from '../_shared/emerging-risks-engine.ts'
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -342,6 +343,13 @@ Rules: 3-5 insights; use real names/numbers from data; skip empty sections; keep
     return respond({ ok: false, error: `Failed to save insights: ${insertError.message}` }, 500)
   }
 
+  let emergingRisks = { detected: 0, upserted: 0, resolved: 0 }
+  if (projectId) {
+    try {
+      emergingRisks = await syncEmergingRisks(supabase, projectId)
+    } catch { /* non-fatal — analysis results already saved */ }
+  }
+
   // Auto-build product memory from the AI insights just generated so the knowledge
   // base grows autonomously after every analysis run — no manual upload required.
   if (projectId && insightRows.length > 0) {
@@ -366,6 +374,7 @@ Rules: 3-5 insights; use real names/numbers from data; skip empty sections; keep
     journeys: journeyRows.length,
     anomalies: anomalyRows.length,
     insights: insightRows.length,
+    emerging_risks: emergingRisks.detected,
   })
 })
 
