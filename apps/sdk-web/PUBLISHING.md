@@ -17,9 +17,10 @@ npm run sdk:release:dry-run
 
 ## Publish @paaq/web-sdk
 
+Run from **repo root** or **`apps/dashboard`** (both work):
+
 ```bash
-# Requires npm login + env vars for announce step:
-#   SUPABASE_URL, REPO_CONNECTOR_INTERNAL_SECRET
+# Requires npm login + env in /.env.local (see ENV-SETUP.md)
 npm run sdk:release
 ```
 
