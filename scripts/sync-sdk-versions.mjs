@@ -84,10 +84,16 @@ export function buildSdkReleaseMessage(
 function replaceVersionConst(filePath, version) {
   if (!fs.existsSync(filePath)) return
   const src = fs.readFileSync(filePath, 'utf8')
-  const next = src.replace(
+  let next = src.replace(
     /const SDK_VERSION = ['"][^'"]+['"]/,
     `const SDK_VERSION = '${version}'`,
   )
+  if (next === src) {
+    next = src.replace(
+      /export const SDK_CORE_VERSION = ['"][^'"]+['"]/,
+      `export const SDK_CORE_VERSION = '${version}'`,
+    )
+  }
   if (next === src) {
     console.warn(`warn: no SDK_VERSION const updated in ${filePath}`)
     return

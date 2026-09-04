@@ -7,16 +7,16 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
-      "require": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "require": "./dist/index.js"
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --format cjs,esm --dts --external react-native react @react-native-async-storage/async-storage react-native-view-shot",
+    "build": "tsup src/index.ts --format cjs,esm --dts --external react-native react @react-native-async-storage/async-storage react-native-view-shot @paaq/sdk-core",
     "dev": "tsup src/index.ts --format esm --dts --watch"
   },
   "keywords": [
@@ -29,6 +29,9 @@
     "mobile"
   ],
   "license": "MIT",
+  "dependencies": {
+    "@paaq/sdk-core": "file:../sdk-core"
+  },
   "peerDependencies": {
     "react": ">=18.0.0",
     "react-native": ">=0.68.0",

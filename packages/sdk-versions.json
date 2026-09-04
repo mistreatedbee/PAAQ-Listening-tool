@@ -7,13 +7,28 @@
     "vue": { "version": "1.2.9", "package": "@paaq/web-sdk" },
     "vanilla": { "version": "1.2.9", "package": "@paaq/web-sdk" },
     "web": { "version": "1.2.9", "package": "@paaq/web-sdk" },
-    "nodejs": { "version": "0.2.0", "package": "@paaq/mcp-server" },
+    "nodejs": { "version": "1.0.1", "package": "@paaq/server-sdk" },
     "python": { "version": "1.0.0", "package": "paaq-server-sdk" },
     "react-native": { "version": "1.0.0", "package": "@paaq/react-native-sdk" },
     "ios": { "version": "1.0.0", "package": "@paaq/react-native-sdk" },
-    "android": { "version": "1.0.0", "package": "@paaq/react-native-sdk" }
+    "android": { "version": "1.0.0", "package": "@paaq/react-native-sdk" },
+    "flutter": { "version": "1.0.0", "package": "paaq_intelligence" },
+    "postgres": { "version": "1.0.0", "package": "@paaq/sdk-core" },
+    "mysql": { "version": "1.0.0", "package": "@paaq/sdk-core" },
+    "mongodb": { "version": "1.0.0", "package": "@paaq/sdk-core" },
+    "supabase": { "version": "1.0.0", "package": "@paaq/sdk-core" },
+    "sqlite": { "version": "1.0.0", "package": "@paaq/sdk-core" },
+    "redis": { "version": "1.0.0", "package": "@paaq/sdk-core" },
+    "database": { "version": "1.0.0", "package": "@paaq/sdk-core" }
   },
   "packages": {
+    "@paaq/sdk-core": {
+      "path": "packages/sdk-core",
+      "version": "1.0.0",
+      "platforms": ["postgres", "mysql", "mongodb", "supabase", "sqlite", "redis", "database"],
+      "build": "npm run build",
+      "sourceVersionConst": "packages/sdk-core/src/constants.ts"
+    },
     "@paaq/web-sdk": {
       "path": "apps/sdk-web",
       "version": "1.2.9",
@@ -29,7 +44,7 @@
     "@paaq/server-sdk": {
       "path": "packages/server-sdk",
       "version": "1.0.1",
-      "platforms": [],
+      "platforms": ["nodejs"],
       "build": "npm run build",
       "sourceVersionConst": "packages/server-sdk/src/index.ts"
     },

@@ -11,6 +11,8 @@
     "build": "npm run build --workspace=apps/dashboard",
     "start": "npm run start --workspace=apps/dashboard",
     "sdk:sync-versions": "node scripts/sync-sdk-versions.mjs",
+    "sdk:build:core": "npm run build --prefix packages/sdk-core",
+    "sdk:build:all": "npm run sdk:build:core && npm run build --prefix packages/server-sdk && npm run build --prefix packages/react-native-sdk && npm run sdk:build",
     "sdk:build": "npm run build --prefix apps/sdk-web",
     "sdk:pack": "npm run sdk:sync-versions && npm run sdk:build && npm pack --prefix apps/sdk-web",
     "sdk:release": "node scripts/release-sdk.mjs web",
