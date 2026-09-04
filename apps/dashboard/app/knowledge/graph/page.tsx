@@ -5,64 +5,21 @@ import Link from 'next/link'
 import { createClient } from '@/utils/supabase/client'
 import type { KnowledgeNode, KnowledgeEdge, NodeType } from '@/lib/knowledge-types'
 import { NODE_TYPE_COLOR } from '@/lib/knowledge-types'
+import {
+  type GraphNode,
+  seedRadialLayout,
+  applyOrbitalForces,
+  edgeCurvePath,
+  pointOnQuad,
+  curveControl,
+} from '@/lib/knowledge-graph-physics'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
-import { BrainCircuit, ZoomIn, ZoomOut, RotateCcw, Info, RefreshCw } from 'lucide-react'
+import { BrainCircuit, ZoomIn, ZoomOut, RotateCcw, RefreshCw, Route, Rocket, GitBranch } from 'lucide-react'
 
-const NODE_RADIUS = 28
+const NODE_RADIUS = 26
 const NODE_TYPES: NodeType[] = ['feature', 'screen', 'api', 'service', 'journey', 'team', 'deployment', 'document']
-const DAMPING = 0.82
-
-type GraphNode = KnowledgeNode & { vx: number; vy: number; pinned?: boolean }
-
-function applyForces(nodes: GraphNode[], edges: KnowledgeEdge[], width: number, height: number) {
-  const cx = width / 2
-  const cy = height / 2
-  const k = Math.sqrt((width * height) / Math.max(nodes.length, 1)) * 0.55
-
-  for (let i = 0; i < nodes.length; i++) {
-    if (nodes[i].pinned) continue
-    nodes[i].vx *= DAMPING
-    nodes[i].vy *= DAMPING
-    for (let j = 0; j < nodes.length; j++) {
-      if (i === j) continue
-      const dx = nodes[i].x - nodes[j].x
-      const dy = nodes[i].y - nodes[j].y
-      const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 1)
-      const force = (k * k) / dist
-      nodes[i].vx += (dx / dist) * force * 0.04
-      nodes[i].vy += (dy / dist) * force * 0.04
-    }
-  }
-
-  for (const edge of edges) {
-    const source = nodes.find((n) => n.id === edge.source_id)
-    const target = nodes.find((n) => n.id === edge.target_id)
-    if (!source || !target) continue
-    const dx = target.x - source.x
-    const dy = target.y - source.y
-    const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 1)
-    const force = (dist * dist) / k * 0.018
-    if (!source.pinned) { source.vx += (dx / dist) * force; source.vy += (dy / dist) * force }
-    if (!target.pinned) { target.vx -= (dx / dist) * force; target.vy -= (dy / dist) * force }
-  }
-
-  for (const n of nodes) {
-    if (n.pinned) continue
-    n.vx += (cx - n.x) * 0.002
-    n.vy += (cy - n.y) * 0.002
-    n.x = Math.max(NODE_RADIUS + 10, Math.min(width - NODE_RADIUS - 10, n.x + n.vx))
-    n.y = Math.max(NODE_RADIUS + 10, Math.min(height - NODE_RADIUS - 10, n.y + n.vy))
-  }
-}
-
-function neighborIds(nodeId: string, edges: KnowledgeEdge[]): Set<string> {
-  const set = new Set<string>()
-  for (const e of edges) {
-    if (e.source_id === nodeId) set.add(e.target_id)
-    if (e.target_id === nodeId) set.add(e.source_id)
-  }
-  return set
-}
+const DRAG_THRESHOLD_PX = 4
+const RING_LABELS = ['Hub', 'Product', 'Experience', 'Platform', 'Ops', 'Ship']
 
 async function syncGraph(projectId: string) {
   const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/sync-knowledge-graph`, {
@@ -80,6 +37,15 @@ async function syncGraph(projectId: string) {
   return res.json() as Promise<{ nodes: number; edges: number }>
 }
 
+function neighborIds(nodeId: string, edges: KnowledgeEdge[]): Set<string> {
+  const set = new Set<string>()
+  for (const e of edges) {
+    if (e.source_id === nodeId) set.add(e.target_id)
+    if (e.target_id === nodeId) set.add(e.source_id)
+  }
+  return set
+}
+
 export default function KnowledgeGraphPage() {
   const { app } = useConnectedApp()
   const [nodes, setNodes] = useState<GraphNode[]>([])
@@ -93,29 +59,45 @@ export default function KnowledgeGraphPage() {
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [typeFilter, setTypeFilter] = useState<Set<NodeType>>(new Set(NODE_TYPES))
+  const [animFrame, setAnimFrame] = useState(0)
+  const [size, setSize] = useState({ width: 1100, height: 640 })
+
+  const containerRef = useRef<HTMLDivElement>(null)
+  const nodesRef = useRef<GraphNode[]>([])
+  const edgesRef = useRef<KnowledgeEdge[]>([])
   const animRef = useRef<number | null>(null)
-  const isDragging = useRef(false)
+  const frameRef = useRef(0)
+  const dragIdRef = useRef<string | null>(null)
+  const dragStartRef = useRef({ x: 0, y: 0 })
+  const didDragRef = useRef(false)
   const isPanning = useRef(false)
-  const dragNode = useRef<GraphNode | null>(null)
   const lastPos = useRef({ x: 0, y: 0 })
+  const lastTick = useRef(0)
 
-  const width = 900
-  const height = 600
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const ro = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect
+      if (width > 100 && height > 100) setSize({ width, height })
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
-  const loadGraph = useCallback(async (projectId: string) => {
+  const loadGraph = useCallback(async (projectId: string, w: number, h: number) => {
     const sb = createClient()
     const [{ data: n }, { data: e }] = await Promise.all([
       sb.from('knowledge_nodes').select('*').eq('project_id', projectId),
       sb.from('knowledge_edges').select('*').eq('project_id', projectId),
     ])
     const raw = (n ?? []) as KnowledgeNode[]
-    setNodes(raw.map((node) => ({
-      ...node,
-      x: node.x || width / 2 + (Math.random() - 0.5) * 400,
-      y: node.y || height / 2 + (Math.random() - 0.5) * 300,
-      vx: 0, vy: 0,
-    })))
-    setEdges((e ?? []) as KnowledgeEdge[])
+    const edgeList = (e ?? []) as KnowledgeEdge[]
+    const graphNodes = seedRadialLayout(raw, edgeList, w, h)
+    nodesRef.current = graphNodes
+    edgesRef.current = edgeList
+    setNodes(graphNodes)
+    setEdges(edgeList)
   }, [])
 
   const syncAndLoad = useCallback(async (projectId: string) => {
@@ -129,9 +111,9 @@ export default function KnowledgeGraphPage() {
     } finally {
       setSyncing(false)
     }
-    await loadGraph(projectId)
+    await loadGraph(projectId, size.width, size.height)
     setLoading(false)
-  }, [loadGraph])
+  }, [loadGraph, size.width, size.height])
 
   useEffect(() => {
     if (app.id === '__loading__') return
@@ -139,22 +121,28 @@ export default function KnowledgeGraphPage() {
     syncAndLoad(app.id)
   }, [app.id, syncAndLoad])
 
-  const tick = useCallback(() => {
-    setNodes((prev) => {
-      if (prev.length === 0 || prev.some((n) => n.pinned)) return prev
-      const next = prev.map((n) => ({ ...n }))
-      applyForces(next, edges, width, height)
-      return next
-    })
-    animRef.current = requestAnimationFrame(tick)
-  }, [edges])
-
   useEffect(() => {
-    if (nodes.length > 0 && !nodes.some((n) => n.pinned)) {
-      animRef.current = requestAnimationFrame(tick)
+    if (nodes.length === 0) return
+    const { width, height } = size
+
+    const loop = (now: number) => {
+      if (now - lastTick.current >= 28) {
+        lastTick.current = now
+        frameRef.current += 1
+        const next = nodesRef.current.map((n) => ({ ...n }))
+        applyOrbitalForces(next, edgesRef.current, width, height, dragIdRef.current, frameRef.current)
+        nodesRef.current = next
+        setNodes(next)
+        setAnimFrame(frameRef.current)
+      }
+      animRef.current = requestAnimationFrame(loop)
     }
-    return () => { if (animRef.current) cancelAnimationFrame(animRef.current) }
-  }, [nodes.length > 0, tick, nodes.some((n) => n.pinned)])
+
+    animRef.current = requestAnimationFrame(loop)
+    return () => {
+      if (animRef.current) cancelAnimationFrame(animRef.current)
+    }
+  }, [nodes.length, edges.length, size.width, size.height])
 
   const visibleNodes = nodes.filter((n) => typeFilter.has(n.node_type as NodeType))
   const visibleEdges = edges.filter((e) =>
@@ -169,53 +157,111 @@ export default function KnowledgeGraphPage() {
     return ids
   }, [focusId, visibleEdges])
 
+  const journeyFlow = useMemo(() => {
+    if (!selected || selected.node_type !== 'journey') return []
+    return visibleEdges
+      .filter((e) => e.source_id === selected.id && e.relationship === 'includes')
+      .map((e, i) => {
+        const target = visibleNodes.find((n) => n.id === e.target_id)
+        return { step: i + 1, label: target?.label ?? e.label ?? 'Step', edgeId: e.id }
+      })
+  }, [selected, visibleEdges, visibleNodes])
+
+  const deploymentTimeline = useMemo(() => {
+    return visibleNodes
+      .filter((n) => n.node_type === 'deployment')
+      .sort((a, b) => String(a.metadata?.deployed_at ?? a.created_at).localeCompare(String(b.metadata?.deployed_at ?? b.created_at)))
+      .map((n, i) => ({
+        order: i + 1,
+        label: n.label,
+        version: String(n.metadata?.version ?? n.label),
+        at: String(n.metadata?.deployed_at ?? n.created_at).slice(0, 10),
+        id: n.id,
+      }))
+  }, [visibleNodes])
+
   const typeCounts = NODE_TYPES.reduce((acc, t) => {
     acc[t] = nodes.filter((n) => n.node_type === t).length
     return acc
   }, {} as Record<NodeType, number>)
 
+  const cx = size.width / 2
+  const cy = size.height / 2
+  const ringRadii = [0.1, 0.26, 0.34, 0.44, 0.56, 0.78].map((r) => r * Math.min(size.width, size.height) * 0.46)
+
   const handleNodeMouseDown = (e: React.MouseEvent, node: GraphNode) => {
     e.stopPropagation()
-    isDragging.current = true
-    dragNode.current = node
+    dragIdRef.current = node.id
+    didDragRef.current = false
+    dragStartRef.current = { x: e.clientX, y: e.clientY }
     lastPos.current = { x: e.clientX, y: e.clientY }
-    setNodes((prev) => prev.map((n) => n.id === node.id ? { ...n, pinned: true, vx: 0, vy: 0 } : n))
   }
 
   const handleCanvasMouseDown = () => {
     isPanning.current = true
-    lastPos.current = { x: 0, y: 0 }
   }
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (isDragging.current && dragNode.current) {
+    if (dragIdRef.current) {
       const dx = (e.clientX - lastPos.current.x) / zoom
       const dy = (e.clientY - lastPos.current.y) / zoom
+      if (Math.abs(e.clientX - dragStartRef.current.x) > DRAG_THRESHOLD_PX || Math.abs(e.clientY - dragStartRef.current.y) > DRAG_THRESHOLD_PX) {
+        didDragRef.current = true
+      }
       lastPos.current = { x: e.clientX, y: e.clientY }
-      setNodes((prev) => prev.map((n) =>
-        n.id === dragNode.current!.id ? { ...n, x: n.x + dx, y: n.y + dy, vx: 0, vy: 0 } : n,
-      ))
+      nodesRef.current = nodesRef.current.map((n) =>
+        n.id === dragIdRef.current ? { ...n, x: n.x + dx, y: n.y + dy, vx: 0, vy: 0 } : n,
+      )
+      setNodes(nodesRef.current)
       return
     }
     if (isPanning.current) {
-      const dx = e.movementX / zoom
-      const dy = e.movementY / zoom
-      setPan((p) => ({ x: p.x - dx, y: p.y - dy }))
+      setPan((p) => ({ x: p.x - e.movementX / zoom, y: p.y - e.movementY / zoom }))
     }
   }
 
   const handleMouseUp = () => {
-    if (dragNode.current) {
-      const id = dragNode.current.id
-      setNodes((prev) => prev.map((n) => n.id === id ? { ...n, pinned: false } : n))
+    if (dragIdRef.current && !didDragRef.current) {
+      const node = nodesRef.current.find((n) => n.id === dragIdRef.current)
+      if (node) setSelected((s) => (s?.id === node.id ? null : node))
     }
-    isDragging.current = false
+    dragIdRef.current = null
     isPanning.current = false
-    dragNode.current = null
+  }
+
+  const resetView = () => {
+    setZoom(1)
+    setPan({ x: 0, y: 0 })
+    const bare: KnowledgeNode[] = nodesRef.current.map(({ vx: _vx, vy: _vy, orbit: _o, ring: _r, mass: _m, ...n }) => n)
+    const graphNodes = seedRadialLayout(bare, edgesRef.current, size.width, size.height)
+    nodesRef.current = graphNodes
+    setNodes(graphNodes)
   }
 
   return (
     <div className="space-y-5">
+      <style>{`
+        @keyframes kg-orbit-spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        @keyframes kg-hub-pulse {
+          0%, 100% { opacity: 0.15; transform: scale(1); }
+          50% { opacity: 0.45; transform: scale(1.03); }
+        }
+        @keyframes kg-flow {
+          to { stroke-dashoffset: -28; }
+        }
+        .kg-edge-flow {
+          stroke-dasharray: 8 6;
+          animation: kg-flow 0.9s linear infinite;
+        }
+        .kg-hub-glow {
+          animation: kg-hub-pulse 3s ease-in-out infinite;
+          transform-origin: center;
+        }
+      `}</style>
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
@@ -223,11 +269,11 @@ export default function KnowledgeGraphPage() {
             <h1 className="text-xl font-bold">Knowledge Graph</h1>
           </div>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Visual map of features, screens, APIs, services, journeys, teams, deployments and documents
+            Orbital map of user journeys, features, APIs, and deployment history
           </p>
           {!loading && nodes.length > 0 && (
             <p className="text-xs text-muted-foreground mt-1">
-              {nodes.length} nodes · {edges.length} relationships
+              {nodes.length} nodes · {edges.length} relationships · hub orbits continuously
               {lastSync ? ` · synced ${lastSync.nodes} entities` : ''}
             </p>
           )}
@@ -244,10 +290,10 @@ export default function KnowledgeGraphPage() {
           <button onClick={() => setZoom((z) => Math.min(z + 0.2, 3))} className="flex h-8 w-8 items-center justify-center rounded-lg border hover:bg-muted">
             <ZoomIn className="h-4 w-4" />
           </button>
-          <button onClick={() => setZoom((z) => Math.max(z - 0.2, 0.3))} className="flex h-8 w-8 items-center justify-center rounded-lg border hover:bg-muted">
+          <button onClick={() => setZoom((z) => Math.max(z - 0.2, 0.35))} className="flex h-8 w-8 items-center justify-center rounded-lg border hover:bg-muted">
             <ZoomOut className="h-4 w-4" />
           </button>
-          <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }) }} className="flex h-8 w-8 items-center justify-center rounded-lg border hover:bg-muted">
+          <button onClick={resetView} className="flex h-8 w-8 items-center justify-center rounded-lg border hover:bg-muted">
             <RotateCcw className="h-4 w-4" />
           </button>
         </div>
@@ -282,39 +328,32 @@ export default function KnowledgeGraphPage() {
         ))}
       </div>
 
-      <div className="relative overflow-hidden rounded-2xl border bg-muted/30" style={{ height: 600 }}>
+      <div
+        ref={containerRef}
+        className="relative w-full overflow-hidden rounded-2xl border bg-gradient-to-b from-muted/40 via-background to-muted/20"
+        style={{ height: 'min(72vh, 720px)', minHeight: 520 }}
+      >
         {loading ? (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            Building knowledge graph from registries and live telemetry…
+            Building orbital knowledge graph…
           </div>
         ) : nodes.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center px-6">
             <BrainCircuit className="h-12 w-12 text-muted-foreground/30" />
-            <div>
-              <p className="text-sm font-semibold">No graph data yet</p>
-              <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-                The graph is built from your knowledge registries plus live telemetry (sessions, events, deployments).
-              </p>
-            </div>
-            <div className="flex gap-2 mt-2">
-              <Link href="/knowledge" className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-muted">
-                Open Knowledge Base
-              </Link>
-              <button onClick={() => syncAndLoad(app.id)} disabled={syncing} className="rounded-lg bg-ai/10 px-3 py-1.5 text-xs font-medium text-ai hover:bg-ai/20 disabled:opacity-50">
-                Try sync again
-              </button>
-            </div>
+            <p className="text-sm font-semibold">No graph data yet</p>
+            <Link href="/knowledge" className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-muted">
+              Open Knowledge Base
+            </Link>
           </div>
         ) : visibleNodes.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center px-6">
             <p className="text-sm font-semibold">All node types filtered out</p>
-            <p className="text-xs text-muted-foreground">Re-enable a type above to see the graph</p>
           </div>
         ) : (
           <svg
             width="100%"
             height="100%"
-            viewBox={`${-pan.x} ${-pan.y} ${width / zoom} ${height / zoom}`}
+            viewBox={`${-pan.x} ${-pan.y} ${size.width / zoom} ${size.height / zoom}`}
             onMouseDown={handleCanvasMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
@@ -322,39 +361,82 @@ export default function KnowledgeGraphPage() {
             className="cursor-grab active:cursor-grabbing"
           >
             <defs>
-              <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="currentColor" strokeOpacity="0.04" strokeWidth="1" />
-              </pattern>
+              <radialGradient id="kg-center-glow" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor="var(--color-ai, #51C9D3)" stopOpacity="0.12" />
+                <stop offset="100%" stopColor="transparent" stopOpacity="0" />
+              </radialGradient>
               <filter id="glow">
-                <feGaussianBlur stdDeviation="3" result="blur" />
+                <feGaussianBlur stdDeviation="4" result="blur" />
                 <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
               </filter>
               <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
                 <path d="M0,0 L0,6 L8,3 z" fill="currentColor" className="text-border" />
               </marker>
             </defs>
-            <rect x={-pan.x} y={-pan.y} width={width / zoom} height={height / zoom} fill="url(#grid)" />
 
-            {visibleEdges.map((edge) => {
+            <circle cx={cx} cy={cy} r={ringRadii[5] + 40} fill="url(#kg-center-glow)" className="kg-hub-glow" />
+
+            {ringRadii.map((r, i) => (
+              <g key={i}>
+                <circle
+                  cx={cx}
+                  cy={cy}
+                  r={r}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeOpacity={0.06 + i * 0.01}
+                  strokeWidth={1}
+                  strokeDasharray={i % 2 === 0 ? '4 8' : '1 0'}
+                />
+                <text
+                  x={cx + r + 6}
+                  y={cy - 4}
+                  fontSize={9}
+                  className="fill-muted-foreground"
+                  opacity={0.5}
+                >
+                  {RING_LABELS[i]}
+                </text>
+              </g>
+            ))}
+
+            {visibleEdges.map((edge, ei) => {
               const src = visibleNodes.find((n) => n.id === edge.source_id)
               const tgt = visibleNodes.find((n) => n.id === edge.target_id)
               if (!src || !tgt) return null
               const lit = !highlightIds || (highlightIds.has(edge.source_id) && highlightIds.has(edge.target_id))
+              const isFlow = edge.relationship === 'includes' || edge.relationship === 'part-of' || edge.relationship === 'calls'
+              const path = edgeCurvePath(src.x, src.y, tgt.x, tgt.y, 0.15 + (ei % 3) * 0.04)
+              const ctrl = curveControl(src.x, src.y, tgt.x, tgt.y, 0.15 + (ei % 3) * 0.04)
+              const flowT = ((animFrame * 0.012 + ei * 0.17) % 1)
+              const particle = pointOnQuad(src.x, src.y, ctrl.cx, ctrl.cy, tgt.x, tgt.y, flowT)
+              const flowStep = journeyFlow.find((j) => j.edgeId === edge.id)?.step
+              const mid = pointOnQuad(src.x, src.y, ctrl.cx, ctrl.cy, tgt.x, tgt.y, 0.5)
+
               return (
                 <g key={edge.id}>
-                  <line
-                    x1={src.x} y1={src.y} x2={tgt.x} y2={tgt.y}
-                    stroke={lit ? 'currentColor' : 'currentColor'}
-                    strokeWidth={lit ? 2 : 1}
-                    strokeOpacity={highlightIds ? (lit ? 0.65 : 0.08) : 0.3}
-                    markerEnd="url(#arrow)"
-                    className="text-muted-foreground transition-all duration-200"
+                  <path
+                    d={path}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={lit ? 2.4 : 1}
+                    strokeOpacity={highlightIds ? (lit ? 0.75 : 0.08) : 0.28}
+                    markerEnd={lit ? 'url(#arrow)' : undefined}
+                    className={`text-muted-foreground ${lit && isFlow ? 'kg-edge-flow' : ''}`}
                   />
+                  {lit && isFlow && (
+                    <circle r={3.5} cx={particle.x} cy={particle.y} fill="#51C9D3" opacity={0.9} />
+                  )}
                   {lit && edge.label && (
-                    <text x={(src.x + tgt.x) / 2} y={(src.y + tgt.y) / 2 - 4}
-                      className="fill-muted-foreground" fontSize={9} textAnchor="middle">
+                    <text x={mid.x} y={mid.y - 8} fontSize={8} textAnchor="middle" className="fill-muted-foreground">
                       {edge.label}
                     </text>
+                  )}
+                  {lit && flowStep != null && (
+                    <g transform={`translate(${mid.x},${mid.y + 10})`}>
+                      <circle r={9} fill="var(--background)" stroke="#51C9D3" strokeWidth={1.5} />
+                      <text y={3} textAnchor="middle" fontSize={8} fontWeight="700" fill="#51C9D3">{flowStep}</text>
+                    </g>
                   )}
                 </g>
               )
@@ -365,26 +447,42 @@ export default function KnowledgeGraphPage() {
               const isSelected = selected?.id === node.id
               const isHovered = hovered === node.id
               const lit = !highlightIds || highlightIds.has(node.id)
-              const scale = isSelected ? 1.12 : isHovered ? 1.08 : 1
+              const isHub = node.ring < 0.12
+              const isDeploy = node.node_type === 'deployment'
+              const deployOrder = deploymentTimeline.find((d) => d.id === node.id)?.order
+
               return (
                 <g
                   key={node.id}
-                  transform={`translate(${node.x},${node.y}) scale(${scale})`}
+                  transform={`translate(${node.x},${node.y})`}
                   onMouseDown={(e) => handleNodeMouseDown(e, node)}
                   onMouseEnter={() => setHovered(node.id)}
-                  onMouseLeave={() => setHovered((h) => h === node.id ? null : h)}
-                  onClick={(e) => { e.stopPropagation(); setSelected(isSelected ? null : node) }}
-                  className="cursor-pointer transition-transform duration-150"
-                  style={{ opacity: lit ? 1 : 0.25 }}
+                  onMouseLeave={() => setHovered((h) => (h === node.id ? null : h))}
+                  className="cursor-pointer"
+                  style={{ opacity: lit ? 1 : 0.22 }}
                   filter={isSelected || isHovered ? 'url(#glow)' : undefined}
                 >
-                  <circle r={NODE_RADIUS} fill={color + '22'} stroke={color} strokeWidth={isSelected ? 2.5 : 1.5} />
-                  {isSelected && <circle r={NODE_RADIUS + 6} fill="none" stroke={color} strokeWidth={1} strokeOpacity={0.35} />}
-                  <text y={4} textAnchor="middle" fontSize={9} fontWeight="600" fill={color}>
+                  {isHub && (
+                    <circle r={NODE_RADIUS + 14} fill="none" stroke={color} strokeWidth={1.5} strokeOpacity={0.35}
+                      style={{ animation: `kg-orbit-spin ${14 + node.orbit * 4}s linear infinite` }}
+                    />
+                  )}
+                  <circle
+                    r={isSelected ? NODE_RADIUS + 3 : isHub ? NODE_RADIUS + 4 : NODE_RADIUS}
+                    fill={color + (isHub ? '33' : '22')}
+                    stroke={color}
+                    strokeWidth={isSelected ? 3 : isHovered ? 2.2 : 1.5}
+                  />
+                  <text y={4} textAnchor="middle" fontSize={8} fontWeight="700" fill={color}>
                     {node.node_type.slice(0, 3).toUpperCase()}
                   </text>
+                  {isDeploy && deployOrder != null && (
+                    <text y={-NODE_RADIUS - 6} textAnchor="middle" fontSize={8} fontWeight="700" fill={color}>
+                      #{deployOrder}
+                    </text>
+                  )}
                   <text y={NODE_RADIUS + 14} textAnchor="middle" fontSize={10} fontWeight="500" className="fill-foreground">
-                    {node.label.length > 14 ? node.label.slice(0, 13) + '…' : node.label}
+                    {node.label.length > 16 ? node.label.slice(0, 15) + '…' : node.label}
                   </text>
                 </g>
               )
@@ -392,28 +490,74 @@ export default function KnowledgeGraphPage() {
           </svg>
         )}
 
-        {selected && (
-          <div className="absolute right-4 top-4 w-56 rounded-xl border bg-card shadow-lg p-4 space-y-2">
-            <div className="flex items-start justify-between">
-              <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider"
-                  style={{ color: NODE_TYPE_COLOR[selected.node_type as NodeType] }}>
-                  {selected.node_type}
-                </span>
-                <p className="text-sm font-semibold mt-0.5">{selected.label}</p>
+        {/* Detail / timeline panel */}
+        <div className="absolute right-4 top-4 w-64 rounded-xl border bg-card/95 backdrop-blur-md shadow-lg p-4 space-y-3 max-h-[85%] overflow-y-auto">
+          {selected ? (
+            <>
+              <div className="flex items-start justify-between">
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider"
+                    style={{ color: NODE_TYPE_COLOR[selected.node_type as NodeType] }}>
+                    {selected.node_type}
+                  </span>
+                  <p className="text-sm font-semibold mt-0.5">{selected.label}</p>
+                </div>
+                <button onClick={() => setSelected(null)} className="text-muted-foreground hover:text-foreground">×</button>
               </div>
-              <button onClick={() => setSelected(null)} className="text-muted-foreground hover:text-foreground">×</button>
-            </div>
-            {selected.description && <p className="text-xs text-muted-foreground">{selected.description}</p>}
-            <p className="text-[10px] text-muted-foreground">
-              {visibleEdges.filter((e) => e.source_id === selected.id || e.target_id === selected.id).length} connections
-            </p>
-          </div>
-        )}
+              {selected.description && <p className="text-xs text-muted-foreground">{selected.description}</p>}
+              {journeyFlow.length > 0 && (
+                <div className="space-y-1.5 border-t border-border/50 pt-2">
+                  <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    <Route className="h-3 w-3" /> User flow
+                  </div>
+                  <ol className="space-y-1">
+                    {journeyFlow.map((step) => (
+                      <li key={step.edgeId} className="flex items-center gap-2 text-xs">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-ai/15 text-[10px] font-bold text-ai">{step.step}</span>
+                        <span>{step.label}</span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+              <p className="text-[10px] text-muted-foreground">
+                {visibleEdges.filter((e) => e.source_id === selected.id || e.target_id === selected.id).length} connections
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                <GitBranch className="h-3 w-3" /> Relationships
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Hover or click any node. Arrows show user paths &amp; dependencies. Particles travel along active flows.
+              </p>
+              {deploymentTimeline.length > 0 && (
+                <div className="space-y-1.5 border-t border-border/50 pt-2">
+                  <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    <Rocket className="h-3 w-3" /> Deployment timeline
+                  </div>
+                  <ol className="space-y-1.5">
+                    {deploymentTimeline.map((d) => (
+                      <li key={d.id} className="flex items-center gap-2 text-xs">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-orange-500/15 text-[10px] font-bold text-orange-400">
+                          {d.order}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{d.version}</p>
+                          <p className="text-[10px] text-muted-foreground">{d.at}</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+            </>
+          )}
+        </div>
 
-        <div className="absolute bottom-4 left-4 flex items-center gap-1.5 rounded-lg border bg-card/80 backdrop-blur-sm px-3 py-2">
-          <Info className="h-3 w-3 text-muted-foreground" />
-          <span className="text-[10px] text-muted-foreground">Drag nodes · Pan canvas · Hover to highlight connections</span>
+        <div className="absolute bottom-4 left-4 rounded-lg border bg-card/85 backdrop-blur-sm px-3 py-2 text-[10px] text-muted-foreground max-w-md">
+          Circular layout · Hub journeys in the center · Deployments on the outer ring (#1, #2…) · Drag · Pan · Click to inspect
         </div>
       </div>
     </div>
