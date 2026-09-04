@@ -7,6 +7,7 @@ import {
 } from '../_shared/insights-parse.ts'
 import { syncEmergingRisks } from '../_shared/emerging-risks-engine.ts'
 import { syncKnowledgeGraph } from '../_shared/knowledge-graph-engine.ts'
+import { syncProductMemory } from '../_shared/product-memory-engine.ts'
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -346,6 +347,7 @@ Rules: 3-5 insights; use real names/numbers from data; skip empty sections; keep
 
   let emergingRisks = { detected: 0, upserted: 0, resolved: 0 }
   let knowledgeGraph = { nodes: 0, edges: 0, sources: {} as Record<string, number> }
+  let productMemory = { inserted: 0, total: 0, by_type: {} as Record<string, number> }
   if (projectId) {
     try {
       emergingRisks = await syncEmergingRisks(supabase, projectId)
@@ -353,10 +355,12 @@ Rules: 3-5 insights; use real names/numbers from data; skip empty sections; keep
     try {
       knowledgeGraph = await syncKnowledgeGraph(supabase, projectId)
     } catch { /* non-fatal */ }
+    try {
+      productMemory = await syncProductMemory(supabase, projectId)
+    } catch { /* non-fatal */ }
   }
 
-  // Auto-build product memory from the AI insights just generated so the knowledge
-  // base grows autonomously after every analysis run — no manual upload required.
+  // Legacy knowledge-build hook (documents) — product memory sync above is canonical.
   if (projectId && insightRows.length > 0) {
     const summaryContent = insightRows.map((ins) =>
       `[${ins.category ?? 'insight'}] ${ins.title}: ${ins.description ?? ''}`
@@ -382,6 +386,8 @@ Rules: 3-5 insights; use real names/numbers from data; skip empty sections; keep
     emerging_risks: emergingRisks.detected,
     knowledge_graph_nodes: knowledgeGraph.nodes,
     knowledge_graph_edges: knowledgeGraph.edges,
+    product_memory_total: productMemory.total,
+    product_memory_inserted: productMemory.inserted,
   })
 })
 

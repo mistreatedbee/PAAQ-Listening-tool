@@ -1,11 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { PageHeader, Card, ToneBadge } from '@/components/kit'
 import { cn } from '@/lib/utils'
-import { BrainCircuit, Search, Clock, Tag } from 'lucide-react'
+import { BrainCircuit, Search, Clock, Tag, RefreshCw } from 'lucide-react'
 import type { Tone } from '@/lib/data'
 
 type DbMemory = {
@@ -23,6 +23,7 @@ function typeTone(t: string): Tone {
   if (t === 'decision') return 'intel'
   if (t === 'outcome') return 'healthy'
   if (t === 'insight') return 'warning'
+  if (t === 'report') return 'intel'
   return 'intel'
 }
 
@@ -40,26 +41,65 @@ function timeAgo(iso: string) {
 
 const TYPE_FILTERS = ['All', 'incident', 'fix', 'decision', 'insight', 'outcome', 'report']
 
+async function syncProductMemory(projectId: string) {
+  const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/sync-product-memory`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
+    },
+    body: JSON.stringify({ project_id: projectId }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(body.error ?? `Sync failed (${res.status})`)
+  }
+  return res.json() as Promise<{ inserted: number; total: number }>
+}
+
 export default function ProductMemoryPage() {
   const { app } = useConnectedApp()
   const [memories, setMemories] = useState<DbMemory[]>([])
   const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
+  const [syncError, setSyncError] = useState<string | null>(null)
+  const [lastSync, setLastSync] = useState<{ inserted: number; total: number } | null>(null)
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('All')
 
-  useEffect(() => {
-    if (app.id === '__loading__') return
+  const loadMemories = useCallback(async (projectId: string) => {
     const sb = createClient()
-    sb.from('product_memory')
+    const { data, error } = await sb
+      .from('product_memory')
       .select('id, type, title, summary, tags, created_at')
-      .eq('project_id', app.id)
+      .eq('project_id', projectId)
       .order('created_at', { ascending: false })
       .limit(100)
-      .then(({ data }) => {
-        setMemories((data ?? []) as DbMemory[])
-        setLoading(false)
-      })
-  }, [app.id])
+
+    if (error) throw new Error(error.message)
+    setMemories((data ?? []) as DbMemory[])
+  }, [])
+
+  const syncAndLoad = useCallback(async (projectId: string) => {
+    setSyncError(null)
+    setSyncing(true)
+    try {
+      const result = await syncProductMemory(projectId)
+      setLastSync({ inserted: result.inserted, total: result.total })
+    } catch (err) {
+      setSyncError(err instanceof Error ? err.message : 'Failed to sync product memory')
+    } finally {
+      setSyncing(false)
+    }
+    await loadMemories(projectId)
+    setLoading(false)
+  }, [loadMemories])
+
+  useEffect(() => {
+    if (app.id === '__loading__') return
+    setLoading(true)
+    syncAndLoad(app.id)
+  }, [app.id, syncAndLoad])
 
   const filtered = memories.filter((m) => {
     const matchesType = typeFilter === 'All' || m.type === typeFilter
@@ -83,25 +123,50 @@ export default function ProductMemoryPage() {
         title="Product Memory"
         desc="A living knowledge store of investigations, fixes, and decisions — automatically built from every AI operation."
         actions={
-          <div className="relative w-64 max-w-full">
-            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search memory…"
-              className="w-full rounded-lg border border-border/70 bg-card/60 py-1.5 pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ai/40"
-            />
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => { if (app.id !== '__loading__') syncAndLoad(app.id) }}
+              disabled={syncing || app.id === '__loading__'}
+              className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? 'Syncing…' : 'Sync memory'}
+            </button>
+            <div className="relative w-64 max-w-full">
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search memory…"
+                className="w-full rounded-lg border border-border/70 bg-card/60 py-1.5 pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ai/40"
+              />
+            </div>
           </div>
         }
       />
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {syncError && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2 text-sm text-destructive">
+          {syncError}
+        </div>
+      )}
+
+      {!loading && lastSync && (
+        <p className="text-xs text-muted-foreground">
+          {memories.length} entries in memory
+          {lastSync.inserted > 0 ? ` · ${lastSync.inserted} new from AI operations` : ''}
+        </p>
+      )}
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
         {[
-          { l: 'Total entries', v: String(memories.length), t: 'text-foreground' },
+          { l: 'Total', v: String(memories.length), t: 'text-foreground' },
           { l: 'Incidents', v: String(totalByType['incident'] ?? 0), t: 'text-critical' },
-          { l: 'Fixes recorded', v: String(totalByType['fix'] ?? 0), t: 'text-healthy' },
-          { l: 'Decisions', v: String(totalByType['decision'] ?? 0), t: 'text-intel' },
+          { l: 'Fixes', v: String(totalByType['fix'] ?? 0), t: 'text-healthy' },
+          { l: 'Insights', v: String(totalByType['insight'] ?? 0), t: 'text-warning' },
+          { l: 'Outcomes', v: String(totalByType['outcome'] ?? 0), t: 'text-healthy' },
+          { l: 'Reports', v: String(totalByType['report'] ?? 0), t: 'text-intel' },
         ].map((s) => (
           <Card key={s.l} className="p-4">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">{s.l}</p>
@@ -132,7 +197,9 @@ export default function ProductMemoryPage() {
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">Loading…</div>
+        <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
+          Syncing product memory from investigations, insights, and fixes…
+        </div>
       ) : filtered.length === 0 ? (
         <Card className="p-10 text-center">
           <BrainCircuit className="mx-auto mb-3 h-8 w-8 text-muted-foreground opacity-20" />
@@ -141,7 +208,7 @@ export default function ProductMemoryPage() {
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
             {memories.length === 0
-              ? 'Memory is built automatically every time an investigation runs.'
+              ? 'Run an AI investigation or analysis — memory builds automatically.'
               : 'Try different search terms or filters.'}
           </p>
         </Card>

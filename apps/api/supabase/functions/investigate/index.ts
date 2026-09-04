@@ -10,6 +10,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getAiConfig, askModel, parseAiJson, AI_TOKEN_BUDGETS } from '../_shared/ai.ts'
 import { decryptSecret } from '../_shared/crypto.ts'
+import { syncProductMemory } from '../_shared/product-memory-engine.ts'
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -390,8 +391,16 @@ Return ONLY compact JSON, each string field under 35 words: {"recommendations":[
           root_cause: invData.root_cause,
           confidence: invData.confidence,
           affected_services: invData.affected_services,
+          source_table: 'investigations',
+          source_id: investigationId,
         },
       })
+    }
+
+    if (project_id) {
+      try {
+        await syncProductMemory(supabase, project_id)
+      } catch { /* non-fatal */ }
     }
 
     return respond({
