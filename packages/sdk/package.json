@@ -1,0 +1,78 @@
+{
+  "name": "@paaq/sdk",
+  "version": "1.4.0",
+  "description": "PAAQ Intelligence SDK — one package for web, Node.js, and React Native",
+  "main": "dist/web.js",
+  "module": "dist/web.mjs",
+  "types": "dist/web.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/web.d.ts",
+      "react-native": "./dist/react-native.mjs",
+      "browser": "./dist/web.mjs",
+      "node": "./dist/node.mjs",
+      "import": "./dist/web.mjs",
+      "require": "./dist/web.js",
+      "default": "./dist/web.mjs"
+    },
+    "./web": {
+      "types": "./dist/web.d.ts",
+      "import": "./dist/web.mjs",
+      "require": "./dist/web.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.mjs",
+      "require": "./dist/node.js"
+    },
+    "./react-native": {
+      "types": "./dist/react-native.d.ts",
+      "import": "./dist/react-native.mjs",
+      "require": "./dist/react-native.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch"
+  },
+  "keywords": [
+    "paaq",
+    "analytics",
+    "intelligence",
+    "sdk",
+    "react",
+    "nextjs",
+    "vue",
+    "nodejs",
+    "react-native",
+    "expo"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@paaq/sdk-core": "file:../sdk-core",
+    "rrweb": "^2.1.1"
+  },
+  "peerDependencies": {
+    "@react-native-async-storage/async-storage": ">=1.18.0",
+    "react": ">=18.0.0",
+    "react-native": ">=0.68.0",
+    "react-native-view-shot": ">=3.8.0"
+  },
+  "peerDependenciesMeta": {
+    "react-native-view-shot": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.5.0"
+  }
+}

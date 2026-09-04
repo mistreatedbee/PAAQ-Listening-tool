@@ -21,6 +21,8 @@ loadSdkReleaseEnv()
 const ALIASES = {
   web: '@paaq/web-sdk',
   'web-sdk': '@paaq/web-sdk',
+  unified: '@paaq/sdk',
+  sdk: '@paaq/sdk',
   core: '@paaq/sdk-core',
   'sdk-core': '@paaq/sdk-core',
   mcp: '@paaq/mcp-server',

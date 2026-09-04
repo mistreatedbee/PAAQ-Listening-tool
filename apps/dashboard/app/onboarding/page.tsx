@@ -102,74 +102,79 @@ type SnippetResult = { cmd: string; init: string; steps?: InstallStep[] }
 function installSnippet(platformId: string, sdkToken: string, projectId: string): SnippetResult {
   const t = sdkToken || 'sdk_live_your_token_here'
   const p = projectId || 'proj_your_id'
+  const installCmd = 'npm install @paaq/sdk'
+  const rnInstallCmd = 'npm install @paaq/sdk @react-native-async-storage/async-storage'
+  const initUnified = `import { PAAQ } from '@paaq/sdk';\n\nawait PAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });`
+  const initNode = `import { PAAQ } from '@paaq/sdk';\n\nawait PAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });\napp.use(PAAQ.middleware());`
+  const cdnImport = `https://unpkg.com/@paaq/sdk@1.4.0/dist/web.mjs`
   switch (platformId) {
     case 'react': return {
-      cmd: 'npm install @paaq/web-sdk',
-      init: `import { paaq } from '@paaq/web-sdk';\n\npaaq.init('${t}', '${p}');`,
+      cmd: installCmd,
+      init: initUnified,
       steps: [
         {
           title: 'Step 1 — Install PAAQ',
           note: 'Open the Terminal app on your Mac (press ⌘+Space, type "Terminal", hit Enter). Then navigate to your project folder and run:',
-          code: 'npm install @paaq/web-sdk',
+          code: installCmd,
         },
         {
           title: 'Step 2 — Initialise PAAQ',
-          note: 'Open your main entry file — the web SDK exports a plain \`paaq\` object, not a React provider. Initialise it once at app startup — your credentials are already filled in:',
-          code: `import { paaq } from '@paaq/web-sdk';\n\npaaq.init('${t}', '${p}');`,
+          note: 'Open your main entry file and initialise once at app startup — your credentials are already filled in:',
+          code: initUnified,
         },
       ],
     }
     case 'nextjs': return {
-      cmd: 'npm install @paaq/web-sdk',
-      init: `import { paaq } from '@paaq/web-sdk';\n\n// app/layout.tsx — call client-side once at startup\npaaq.init('${t}', '${p}');`,
+      cmd: installCmd,
+      init: `import { PAAQ } from '@paaq/sdk';\n\n// app/layout.tsx — call client-side once at startup\nawait PAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });`,
       steps: [
         {
           title: 'Step 1 — Install PAAQ',
           note: 'Open Terminal in your Next.js project folder and run:',
-          code: 'npm install @paaq/web-sdk',
+          code: installCmd,
         },
         {
           title: 'Step 2 — Initialise in a client component',
-          note: 'The web SDK exports a plain \`paaq\` object (no React provider). Create a small \'use client\' component (or file) and call init once — your credentials are already filled in:',
-          code: `import { paaq } from '@paaq/web-sdk';\n\n// in a 'use client' component (e.g. components/PaaqInit.tsx)\npaaq.init('${t}', '${p}');`,
+          note: 'Create a small \'use client\' component and call initialize once — your credentials are already filled in:',
+          code: `import { PAAQ } from '@paaq/sdk';\n\n// in a 'use client' component (e.g. components/PaaqInit.tsx)\nawait PAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });`,
         },
       ],
     }
     case 'vue': return {
-      cmd: 'npm install @paaq/web-sdk',
-      init: `import { paaq } from '@paaq/web-sdk';\n\n// src/main.js — initialise before mounting the app\npaaq.init('${t}', '${p}');\napp.mount('#app');`,
+      cmd: installCmd,
+      init: `import { PAAQ } from '@paaq/sdk';\n\n// src/main.js — initialise before mounting the app\nawait PAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });\napp.mount('#app');`,
       steps: [
         {
           title: 'Step 1 — Install PAAQ',
           note: 'Open Terminal in your Vue project folder and run:',
-          code: 'npm install @paaq/web-sdk',
+          code: installCmd,
         },
         {
           title: 'Step 2 — Initialise at startup',
-          note: 'Open src/main.js (or main.ts). The web SDK exports a plain \`paaq\` object (no Vue plugin) — initialise it once — your credentials are already filled in:',
-          code: `import { createApp } from 'vue';\nimport App from './App.vue';\nimport { paaq } from '@paaq/web-sdk';\n\nconst app = createApp(App);\npaaq.init('${t}', '${p}');\napp.mount('#app');`,
+          note: 'Open src/main.js (or main.ts) and initialise once — your credentials are already filled in:',
+          code: `import { createApp } from 'vue';\nimport App from './App.vue';\nimport { PAAQ } from '@paaq/sdk';\n\nconst app = createApp(App);\nawait PAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });\napp.mount('#app');`,
         },
       ],
     }
     case 'angular': return {
-      cmd: 'npm install @paaq/web-sdk',
-      init: `import { paaq } from '@paaq/web-sdk';\n\n// In main.ts, before bootstrapApplication — no Angular-specific wrapper, the\n// web SDK exports a plain paaq object:\npaaq.init('${t}', '${p}');`,
+      cmd: installCmd,
+      init: initUnified,
       steps: [
         {
           title: 'Step 1 — Install PAAQ',
           note: 'Open Terminal in your Angular project folder and run:',
-          code: 'npm install @paaq/web-sdk',
+          code: installCmd,
         },
         {
           title: 'Step 2 — Initialize in main.ts',
-          note: 'Open src/main.ts and add these lines before bootstrapApplication — the web SDK exports a plain \`paaq\` object:',
-          code: `import { paaq } from '@paaq/web-sdk';\n\npaaq.init('${t}', '${p}');`,
+          note: 'Open src/main.ts and add these lines before bootstrapApplication:',
+          code: initUnified,
         },
       ],
     }
     case 'vanilla': return {
       cmd: '<!-- No install needed — just paste into your HTML -->',
-      init: `<script type="module">\n  import { paaq } from 'https://unpkg.com/@paaq/web-sdk@1.2.6/dist/index.mjs';\n  paaq.init('${t}', '${p}');\n</script>`,
+      init: `<script type="module">\n  import { PAAQ } from '${cdnImport}';\n  await PAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });\n</script>`,
       steps: [
         {
           title: 'Step 1 — Open your website\'s HTML file',
@@ -178,7 +183,7 @@ function installSnippet(platformId: string, sdkToken: string, projectId: string)
         {
           title: 'Step 2 — Paste this code just before </body>',
           note: 'Scroll to the very bottom of the file. Find the </body> tag and paste this code right above it. No npm or build tools needed:',
-          code: `<script type="module">\n  import { paaq } from 'https://unpkg.com/@paaq/web-sdk@1.2.6/dist/index.mjs';\n  paaq.init('${t}', '${p}');\n</script>`,
+          code: `<script type="module">\n  import { PAAQ } from '${cdnImport}';\n  await PAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });\n</script>`,
         },
         {
           title: 'Step 3 — Save and reload your page',
@@ -203,13 +208,13 @@ function installSnippet(platformId: string, sdkToken: string, projectId: string)
       ],
     }
     case 'reactnative': return {
-      cmd: 'npm install @paaq/react-native-sdk @react-native-async-storage/async-storage',
-      init: `import { PAAQ } from '@paaq/react-native-sdk';\n\nuseEffect(() => {\n  PAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });\n}, []);`,
+      cmd: rnInstallCmd,
+      init: `import { PAAQ } from '@paaq/sdk';\n\nuseEffect(() => {\n  PAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });\n}, []);`,
       steps: [
         {
           title: 'Step 1 — Install PAAQ',
           note: 'Open Terminal in your React Native project folder and run:',
-          code: 'npm install @paaq/react-native-sdk @react-native-async-storage/async-storage',
+          code: rnInstallCmd,
         },
         {
           title: 'Step 2 — Link native modules (iOS only)',
@@ -219,7 +224,7 @@ function installSnippet(platformId: string, sdkToken: string, projectId: string)
         {
           title: 'Step 3 — Initialize in your App.tsx',
           note: 'Open App.tsx (or App.js) and add PAAQ inside a useEffect hook — your credentials are already filled in:',
-          code: `import { PAAQ } from '@paaq/react-native-sdk';\n\nuseEffect(() => {\n  PAAQ.initialize({\n    sdkToken: '${t}',\n    projectId: '${p}',\n  });\n}, []);`,
+          code: `import { PAAQ } from '@paaq/sdk';\n\nuseEffect(() => {\n  PAAQ.initialize({\n    sdkToken: '${t}',\n    projectId: '${p}',\n  });\n}, []);`,
         },
       ],
     }
@@ -265,18 +270,18 @@ function installSnippet(platformId: string, sdkToken: string, projectId: string)
       ],
     }
     case 'nodejs': return {
-      cmd: 'npm install @paaq/server-sdk',
-      init: `import { PAAQ } from '@paaq/server-sdk';\n\nPAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });\napp.use(PAAQ.middleware());`,
+      cmd: installCmd,
+      init: initNode,
       steps: [
         {
           title: 'Step 1 — Install PAAQ',
           note: 'Open Terminal in your Node.js project folder and run:',
-          code: 'npm install @paaq/server-sdk',
+          code: installCmd,
         },
         {
           title: 'Step 2 — Initialize in your server file',
           note: 'Open your main server file (usually index.js, server.js, or app.js) and add these lines at the very top:',
-          code: `import { PAAQ } from '@paaq/server-sdk';\n\nPAAQ.initialize({ sdkToken: '${t}', projectId: '${p}' });\n\n// Automatically tracks every API request:\napp.use(PAAQ.middleware());`,
+          code: initNode,
         },
       ],
     }
@@ -345,11 +350,11 @@ function installSnippet(platformId: string, sdkToken: string, projectId: string)
       ],
     }
     default: return {
-      cmd: 'npm install @paaq/web-sdk',
-      init: `import { paaq } from '@paaq/web-sdk';\n\npaaq.init('${t}', '${p}');`,
+      cmd: installCmd,
+      init: initUnified,
       steps: [
-        { title: 'Step 1 — Install', code: 'npm install @paaq/web-sdk' },
-        { title: 'Step 2 — Initialize', code: `import { paaq } from '@paaq/web-sdk';\n\npaaq.init('${t}', '${p}');` },
+        { title: 'Step 1 — Install', code: installCmd },
+        { title: 'Step 2 — Initialize', code: initUnified },
       ],
     }
   }

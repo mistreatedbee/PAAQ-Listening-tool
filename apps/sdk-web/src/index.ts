@@ -17,7 +17,7 @@ const BASE_URL = DEFAULT_BASE_URL
 // every install of this SDK has been wrong the entire time, which made
 // "is a customer actually running the new build" impossible to answer
 // from server-side logs alone. Now kept in lockstep with package.json.
-const SDK_VERSION = '1.3.0'
+const SDK_VERSION = '1.3.1'
 
 const transport = new PaaqTransport()
 const queue = new EventQueue()

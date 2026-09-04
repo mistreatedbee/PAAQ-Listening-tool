@@ -1,6 +1,6 @@
 {
   "name": "@paaq/server-sdk",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "PAAQ Intelligence SDK for Node.js backends (Express and compatible frameworks)",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -30,7 +30,7 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@paaq/sdk-core": "file:../sdk-core"
+    "@paaq/sdk-core": "^1.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

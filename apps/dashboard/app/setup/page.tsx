@@ -100,20 +100,20 @@ function buildChecklist(type: AppTypeId, tech: string, _method: string, apiKey: 
     : isMobile && isFlutter
     ? 'flutter pub add paaq_intelligence'
     : isMobile
-    ? 'npm install @paaq/react-native-sdk'
+    ? 'npm install @paaq/sdk @react-native-async-storage/async-storage'
     : isBack
-    ? 'npm install @paaq/server-sdk'
-    : 'npm install @paaq/web-sdk'
+    ? 'npm install @paaq/sdk'
+    : 'npm install @paaq/sdk'
 
   const initCode = isBack && isPy
     ? `from paaq import PAAQ\n\nPAAQ.initialize(\n    sdk_token="${apiKey}",\n    project_id="${projectId}"\n)`
     : isMobile && isFlutter
     ? `await PAAQ.initialize(\n  sdkToken: '${apiKey}',\n  projectId: '${projectId}',\n);`
     : isMobile
-    ? `import { PAAQ } from '@paaq/react-native-sdk';\n\nawait PAAQ.initialize({\n  sdkToken: '${apiKey}',\n  projectId: '${projectId}',\n});`
+    ? `import { PAAQ } from '@paaq/sdk';\n\nawait PAAQ.initialize({\n  sdkToken: '${apiKey}',\n  projectId: '${projectId}',\n});`
     : isBack
-    ? `import { PAAQ } from '@paaq/server-sdk';\n\nPAAQ.initialize({\n  sdkToken: '${apiKey}',\n  projectId: '${projectId}',\n});\napp.use(PAAQ.middleware());`
-    : `import { paaq } from '@paaq/web-sdk';\n\npaaq.init('${apiKey}', '${projectId}');`
+    ? `import { PAAQ } from '@paaq/sdk';\n\nawait PAAQ.initialize({ sdkToken: '${apiKey}', projectId: '${projectId}' });\napp.use(PAAQ.middleware());`
+    : `import { PAAQ } from '@paaq/sdk';\n\nawait PAAQ.initialize({ sdkToken: '${apiKey}', projectId: '${projectId}' });`
 
   const startCmd = isBack && isPy
     ? 'python app.py'

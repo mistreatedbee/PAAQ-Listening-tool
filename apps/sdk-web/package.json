@@ -1,6 +1,6 @@
 {
   "name": "@paaq/web-sdk",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "PAAQ Intelligence SDK for React, Next.js, Vue, and any web app",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -39,7 +39,7 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@paaq/sdk-core": "file:../../packages/sdk-core",
+    "@paaq/sdk-core": "^1.0.0",
     "rrweb": "^2.1.1"
   },
   "devDependencies": {
