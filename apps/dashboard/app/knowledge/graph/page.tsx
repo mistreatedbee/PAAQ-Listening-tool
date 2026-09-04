@@ -13,6 +13,13 @@ import {
   pointOnQuad,
   curveControl,
 } from '@/lib/knowledge-graph-physics'
+import {
+  GRAPH_VIEW_MODES,
+  RELATIONSHIP_LABELS,
+  VIEW_NODE_TYPES,
+  type GraphViewMode,
+} from '@/lib/knowledge-graph-labels'
+import type { EdgeRelationship } from '@/lib/knowledge-types'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { BrainCircuit, ZoomIn, ZoomOut, RotateCcw, RefreshCw, Route, Rocket, GitBranch } from 'lucide-react'
 
@@ -58,7 +65,9 @@ export default function KnowledgeGraphPage() {
   const [hovered, setHovered] = useState<string | null>(null)
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
-  const [typeFilter, setTypeFilter] = useState<Set<NodeType>>(new Set(NODE_TYPES))
+  const [viewMode, setViewMode] = useState<GraphViewMode>('executive')
+  const [focusNeighborhood, setFocusNeighborhood] = useState(true)
+  const [typeFilter, setTypeFilter] = useState<Set<NodeType>>(new Set(VIEW_NODE_TYPES.executive))
   const [animFrame, setAnimFrame] = useState(0)
   const [size, setSize] = useState({ width: 1100, height: 640 })
 
@@ -144,7 +153,22 @@ export default function KnowledgeGraphPage() {
     }
   }, [nodes.length, edges.length, size.width, size.height])
 
-  const visibleNodes = nodes.filter((n) => typeFilter.has(n.node_type as NodeType))
+  const applyViewMode = useCallback((mode: GraphViewMode) => {
+    setViewMode(mode)
+    setTypeFilter(new Set(VIEW_NODE_TYPES[mode]))
+    setSelected(null)
+  }, [])
+
+  const visibleNodes = useMemo(() => {
+    let list = nodes.filter((n) => typeFilter.has(n.node_type as NodeType))
+    if (focusNeighborhood && selected) {
+      const ids = neighborIds(selected.id, edges)
+      ids.add(selected.id)
+      list = list.filter((n) => ids.has(n.id))
+    }
+    return list
+  }, [nodes, typeFilter, focusNeighborhood, selected, edges])
+
   const visibleEdges = edges.filter((e) =>
     visibleNodes.some((n) => n.id === e.source_id) && visibleNodes.some((n) => n.id === e.target_id),
   )
@@ -156,6 +180,27 @@ export default function KnowledgeGraphPage() {
     ids.add(focusId)
     return ids
   }, [focusId, visibleEdges])
+
+  const selectedConnections = useMemo(() => {
+    if (!selected) return []
+    return visibleEdges
+      .filter((e) => e.source_id === selected.id || e.target_id === selected.id)
+      .map((e) => {
+        const otherId = e.source_id === selected.id ? e.target_id : e.source_id
+        const other = nodes.find((n) => n.id === otherId)
+        const direction = e.source_id === selected.id ? 'out' : 'in'
+        const rel = RELATIONSHIP_LABELS[e.relationship as EdgeRelationship] ?? e.relationship
+        return {
+          id: e.id,
+          label: other?.label ?? 'Node',
+          type: other?.node_type ?? 'feature',
+          relationship: rel,
+          direction,
+          detail: e.label,
+        }
+      })
+      .slice(0, 12)
+  }, [selected, visibleEdges, nodes])
 
   const journeyFlow = useMemo(() => {
     if (!selected || selected.node_type !== 'journey') return []
@@ -269,12 +314,12 @@ export default function KnowledgeGraphPage() {
             <h1 className="text-xl font-bold">Knowledge Graph</h1>
           </div>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Orbital map of user journeys, features, APIs, and deployment history
+            How your product fits together — features, user flows, and what shipped when
           </p>
           {!loading && nodes.length > 0 && (
             <p className="text-xs text-muted-foreground mt-1">
-              {nodes.length} nodes · {edges.length} relationships · hub orbits continuously
-              {lastSync ? ` · synced ${lastSync.nodes} entities` : ''}
+              {visibleNodes.length} shown · {visibleEdges.length} relationships
+              {lastSync ? ` · last rebuilt ${lastSync.nodes} entities` : ' · click Refresh to rebuild'}
             </p>
           )}
         </div>
@@ -304,6 +349,31 @@ export default function KnowledgeGraphPage() {
           {syncError}
         </div>
       )}
+
+      <div className="flex flex-wrap items-center gap-2">
+        {GRAPH_VIEW_MODES.map((mode) => (
+          <button
+            key={mode.id}
+            type="button"
+            onClick={() => applyViewMode(mode.id)}
+            className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-all ${
+              viewMode === mode.id ? 'border-ai/50 bg-ai/10 text-ai' : 'hover:bg-muted/50 text-muted-foreground'
+            }`}
+            title={mode.desc}
+          >
+            {mode.label}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => setFocusNeighborhood((v) => !v)}
+          className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${
+            focusNeighborhood ? 'border-primary/40 bg-primary/10' : 'text-muted-foreground hover:bg-muted/50'
+          }`}
+        >
+          Focus on selection
+        </button>
+      </div>
 
       <div className="flex flex-wrap gap-2">
         {NODE_TYPES.map((t) => (
@@ -505,6 +575,31 @@ export default function KnowledgeGraphPage() {
                 <button onClick={() => setSelected(null)} className="text-muted-foreground hover:text-foreground">×</button>
               </div>
               {selected.description && <p className="text-xs text-muted-foreground">{selected.description}</p>}
+              {selected.metadata?.health_score != null && (
+                <p className="text-xs rounded-lg bg-muted/50 px-2 py-1">
+                  Health: <span className="font-semibold">{Math.round(Number(selected.metadata.health_score) * 100)}%</span>
+                  {selected.metadata.trend ? ` · ${String(selected.metadata.trend)}` : ''}
+                </p>
+              )}
+              {selectedConnections.length > 0 && (
+                <div className="space-y-1.5 border-t border-border/50 pt-2">
+                  <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    <GitBranch className="h-3 w-3" /> Connected to
+                  </div>
+                  <ul className="space-y-1">
+                    {selectedConnections.map((c) => (
+                      <li key={c.id} className="text-xs flex gap-2">
+                        <span className="text-muted-foreground shrink-0">{c.direction === 'out' ? '→' : '←'}</span>
+                        <span>
+                          <span className="font-medium">{c.label}</span>
+                          <span className="text-muted-foreground"> · {c.relationship}</span>
+                          {c.detail && <span className="text-muted-foreground"> ({c.detail})</span>}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {journeyFlow.length > 0 && (
                 <div className="space-y-1.5 border-t border-border/50 pt-2">
                   <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -521,7 +616,7 @@ export default function KnowledgeGraphPage() {
                 </div>
               )}
               <p className="text-[10px] text-muted-foreground">
-                {visibleEdges.filter((e) => e.source_id === selected.id || e.target_id === selected.id).length} connections
+                {selectedConnections.length} direct connection{selectedConnections.length === 1 ? '' : 's'} in this view
               </p>
             </>
           ) : (
@@ -530,7 +625,8 @@ export default function KnowledgeGraphPage() {
                 <GitBranch className="h-3 w-3" /> Relationships
               </div>
               <p className="text-xs text-muted-foreground">
-                Hover or click any node. Arrows show user paths &amp; dependencies. Particles travel along active flows.
+                Start with <strong className="font-semibold text-foreground">Executive</strong> view for a clean overview.
+                Click any node to see what it connects to. Arrows show user flows and dependencies.
               </p>
               {deploymentTimeline.length > 0 && (
                 <div className="space-y-1.5 border-t border-border/50 pt-2">
@@ -557,7 +653,7 @@ export default function KnowledgeGraphPage() {
         </div>
 
         <div className="absolute bottom-4 left-4 rounded-lg border bg-card/85 backdrop-blur-sm px-3 py-2 text-[10px] text-muted-foreground max-w-md">
-          Circular layout · Hub journeys in the center · Deployments on the outer ring (#1, #2…) · Drag · Pan · Click to inspect
+          Executive view hides raw pages/APIs · Click a node to focus · Drag to rearrange · Refresh graph after new telemetry
         </div>
       </div>
     </div>

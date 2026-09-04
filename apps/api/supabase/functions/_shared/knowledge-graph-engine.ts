@@ -57,9 +57,9 @@ function addNode(
     node_key: key,
     node_type: type,
     ref_id: refId,
-    label: trimmed.slice(0, 120),
+    label: humanizeLabel(type, trimmed).slice(0, 120),
     description,
-    metadata,
+    metadata: { ...metadata, raw_label: trimmed },
   })
   return key
 }
@@ -87,6 +87,98 @@ function findByName(nodeMap: Map<string, GraphNodeInput>, type: string, name: st
     if (node.node_type === type && (node.label.includes(trimmed) || trimmed.includes(node.label))) return key
   }
   return null
+}
+
+function humanizeLabel(type: string, raw: string): string {
+  const label = (raw ?? '').trim()
+  const lower = label.toLowerCase()
+  if (!label || lower === 'unknown') {
+    if (type === 'feature') return 'General app activity'
+    if (type === 'screen') return 'Unmapped page'
+    if (type === 'journey') return 'User flow'
+    return 'Unlabeled'
+  }
+  if (label.includes('→')) {
+    return label.split('→').map((p) => humanizePathSegment(p.trim())).join(' → ')
+  }
+  if (label.startsWith('/') || (type === 'screen' && label.includes('/'))) {
+    return humanizePathSegment(label)
+  }
+  return label.length > 120 ? label.slice(0, 117) + '…' : label
+}
+
+function humanizePathSegment(path: string): string {
+  const seg = path.split('/').filter(Boolean).pop() ?? path
+  if (!seg) return 'Home'
+  return seg.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+/** Wire orphan screens/APIs into a coherent map executives can follow. */
+function inferStructuralEdges(
+  nodeMap: Map<string, GraphNodeInput>,
+  edges: GraphEdgeInput[],
+  pages: { page_path: string | null }[] | null,
+) {
+  const screens = [...nodeMap.entries()].filter(([, n]) => n.node_type === 'screen')
+  const apis = [...nodeMap.entries()].filter(([, n]) => n.node_type === 'api')
+  const features = [...nodeMap.entries()].filter(([, n]) => n.node_type === 'feature')
+  const primaryFeatureKey = features.length === 1 ? features[0][0] : null
+
+  const visits = new Map<string, number>()
+  for (const p of pages ?? []) {
+    if (!p.page_path) continue
+    visits.set(p.page_path, (visits.get(p.page_path) ?? 0) + 1)
+  }
+
+  for (const [screenKey, screen] of screens) {
+    const linked = edges.some(
+      (e) => (e.source_key === screenKey || e.target_key === screenKey)
+        && ['part-of', 'includes', 'uses'].includes(e.relationship),
+    )
+    if (linked) continue
+
+    const featMatch = findByName(nodeMap, 'feature', screen.label)
+    if (featMatch) {
+      addEdge(edges, nodeMap, screenKey, featMatch, 'part-of', 'belongs to')
+      continue
+    }
+    if (primaryFeatureKey) {
+      addEdge(edges, nodeMap, screenKey, primaryFeatureKey, 'part-of', 'app area')
+    }
+  }
+
+  for (const [apiKey, api] of apis) {
+    const endpoint = api.label.includes(' ') ? api.label.split(' ').slice(1).join(' ') : api.label
+    for (const [screenKey, screen] of screens) {
+      const rawPath = String(screen.metadata?.raw_label ?? screen.label)
+      const path = rawPath.startsWith('/') ? rawPath : `/${rawPath}`
+      const tail = path.split('/').filter(Boolean).pop() ?? ''
+      if (endpoint.includes(path) || (tail && endpoint.includes(tail))) {
+        addEdge(edges, nodeMap, screenKey, apiKey, 'uses', 'calls API')
+      }
+    }
+    if (primaryFeatureKey && !edges.some((e) => e.target_key === apiKey || e.source_key === apiKey)) {
+      addEdge(edges, nodeMap, primaryFeatureKey, apiKey, 'depends-on', 'backend')
+    }
+  }
+
+  // Top visited screens → synthetic product journey for storytelling
+  const topScreens = [...visits.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([path]) => path)
+  if (topScreens.length >= 2) {
+    const journeyLabel = `${humanizePathSegment(topScreens[0])} → ${humanizePathSegment(topScreens.at(-1)!)}`
+    const journeyKey = addNode(nodeMap, 'journey', journeyLabel, null, 'Most common path from live sessions', { source: 'inferred' })
+    let prevKey: string | null = null
+    for (const path of topScreens) {
+      const screenKey = findByName(nodeMap, 'screen', humanizeLabel('screen', path))
+        ?? addNode(nodeMap, 'screen', humanizeLabel('screen', path), null, path, { source: 'inferred', raw_label: path })
+      if (prevKey) addEdge(edges, nodeMap, prevKey, screenKey, 'includes', 'next')
+      addEdge(edges, nodeMap, journeyKey, screenKey, 'includes', 'step')
+      prevKey = screenKey
+    }
+  }
 }
 
 /** Build knowledge graph nodes + edges from registries and live telemetry. */
@@ -269,6 +361,8 @@ export async function buildKnowledgeGraph(
     const featKey = findByName(nodeMap, 'feature', screen)
     if (featKey) addEdge(edges, nodeMap, screenKey, featKey, 'part-of', 'errors')
   }
+
+  inferStructuralEdges(nodeMap, edges, pages)
 
   return { nodes: [...nodeMap.values()], edges, sources }
 }

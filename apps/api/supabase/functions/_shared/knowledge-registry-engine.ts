@@ -203,6 +203,18 @@ export async function syncKnowledgeRegistries(
   ])
 
   const featureByName = new Map((existingFeatures ?? []).map((f) => [norm(f.name), f]))
+
+  for (const f of existingFeatures ?? []) {
+    if (f.name.toLowerCase() === 'unknown' && hasAutoTag(f.tags)) {
+      await supabase.from('feature_registry').update({
+        name: 'General app activity',
+        description: 'Activity not tied to a specific screen',
+        updated_at: now,
+      }).eq('id', f.id)
+      featureByName.delete('unknown')
+      featureByName.set(norm('General app activity'), { ...f, name: 'General app activity' })
+    }
+  }
   const screenByName = new Map((existingScreens ?? []).map((s) => [norm(normScreenPath(s.name)), s as { id: string; name: string; purpose: string | null }]))
   const apiByKey = new Map((existingApis ?? []).map((a) => [apiKey(a.endpoint, a.method), a]))
   const journeyByName = new Map((existingJourneys ?? []).map((j) => [norm(j.name), j]))
@@ -212,7 +224,7 @@ export async function syncKnowledgeRegistries(
   // ── Features from AI feature health ───────────────────────────────────────
   for (const fh of featureHealth ?? []) {
     const name = String(fh.feature_name ?? '').trim()
-    if (!name) continue
+    if (!name || name.toLowerCase() === 'unknown') continue
     const key = norm(name)
     const existing = featureByName.get(key)
     const row = {

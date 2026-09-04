@@ -74,7 +74,7 @@ Deno.serve(async (req) => {
   const featureMap: Record<string, { events: number; errors: number; completions: number; starts: number }> = {}
 
   for (const e of events ?? []) {
-    const feature = e.screen_name ?? e.event_category ?? 'Unknown'
+    const feature = e.screen_name ?? e.event_category ?? 'General app activity'
     if (!featureMap[feature]) featureMap[feature] = { events: 0, errors: 0, completions: 0, starts: 0 }
     featureMap[feature].events++
     const name = (e.event_name ?? '').toLowerCase()
@@ -83,7 +83,7 @@ Deno.serve(async (req) => {
   }
 
   for (const e of errors ?? []) {
-    const feature = e.screen ?? 'Unknown'
+    const feature = e.screen ?? 'Background errors'
     if (!featureMap[feature]) featureMap[feature] = { events: 0, errors: 0, completions: 0, starts: 0 }
     featureMap[feature].errors++
   }
