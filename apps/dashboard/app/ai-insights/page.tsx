@@ -110,8 +110,10 @@ export default function AIInsightsPage() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Analysis failed')
+      if (!data?.ok) throw new Error(data.error ?? data.reason ?? 'Analysis returned no insights')
+      if ((data?.insights ?? 0) === 0) throw new Error('Analysis completed but generated 0 insights — check that your SDK is sending events')
       await fetchInsights(app.id)
-      showToast(`Analysis complete — ${data?.insights ?? 'new'} insights generated`)
+      showToast(`Analysis complete — ${data.insights} insight${data.insights === 1 ? '' : 's'} generated`)
     } catch (err) {
       showToast(`Analysis failed — ${err instanceof Error ? err.message : 'check Supabase logs'}`)
     }
