@@ -88,6 +88,12 @@ async function _handle(req: Request): Promise<Response> {
     { onConflict: 'tenant_id,project_id,device_id,platform', ignoreDuplicates: false },
   )
 
+  // Notify dashboard when an installation is behind the latest SDK release
+  try {
+    const { syncSdkUpdateNotifications } = await import('../_shared/sdk-update-engine.ts')
+    await syncSdkUpdateNotifications(sb, project.id)
+  } catch { /* non-fatal */ }
+
   return respond({ ok: true })
 }
 

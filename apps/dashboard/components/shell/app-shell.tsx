@@ -9,6 +9,7 @@ import { AIAssistant } from './ai-assistant'
 import { ConnectedAppProvider } from './connected-app-context'
 import { AdminShell } from '@/components/admin/admin-shell'
 import { ConnectWelcomeModal } from './connect-welcome-modal'
+import { SdkUpdateBanner } from './sdk-update-banner'
 
 const AUTH_PATHS = ['/', '/login', '/signup', '/onboarding']
 
@@ -40,6 +41,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <div className="lg:pl-64">
           <Topbar onMenu={() => setMobileNav(true)} onToggleAssistant={() => setAssistant((a) => !a)} />
+          <SdkUpdateBanner />
           <main
             className={cn(
               'mx-auto w-full max-w-[1600px] px-3 py-5 transition-[padding] duration-300 sm:px-5 lg:px-6',

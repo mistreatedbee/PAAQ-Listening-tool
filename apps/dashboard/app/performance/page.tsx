@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import { PageHeader, Card, CardHead, AreaChart } from '@/components/kit'
@@ -76,27 +76,50 @@ export default function PerformancePage() {
   const [error, setError] = useState<string | null>(null)
   const [live, setLive] = useState(false)
 
-  useEffect(() => {
-    if (app.id === '__loading__') return
+  const loadMetrics = useCallback((projectId: string) => {
     const sb = createClient()
-
-    sb.from('performance_metrics')
+    return sb.from('performance_metrics')
       .select('metric_type, value, created_at')
-      .eq('project_id', app.id)
+      .eq('project_id', projectId)
       .order('created_at', { ascending: true })
       .limit(200)
       .then(({ data, error: err }) => {
         if (err) {
           console.error('Performance metrics query failed:', err)
           setError(err.message)
-          setLoading(false)
           return
         }
         const rows = (data ?? []) as MetricRow[]
         setRawRows(rows)
         setMetrics(buildSummaries(rows))
-        setLoading(false)
       })
+  }, [])
+
+  useEffect(() => {
+    if (app.id === '__loading__') return
+    const sb = createClient()
+    let cancelled = false
+
+    async function syncAndLoad() {
+      setLoading(true)
+      setError(null)
+      try {
+        await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/sync-performance-metrics`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({ project_id: app.id }),
+        })
+      } catch { /* best-effort — still load existing rows */ }
+      if (!cancelled) {
+        await loadMetrics(app.id)
+        setLoading(false)
+      }
+    }
+
+    syncAndLoad()
 
     const channel = sb
       .channel(`perf-live:${app.id}`)
@@ -110,8 +133,8 @@ export default function PerformancePage() {
         })
       .subscribe((status) => setLive(status === 'SUBSCRIBED'))
 
-    return () => { sb.removeChannel(channel) }
-  }, [app.id])
+    return () => { cancelled = true; sb.removeChannel(channel) }
+  }, [app.id, loadMetrics])
 
   if (loading) {
     return (

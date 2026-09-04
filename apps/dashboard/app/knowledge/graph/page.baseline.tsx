@@ -1,6 +1,10 @@
+/**
+ * BASELINE SNAPSHOT — Knowledge Graph UI as of 2026-09-04 (commit 7b4beb5).
+ * To revert enhanced animation/interaction changes, copy this file over page.tsx.
+ */
 'use client'
 
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/utils/supabase/client'
 import type { KnowledgeNode, KnowledgeEdge, NodeType } from '@/lib/knowledge-types'
@@ -10,27 +14,25 @@ import { BrainCircuit, ZoomIn, ZoomOut, RotateCcw, Info, RefreshCw } from 'lucid
 
 const NODE_RADIUS = 28
 const NODE_TYPES: NodeType[] = ['feature', 'screen', 'api', 'service', 'journey', 'team', 'deployment', 'document']
-const DAMPING = 0.82
 
-type GraphNode = KnowledgeNode & { vx: number; vy: number; pinned?: boolean }
+type GraphNode = KnowledgeNode & { vx: number; vy: number; fx?: number; fy?: number }
 
 function applyForces(nodes: GraphNode[], edges: KnowledgeEdge[], width: number, height: number) {
   const cx = width / 2
   const cy = height / 2
-  const k = Math.sqrt((width * height) / Math.max(nodes.length, 1)) * 0.55
+  const k = Math.sqrt((width * height) / Math.max(nodes.length, 1)) * 0.5
 
   for (let i = 0; i < nodes.length; i++) {
-    if (nodes[i].pinned) continue
-    nodes[i].vx *= DAMPING
-    nodes[i].vy *= DAMPING
+    nodes[i].vx = 0
+    nodes[i].vy = 0
     for (let j = 0; j < nodes.length; j++) {
       if (i === j) continue
       const dx = nodes[i].x - nodes[j].x
       const dy = nodes[i].y - nodes[j].y
       const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 1)
       const force = (k * k) / dist
-      nodes[i].vx += (dx / dist) * force * 0.04
-      nodes[i].vy += (dy / dist) * force * 0.04
+      nodes[i].vx += (dx / dist) * force * 0.05
+      nodes[i].vy += (dy / dist) * force * 0.05
     }
   }
 
@@ -41,27 +43,19 @@ function applyForces(nodes: GraphNode[], edges: KnowledgeEdge[], width: number, 
     const dx = target.x - source.x
     const dy = target.y - source.y
     const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 1)
-    const force = (dist * dist) / k * 0.018
-    if (!source.pinned) { source.vx += (dx / dist) * force; source.vy += (dy / dist) * force }
-    if (!target.pinned) { target.vx -= (dx / dist) * force; target.vy -= (dy / dist) * force }
+    const force = (dist * dist) / k * 0.02
+    source.vx += (dx / dist) * force
+    source.vy += (dy / dist) * force
+    target.vx -= (dx / dist) * force
+    target.vy -= (dy / dist) * force
   }
 
   for (const n of nodes) {
-    if (n.pinned) continue
-    n.vx += (cx - n.x) * 0.002
-    n.vy += (cy - n.y) * 0.002
+    n.vx += (cx - n.x) * 0.003
+    n.vy += (cy - n.y) * 0.003
     n.x = Math.max(NODE_RADIUS + 10, Math.min(width - NODE_RADIUS - 10, n.x + n.vx))
     n.y = Math.max(NODE_RADIUS + 10, Math.min(height - NODE_RADIUS - 10, n.y + n.vy))
   }
-}
-
-function neighborIds(nodeId: string, edges: KnowledgeEdge[]): Set<string> {
-  const set = new Set<string>()
-  for (const e of edges) {
-    if (e.source_id === nodeId) set.add(e.target_id)
-    if (e.target_id === nodeId) set.add(e.source_id)
-  }
-  return set
 }
 
 async function syncGraph(projectId: string) {
@@ -77,7 +71,7 @@ async function syncGraph(projectId: string) {
     const body = await res.json().catch(() => ({})) as { error?: string }
     throw new Error(body.error ?? `Sync failed (${res.status})`)
   }
-  return res.json() as Promise<{ nodes: number; edges: number }>
+  return res.json() as Promise<{ nodes: number; edges: number; sources?: Record<string, number> }>
 }
 
 export default function KnowledgeGraphPage() {
@@ -89,13 +83,12 @@ export default function KnowledgeGraphPage() {
   const [syncError, setSyncError] = useState<string | null>(null)
   const [lastSync, setLastSync] = useState<{ nodes: number; edges: number } | null>(null)
   const [selected, setSelected] = useState<GraphNode | null>(null)
-  const [hovered, setHovered] = useState<string | null>(null)
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [typeFilter, setTypeFilter] = useState<Set<NodeType>>(new Set(NODE_TYPES))
+  const svgRef = useRef<SVGSVGElement>(null)
   const animRef = useRef<number | null>(null)
   const isDragging = useRef(false)
-  const isPanning = useRef(false)
   const dragNode = useRef<GraphNode | null>(null)
   const lastPos = useRef({ x: 0, y: 0 })
 
@@ -109,12 +102,13 @@ export default function KnowledgeGraphPage() {
       sb.from('knowledge_edges').select('*').eq('project_id', projectId),
     ])
     const raw = (n ?? []) as KnowledgeNode[]
-    setNodes(raw.map((node) => ({
+    const graphNodes: GraphNode[] = raw.map((node) => ({
       ...node,
       x: node.x || width / 2 + (Math.random() - 0.5) * 400,
       y: node.y || height / 2 + (Math.random() - 0.5) * 300,
       vx: 0, vy: 0,
-    })))
+    }))
+    setNodes(graphNodes)
     setEdges((e ?? []) as KnowledgeEdge[])
   }, [])
 
@@ -141,7 +135,7 @@ export default function KnowledgeGraphPage() {
 
   const tick = useCallback(() => {
     setNodes((prev) => {
-      if (prev.length === 0 || prev.some((n) => n.pinned)) return prev
+      if (prev.length === 0) return prev
       const next = prev.map((n) => ({ ...n }))
       applyForces(next, edges, width, height)
       return next
@@ -150,69 +144,38 @@ export default function KnowledgeGraphPage() {
   }, [edges])
 
   useEffect(() => {
-    if (nodes.length > 0 && !nodes.some((n) => n.pinned)) {
+    if (nodes.length > 0) {
       animRef.current = requestAnimationFrame(tick)
     }
     return () => { if (animRef.current) cancelAnimationFrame(animRef.current) }
-  }, [nodes.length > 0, tick, nodes.some((n) => n.pinned)])
+  }, [nodes.length > 0, tick])
 
   const visibleNodes = nodes.filter((n) => typeFilter.has(n.node_type as NodeType))
   const visibleEdges = edges.filter((e) =>
-    visibleNodes.some((n) => n.id === e.source_id) && visibleNodes.some((n) => n.id === e.target_id),
+    visibleNodes.some((n) => n.id === e.source_id) && visibleNodes.some((n) => n.id === e.target_id)
   )
-
-  const focusId = selected?.id ?? hovered
-  const highlightIds = useMemo(() => {
-    if (!focusId) return null
-    const ids = neighborIds(focusId, visibleEdges)
-    ids.add(focusId)
-    return ids
-  }, [focusId, visibleEdges])
 
   const typeCounts = NODE_TYPES.reduce((acc, t) => {
     acc[t] = nodes.filter((n) => n.node_type === t).length
     return acc
   }, {} as Record<NodeType, number>)
 
-  const handleNodeMouseDown = (e: React.MouseEvent, node: GraphNode) => {
+  const handleMouseDown = (e: React.MouseEvent, node: GraphNode) => {
     e.stopPropagation()
     isDragging.current = true
     dragNode.current = node
     lastPos.current = { x: e.clientX, y: e.clientY }
-    setNodes((prev) => prev.map((n) => n.id === node.id ? { ...n, pinned: true, vx: 0, vy: 0 } : n))
-  }
-
-  const handleCanvasMouseDown = () => {
-    isPanning.current = true
-    lastPos.current = { x: 0, y: 0 }
   }
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (isDragging.current && dragNode.current) {
-      const dx = (e.clientX - lastPos.current.x) / zoom
-      const dy = (e.clientY - lastPos.current.y) / zoom
-      lastPos.current = { x: e.clientX, y: e.clientY }
-      setNodes((prev) => prev.map((n) =>
-        n.id === dragNode.current!.id ? { ...n, x: n.x + dx, y: n.y + dy, vx: 0, vy: 0 } : n,
-      ))
-      return
-    }
-    if (isPanning.current) {
-      const dx = e.movementX / zoom
-      const dy = e.movementY / zoom
-      setPan((p) => ({ x: p.x - dx, y: p.y - dy }))
-    }
+    if (!isDragging.current || !dragNode.current) return
+    const dx = (e.clientX - lastPos.current.x) / zoom
+    const dy = (e.clientY - lastPos.current.y) / zoom
+    lastPos.current = { x: e.clientX, y: e.clientY }
+    setNodes((prev) => prev.map((n) => n.id === dragNode.current!.id ? { ...n, x: n.x + dx, y: n.y + dy } : n))
   }
 
-  const handleMouseUp = () => {
-    if (dragNode.current) {
-      const id = dragNode.current.id
-      setNodes((prev) => prev.map((n) => n.id === id ? { ...n, pinned: false } : n))
-    }
-    isDragging.current = false
-    isPanning.current = false
-    dragNode.current = null
-  }
+  const handleMouseUp = () => { isDragging.current = false; dragNode.current = null }
 
   return (
     <div className="space-y-5">
@@ -277,7 +240,9 @@ export default function KnowledgeGraphPage() {
           >
             <span className="h-1.5 w-1.5 rounded-full" style={{ background: NODE_TYPE_COLOR[t] }} />
             {t}
-            {typeCounts[t] > 0 && <span className="opacity-70">({typeCounts[t]})</span>}
+            {typeCounts[t] > 0 && (
+              <span className="opacity-70">({typeCounts[t]})</span>
+            )}
           </button>
         ))}
       </div>
@@ -294,13 +259,18 @@ export default function KnowledgeGraphPage() {
               <p className="text-sm font-semibold">No graph data yet</p>
               <p className="text-xs text-muted-foreground mt-1 max-w-sm">
                 The graph is built from your knowledge registries plus live telemetry (sessions, events, deployments).
+                Register features and APIs or run AI Analysis to populate it.
               </p>
             </div>
             <div className="flex gap-2 mt-2">
               <Link href="/knowledge" className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-muted">
                 Open Knowledge Base
               </Link>
-              <button onClick={() => syncAndLoad(app.id)} disabled={syncing} className="rounded-lg bg-ai/10 px-3 py-1.5 text-xs font-medium text-ai hover:bg-ai/20 disabled:opacity-50">
+              <button
+                onClick={() => syncAndLoad(app.id)}
+                disabled={syncing}
+                className="rounded-lg bg-ai/10 px-3 py-1.5 text-xs font-medium text-ai hover:bg-ai/20 disabled:opacity-50"
+              >
                 Try sync again
               </button>
             </div>
@@ -312,45 +282,33 @@ export default function KnowledgeGraphPage() {
           </div>
         ) : (
           <svg
+            ref={svgRef}
             width="100%"
             height="100%"
             viewBox={`${-pan.x} ${-pan.y} ${width / zoom} ${height / zoom}`}
-            onMouseDown={handleCanvasMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
             className="cursor-grab active:cursor-grabbing"
           >
             <defs>
-              <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="currentColor" strokeOpacity="0.04" strokeWidth="1" />
-              </pattern>
-              <filter id="glow">
-                <feGaussianBlur stdDeviation="3" result="blur" />
-                <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
-              </filter>
               <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
                 <path d="M0,0 L0,6 L8,3 z" fill="currentColor" className="text-border" />
               </marker>
             </defs>
-            <rect x={-pan.x} y={-pan.y} width={width / zoom} height={height / zoom} fill="url(#grid)" />
 
             {visibleEdges.map((edge) => {
               const src = visibleNodes.find((n) => n.id === edge.source_id)
               const tgt = visibleNodes.find((n) => n.id === edge.target_id)
               if (!src || !tgt) return null
-              const lit = !highlightIds || (highlightIds.has(edge.source_id) && highlightIds.has(edge.target_id))
               return (
                 <g key={edge.id}>
                   <line
                     x1={src.x} y1={src.y} x2={tgt.x} y2={tgt.y}
-                    stroke={lit ? 'currentColor' : 'currentColor'}
-                    strokeWidth={lit ? 2 : 1}
-                    strokeOpacity={highlightIds ? (lit ? 0.65 : 0.08) : 0.3}
-                    markerEnd="url(#arrow)"
-                    className="text-muted-foreground transition-all duration-200"
+                    stroke="currentColor" strokeWidth={1.5} strokeOpacity={0.3}
+                    markerEnd="url(#arrow)" className="text-muted-foreground"
                   />
-                  {lit && edge.label && (
+                  {edge.label && (
                     <text x={(src.x + tgt.x) / 2} y={(src.y + tgt.y) / 2 - 4}
                       className="fill-muted-foreground" fontSize={9} textAnchor="middle">
                       {edge.label}
@@ -363,23 +321,15 @@ export default function KnowledgeGraphPage() {
             {visibleNodes.map((node) => {
               const color = NODE_TYPE_COLOR[node.node_type as NodeType] ?? '#8ba0b4'
               const isSelected = selected?.id === node.id
-              const isHovered = hovered === node.id
-              const lit = !highlightIds || highlightIds.has(node.id)
-              const scale = isSelected ? 1.12 : isHovered ? 1.08 : 1
               return (
                 <g
                   key={node.id}
-                  transform={`translate(${node.x},${node.y}) scale(${scale})`}
-                  onMouseDown={(e) => handleNodeMouseDown(e, node)}
-                  onMouseEnter={() => setHovered(node.id)}
-                  onMouseLeave={() => setHovered((h) => h === node.id ? null : h)}
-                  onClick={(e) => { e.stopPropagation(); setSelected(isSelected ? null : node) }}
-                  className="cursor-pointer transition-transform duration-150"
-                  style={{ opacity: lit ? 1 : 0.25 }}
-                  filter={isSelected || isHovered ? 'url(#glow)' : undefined}
+                  transform={`translate(${node.x},${node.y})`}
+                  onMouseDown={(e) => handleMouseDown(e, node)}
+                  onClick={() => setSelected(isSelected ? null : node)}
+                  className="cursor-pointer"
                 >
-                  <circle r={NODE_RADIUS} fill={color + '22'} stroke={color} strokeWidth={isSelected ? 2.5 : 1.5} />
-                  {isSelected && <circle r={NODE_RADIUS + 6} fill="none" stroke={color} strokeWidth={1} strokeOpacity={0.35} />}
+                  <circle r={NODE_RADIUS} fill={color + '18'} stroke={color} strokeWidth={isSelected ? 2.5 : 1.5} />
                   <text y={4} textAnchor="middle" fontSize={9} fontWeight="600" fill={color}>
                     {node.node_type.slice(0, 3).toUpperCase()}
                   </text>
@@ -404,7 +354,14 @@ export default function KnowledgeGraphPage() {
               </div>
               <button onClick={() => setSelected(null)} className="text-muted-foreground hover:text-foreground">×</button>
             </div>
-            {selected.description && <p className="text-xs text-muted-foreground">{selected.description}</p>}
+            {selected.description && (
+              <p className="text-xs text-muted-foreground">{selected.description}</p>
+            )}
+            {(selected.metadata as { source?: string })?.source && (
+              <p className="text-[10px] text-muted-foreground capitalize">
+                Source: {(selected.metadata as { source: string }).source}
+              </p>
+            )}
             <p className="text-[10px] text-muted-foreground">
               {visibleEdges.filter((e) => e.source_id === selected.id || e.target_id === selected.id).length} connections
             </p>
@@ -413,7 +370,7 @@ export default function KnowledgeGraphPage() {
 
         <div className="absolute bottom-4 left-4 flex items-center gap-1.5 rounded-lg border bg-card/80 backdrop-blur-sm px-3 py-2">
           <Info className="h-3 w-3 text-muted-foreground" />
-          <span className="text-[10px] text-muted-foreground">Drag nodes · Pan canvas · Hover to highlight connections</span>
+          <span className="text-[10px] text-muted-foreground">Drag nodes · Click to inspect · Auto-syncs on load</span>
         </div>
       </div>
     </div>

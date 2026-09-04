@@ -12,7 +12,7 @@ import {
 import { cn } from '@/lib/utils'
 import type { Tone } from '@/lib/data'
 
-type Source = 'insight' | 'investigation' | 'recommendation' | 'anomaly' | 'deployment' | 'error'
+type Source = 'insight' | 'investigation' | 'recommendation' | 'anomaly' | 'deployment' | 'error' | 'sdk_update'
 type CategoryFilter = 'all' | Source
 
 type DbNotification = {
@@ -52,6 +52,7 @@ const SOURCE_META: Record<Source, { label: string; Icon: typeof Bell }> = {
   anomaly:        { label: 'Anomaly',        Icon: TriangleAlert },
   deployment:     { label: 'Deployment',     Icon: Rocket },
   error:          { label: 'Error',          Icon: ShieldAlert },
+  sdk_update:     { label: 'SDK Update',     Icon: Rocket },
 }
 
 const FILTERS: { id: CategoryFilter; label: string }[] = [
@@ -61,6 +62,7 @@ const FILTERS: { id: CategoryFilter; label: string }[] = [
   { id: 'recommendation', label: 'Recommendations' },
   { id: 'anomaly',        label: 'Anomalies' },
   { id: 'deployment',     label: 'Deployments' },
+  { id: 'sdk_update',     label: 'SDK Updates' },
   { id: 'error',          label: 'Errors' },
 ]
 
