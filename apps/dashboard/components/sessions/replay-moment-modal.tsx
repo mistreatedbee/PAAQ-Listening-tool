@@ -2,47 +2,41 @@
 
 import { useEffect, useRef, useState } from 'react'
 import 'rrweb-player/dist/style.css'
+import type { eventWithTime } from 'rrweb'
 import { X, Loader2, Video, Camera, AlertTriangle, Play, SkipForward } from 'lucide-react'
 import type { SessionRecordingState } from '@/lib/use-session-recording'
+import { replayPlayerProps } from '@/lib/recording-events'
 
 type RrwebEvent = { type?: number; timestamp?: number }
 
-// rrweb event type codes — Meta (4) always precedes FullSnapshot (2) at
-// recording start and at every periodic checkout; a player needs one of
-// these as its base DOM state to render anything at all.
 const RRWEB_META = 4
 const RRWEB_FULL_SNAPSHOT = 2
 
-const PRE_ROLL_MS = 15_000
-const POST_ROLL_MS = 5_000
+/** How far before the error moment the clip should try to show user actions. */
+export const PRE_ROLL_MS = 30_000
+/** How long after the error to keep playing so the visible error state is captured. */
+export const POST_ROLL_MS = 5_000
 
 export type PrecedingItem = { time: string; label: string; isError: boolean }
 
 /**
- * Clips a full session's rrweb events down to a real, short window around
- * `targetMs` (15s before / 5s after, matching how this is meant to be used
- * — "what led up to this and what happened right after," not the whole
- * session). rrweb can only start rendering from a real FullSnapshot, so the
- * clip starts at the latest one at-or-before the window rather than exactly
- * PRE_ROLL_MS early — on a recording with sparse snapshots that can be
- * earlier than 15s, but it's always real and always far short of the full
- * session, and gets tighter as the SDK's snapshot cadence shortens.
+ * Clips rrweb events to ~30s before / 5s after the target moment. Starts
+ * from the latest FullSnapshot at or before the error so playback can render
+ * the real DOM the user saw, including their last clicks leading up to it.
  */
 function clipDomEvents(events: RrwebEvent[], targetMs: number): RrwebEvent[] | null {
   const windowStart = targetMs - PRE_ROLL_MS
   const windowEnd = targetMs + POST_ROLL_MS
 
   let snapshotIdx = -1
+  let fallbackIdx = -1
   for (let i = 0; i < events.length; i++) {
     const e = events[i]
-    if (e.type === RRWEB_FULL_SNAPSHOT && typeof e.timestamp === 'number' && e.timestamp <= windowStart) snapshotIdx = i
+    if (e.type !== RRWEB_FULL_SNAPSHOT || typeof e.timestamp !== 'number') continue
+    if (e.timestamp <= targetMs) fallbackIdx = i
+    if (e.timestamp <= targetMs && e.timestamp >= windowStart - 15_000) snapshotIdx = i
   }
-  if (snapshotIdx === -1) {
-    for (let i = 0; i < events.length; i++) {
-      const e = events[i]
-      if (e.type === RRWEB_FULL_SNAPSHOT && typeof e.timestamp === 'number' && e.timestamp <= targetMs) snapshotIdx = i
-    }
-  }
+  if (snapshotIdx === -1) snapshotIdx = fallbackIdx
   if (snapshotIdx === -1) snapshotIdx = events.findIndex((e) => e.type === RRWEB_FULL_SNAPSHOT)
   if (snapshotIdx === -1) return null
 
@@ -51,11 +45,6 @@ function clipDomEvents(events: RrwebEvent[], targetMs: number): RrwebEvent[] | n
   return clipped.length > 0 ? clipped : null
 }
 
-/** Self-contained lightbox opened from a timeline row: shows the real
- * screen state at that exact moment immediately (a paused frame — a real
- * screenshot for screenshot-kind recordings, a real reconstructed DOM frame
- * for DOM recordings), with a short ~20s clip around it to actually watch —
- * never the whole session — plus the real events that led up to it. */
 export function ReplayMomentModal({
   recording,
   targetIso,
@@ -98,12 +87,11 @@ export function ReplayMomentModal({
         return
       }
 
-      // kind === 'dom'
       const targetMs = new Date(targetIso).getTime()
       const clipped = clipDomEvents(recording.events as RrwebEvent[], targetMs)
       if (!clipped) { setState('unavailable'); return }
       const clipStartMs = clipped[0].timestamp as number
-      const offsetMs = Math.max(0, targetMs - clipStartMs)
+      const errorOffsetMs = Math.max(0, targetMs - clipStartMs)
 
       try {
         const { default: RrwebPlayer } = await import('rrweb-player')
@@ -114,17 +102,14 @@ export function ReplayMomentModal({
         const player = new RrwebPlayer({
           target: containerRef.current,
           // deno-lint-ignore no-explicit-any
-          props: { events: clipped as any, width, height: 480, autoPlay: false, mouseTail: true },
+          props: replayPlayerProps(clipped as eventWithTime[], width, 480),
           // deno-lint-ignore no-explicit-any
         }) as any
-        // Start playback at the last click (or clip start) so the viewer
-        // actually sees the control the user pressed, then the error —
-        // pausing on the error frame hid that lead-up entirely.
-        const playFromMs = playFromIso ? new Date(playFromIso).getTime() : clipStartMs
-        const playOffsetMs = Math.max(0, Math.min(offsetMs, playFromMs - clipStartMs))
+        const playFromMs = playFromIso ? new Date(playFromIso).getTime() : Math.max(clipStartMs, targetMs - PRE_ROLL_MS)
+        const playOffsetMs = Math.max(0, Math.min(errorOffsetMs, playFromMs - clipStartMs))
         player.goto(playOffsetMs, true)
         playerRef.current = player
-        errorOffsetMsRef.current = offsetMs
+        errorOffsetMsRef.current = errorOffsetMs
         if (!cancelled) setState('ready')
       } catch {
         if (!cancelled) setState('unavailable')
@@ -159,7 +144,7 @@ export function ReplayMomentModal({
           </div>
           {!isScreenshot && (
             <p className="mb-2 text-[11px] text-muted-foreground">
-              The frame below is the real screen state at this moment — the clip covers 15s before through 5s after it.
+              Clip covers up to 30s before through 5s after this moment — playback starts from the last user action when available.
             </p>
           )}
           {currentLabel && (
@@ -176,13 +161,13 @@ export function ReplayMomentModal({
                 onClick={() => playerRef.current?.goto(0, true)}
                 className="flex items-center gap-1.5 rounded-lg bg-ai px-3 py-1.5 text-xs font-semibold text-ai-foreground hover:opacity-90"
               >
-                <Play className="h-3 w-3" /> Play full clip from start
+                <Play className="h-3 w-3" /> Play from clip start
               </button>
               <button
                 onClick={() => playerRef.current?.goto(errorOffsetMsRef.current, false)}
                 className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-card/60 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
               >
-                <SkipForward className="h-3 w-3" /> Jump to this moment
+                <SkipForward className="h-3 w-3" /> Jump to error moment
               </button>
             </div>
           )}

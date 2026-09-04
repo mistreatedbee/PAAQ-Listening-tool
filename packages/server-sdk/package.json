@@ -12,12 +12,22 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts",
     "dev": "tsup src/index.ts --format esm --dts --watch"
   },
-  "keywords": ["paaq", "analytics", "intelligence", "sdk", "nodejs", "express", "backend"],
+  "keywords": [
+    "paaq",
+    "analytics",
+    "intelligence",
+    "sdk",
+    "nodejs",
+    "express",
+    "backend"
+  ],
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^20.0.0",

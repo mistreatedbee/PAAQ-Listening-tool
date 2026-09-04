@@ -74,7 +74,8 @@ function severityTone(severity: string): Tone {
 }
 
 function toFeedItem(n: DbNotification): FeedItem {
-  const source = (n.category ?? 'insight') as Source
+  const raw = n.category ?? n.type ?? 'insight'
+  const source = (raw === 'sdk_update' ? 'sdk_update' : raw) as Source
   return {
     id: n.id,
     source: source in SOURCE_META ? source : 'insight',

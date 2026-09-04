@@ -12,12 +12,22 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts --external react-native react @react-native-async-storage/async-storage react-native-view-shot",
     "dev": "tsup src/index.ts --format esm --dts --watch"
   },
-  "keywords": ["paaq", "analytics", "intelligence", "sdk", "react-native", "expo", "mobile"],
+  "keywords": [
+    "paaq",
+    "analytics",
+    "intelligence",
+    "sdk",
+    "react-native",
+    "expo",
+    "mobile"
+  ],
   "license": "MIT",
   "peerDependencies": {
     "react": ">=18.0.0",
@@ -26,7 +36,9 @@
     "react-native-view-shot": ">=3.8.0"
   },
   "peerDependenciesMeta": {
-    "react-native-view-shot": { "optional": true }
+    "react-native-view-shot": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/react": "^18.2.0",

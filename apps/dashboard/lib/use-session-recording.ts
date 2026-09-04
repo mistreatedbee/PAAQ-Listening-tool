@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { mergeRecordingEvents } from '@/lib/recording-events'
 
 export type ScreenshotChunk = { sequence: number; capturedAt: string; url: string }
 
@@ -26,10 +27,13 @@ async function fetchRecording(sessionId: string): Promise<SessionRecordingState>
     if (!data.ok || !data.recording || data.recording.chunks.length === 0) return { kind: 'none' }
 
     if (data.recording.kind === 'dom') {
-      const chunkArrays = await Promise.all(
-        data.recording.chunks.map((c: { url: string }) => fetch(c.url).then((r) => r.json())),
+      const sortedChunks = [...data.recording.chunks].sort(
+        (a: { sequence?: number }, b: { sequence?: number }) => (a.sequence ?? 0) - (b.sequence ?? 0),
       )
-      const events = chunkArrays.flat()
+      const chunkArrays = await Promise.all(
+        sortedChunks.map((c: { url: string }) => fetch(c.url).then((r) => r.json())),
+      )
+      const events = mergeRecordingEvents(chunkArrays)
       return events.length > 0 ? { kind: 'dom', events } : { kind: 'none' }
     }
     if (data.recording.kind === 'screenshots') {

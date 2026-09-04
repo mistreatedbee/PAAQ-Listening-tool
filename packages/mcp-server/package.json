@@ -19,6 +19,20 @@
   "engines": {
     "node": ">=18"
   },
-  "keywords": ["mcp", "paaq", "intelligence", "analytics", "ai-agent"],
-  "license": "MIT"
+  "keywords": [
+    "mcp",
+    "paaq",
+    "intelligence",
+    "analytics",
+    "ai-agent"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mistreatedbee/PAAQ-Listening-tool.git",
+    "directory": "packages/mcp-server"
+  }
 }

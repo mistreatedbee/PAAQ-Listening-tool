@@ -6,7 +6,7 @@ const BASE_URL = 'https://mookyonwpovxscsbqwwl.supabase.co/functions/v1'
 // every install of this SDK has been wrong the entire time, which made
 // "is a customer actually running the new build" impossible to answer
 // from server-side logs alone. Now kept in lockstep with package.json.
-const SDK_VERSION = '1.2.7'
+const SDK_VERSION = '1.2.9'
 
 type ErrorPayload = {
   error_type: string
@@ -311,6 +311,10 @@ async function flush(): Promise<void> {
 async function sendError(payload: ErrorPayload): Promise<void> {
   if (!_sdkToken) return
   _perfErrorCount++
+  // Land the user's last click/interaction on the server before the error
+  // timestamp so the replay clip can start from that action.
+  await flush()
+  void captureErrorRecordingWindow()
   try {
     const context: Record<string, unknown> = {
       ...(payload.context && typeof payload.context === 'object' ? payload.context : {}),
@@ -756,20 +760,35 @@ function teardownDomRecording(): void {
     clearInterval(_recordingFlushTimer)
     _recordingFlushTimer = null
   }
+  if (_postErrorFlushTimer) {
+    clearTimeout(_postErrorFlushTimer)
+    _postErrorFlushTimer = null
+  }
   _recordingBuffer = []
 }
 
+/** Flush DOM recording around an error: capture pre-error state immediately, then post-error window. */
+function captureErrorRecordingWindow(): void {
+  if (!_recordingStop) return
+  void flushRecording({ keepalive: false })
+  if (_postErrorFlushTimer) clearTimeout(_postErrorFlushTimer)
+  _postErrorFlushTimer = setTimeout(() => {
+    void flushRecording({ keepalive: false })
+    _postErrorFlushTimer = null
+  }, POST_ERROR_CAPTURE_MS)
+}
+
 function endOnce(outcome: string): void {
-  void flush()
-  void flushPerf()
-  void flushRecording()
-  teardownDomRecording()
   void endSession(outcome)
 }
 
 async function endSession(outcome: string): Promise<void> {
   if (!_sessionId || !_sdkToken || _sessionEnded) return
   _sessionEnded = true
+  await flush()
+  void flushPerf()
+  await flushRecording({ keepalive: true })
+  teardownDomRecording()
   const durationSeconds = _sessionStartedAt ? Math.round((Date.now() - _sessionStartedAt) / 1000) : undefined
   const payload = JSON.stringify({ action: 'end', session_id: _sessionId, duration: durationSeconds, outcome })
   // sendBeacon cannot send custom headers, so the sessions endpoint would reject
@@ -913,43 +932,30 @@ function installHoverTracking(): void {
 // playback) so password/PII fields are never exposed without a developer
 // having to do anything; block elements with class "paaq-block" to hide
 // content entirely, or class "paaq-mask" to mask arbitrary text nodes.
-const RECORDING_FLUSH_INTERVAL_MS = 10_000
-const RECORDING_MAX_BUFFERED_EVENTS = 200
+const RECORDING_FLUSH_INTERVAL_MS = 8_000
+const RECORDING_MAX_BUFFERED_EVENTS = 400
+const POST_ERROR_CAPTURE_MS = 5_000
 
 let _recordingBuffer: unknown[] = []
 let _recordingSequence = 0
 let _recordingFlushTimer: ReturnType<typeof setInterval> | null = null
 let _recordingStop: (() => void) | null = null
+let _postErrorFlushTimer: ReturnType<typeof setTimeout> | null = null
 
-// rrweb event types that carry a full DOM snapshot rather than an
-// incremental delta — type 4 (Meta) always precedes type 2 (FullSnapshot)
-// at recording start and at every checkoutEveryNms checkout. Without at
-// least one of these actually reaching storage, the replay player has no
-// base DOM to reconstruct onto and cannot render anything at all — losing
-// one of these is far worse than losing an incremental-delta chunk.
-const RECORDING_SNAPSHOT_EVENT_TYPES = new Set([2, 4])
+// Only flush on FullSnapshot (2), never on Meta (4) alone — Meta always
+// precedes FullSnapshot in the same checkout; flushing early splits them
+// across chunks and breaks reconstruction (visible glitches/skips).
+const RRWEB_FULL_SNAPSHOT = 2
 
 function installDomRecording(): void {
   if (typeof document === 'undefined') return
-  // A previous session may have left a live recorder handle — init() runs
-  // again on every new session in the same tab, and without resetting here
-  // the second+ session silently skips recording entirely.
   teardownDomRecording()
   _recordingSequence = 0
   _recordingStop = record({
     emit(event) {
       _recordingBuffer.push(event)
       const e = event as { type?: number }
-      if (e.type != null && RECORDING_SNAPSHOT_EVENT_TYPES.has(e.type)) {
-        // Flush immediately, without keepalive: keepalive fetches are capped
-        // at 64KB combined body size across all in-flight keepalive requests
-        // (spec limit), and a full DOM snapshot routinely exceeds that on a
-        // real page — a keepalive flush of this chunk fails outright, which
-        // is exactly why every surviving chunk in production turned out to
-        // be tiny mouse-move deltas and none carried a snapshot. A normal
-        // (non-keepalive) fetch has no such size cap, at the cost of being
-        // killable if the page unloads before it completes — an acceptable
-        // trade since the alternative is a snapshot that's guaranteed to fail.
+      if (e.type === RRWEB_FULL_SNAPSHOT) {
         void flushRecording({ keepalive: false })
       } else if (_recordingBuffer.length >= RECORDING_MAX_BUFFERED_EVENTS) {
         void flushRecording()
@@ -958,20 +964,32 @@ function installDomRecording(): void {
     maskAllInputs: true,
     blockClass: 'paaq-block',
     maskTextClass: 'paaq-mask',
-    // Periodic full snapshot so the player can render mid-recording without
-    // replaying every incremental mutation from session start — also the
-    // real floor on how short a "watch this moment" clip can be, since the
-    // dashboard clips playback to start at the latest snapshot before a
-    // moment. 15s keeps clips consistently short at the cost of somewhat
-    // more captured data per session than the previous 60s cadence.
-    checkoutEveryNms: 15_000,
+    inlineStylesheet: true,
+    collectFonts: true,
+    recordCanvas: true,
+    // Infrequent checkouts = smoother full-session playback; error clips still
+    // work via periodic flushes + the immediate flush on each error.
+    checkoutEveryNms: 3 * 60 * 1000,
+    sampling: {
+      mousemove: 16,
+      scroll: 80,
+      mouseInteraction: true,
+      input: 'last',
+    },
   }) ?? null
 
   if (_recordingFlushTimer) clearInterval(_recordingFlushTimer)
   _recordingFlushTimer = setInterval(() => void flushRecording(), RECORDING_FLUSH_INTERVAL_MS)
 }
 
+let _flushRecordingChain: Promise<void> = Promise.resolve()
+
 async function flushRecording(opts: { keepalive?: boolean } = {}): Promise<void> {
+  _flushRecordingChain = _flushRecordingChain.then(() => flushRecordingOnce(opts))
+  return _flushRecordingChain
+}
+
+async function flushRecordingOnce(opts: { keepalive?: boolean } = {}): Promise<void> {
   if (_recordingBuffer.length === 0 || !_sdkToken || !_sessionId) return
   const batch = _recordingBuffer.splice(0)
   const sequence = _recordingSequence++
@@ -982,9 +1000,6 @@ async function flushRecording(opts: { keepalive?: boolean } = {}): Promise<void>
     captured_at: new Date().toISOString(),
   })
   const keepalive = opts.keepalive ?? true
-  // One retry for a transient failure — a snapshot-bearing chunk in
-  // particular is worth a second attempt rather than silently giving up,
-  // since losing it breaks playback entirely rather than just leaving a gap.
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const res = await fetch(`${BASE_URL}/session-recording-upload?${params}`, {
@@ -999,9 +1014,11 @@ async function flushRecording(opts: { keepalive?: boolean } = {}): Promise<void>
       })
       if (res.ok) return
     } catch {
-      // fall through to retry
+      // retry
     }
   }
+  // Restore events so a transient failure does not leave permanent gaps in replay.
+  _recordingBuffer.unshift(...batch)
 }
 
 const RAGE_CLICK_WINDOW_MS = 800

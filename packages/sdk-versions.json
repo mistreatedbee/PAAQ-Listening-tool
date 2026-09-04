@@ -1,0 +1,49 @@
+{
+  "$schema": "./sdk-versions.schema.json",
+  "updatedAt": "2026-09-04",
+  "platforms": {
+    "react": { "version": "1.2.9", "package": "@paaq/web-sdk" },
+    "nextjs": { "version": "1.2.9", "package": "@paaq/web-sdk" },
+    "vue": { "version": "1.2.9", "package": "@paaq/web-sdk" },
+    "vanilla": { "version": "1.2.9", "package": "@paaq/web-sdk" },
+    "web": { "version": "1.2.9", "package": "@paaq/web-sdk" },
+    "nodejs": { "version": "0.2.0", "package": "@paaq/mcp-server" },
+    "python": { "version": "1.0.0", "package": "paaq-server-sdk" },
+    "react-native": { "version": "1.0.0", "package": "@paaq/react-native-sdk" },
+    "ios": { "version": "1.0.0", "package": "@paaq/react-native-sdk" },
+    "android": { "version": "1.0.0", "package": "@paaq/react-native-sdk" }
+  },
+  "packages": {
+    "@paaq/web-sdk": {
+      "path": "apps/sdk-web",
+      "version": "1.2.9",
+      "platforms": ["react", "nextjs", "vue", "vanilla", "web"],
+      "build": "npm run build",
+      "sourceVersionConst": "apps/sdk-web/src/index.ts"
+    },
+    "@paaq/mcp-server": {
+      "path": "packages/mcp-server",
+      "version": "0.2.0",
+      "platforms": ["nodejs"]
+    },
+    "@paaq/server-sdk": {
+      "path": "packages/server-sdk",
+      "version": "1.0.1",
+      "platforms": [],
+      "build": "npm run build",
+      "sourceVersionConst": "packages/server-sdk/src/index.ts"
+    },
+    "@paaq/react-native-sdk": {
+      "path": "packages/react-native-sdk",
+      "version": "1.0.0",
+      "platforms": ["react-native", "ios", "android"],
+      "build": "npm run build",
+      "sourceVersionConst": "packages/react-native-sdk/src/index.ts"
+    },
+    "@paaq/cli": {
+      "path": "packages/cli",
+      "version": "0.1.0",
+      "platforms": []
+    }
+  }
+}

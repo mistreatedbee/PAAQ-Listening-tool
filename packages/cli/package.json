@@ -13,7 +13,13 @@
   "scripts": {
     "start": "node index.js"
   },
-  "keywords": ["paaq", "cli", "intelligence", "analytics", "monitoring"],
+  "keywords": [
+    "paaq",
+    "cli",
+    "intelligence",
+    "analytics",
+    "monitoring"
+  ],
   "engines": {
     "node": ">=18"
   },

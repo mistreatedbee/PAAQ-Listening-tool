@@ -5,6 +5,7 @@ import 'rrweb-player/dist/style.css'
 import type { eventWithTime } from 'rrweb'
 import { Card, CardHead } from '@/components/kit'
 import { Video } from 'lucide-react'
+import { mergeRecordingEvents, replayPlayerProps } from '@/lib/recording-events'
 
 // deno-lint-ignore no-explicit-any
 type PlayerInstance = { goto: (timeOffset: number, play?: boolean) => void; getReplayer: () => { getMetaData: () => { startTime: number } } }
@@ -39,14 +40,17 @@ export function DomReplayPlayer({ sessionId, seekToIso }: { sessionId: string; s
 
         let events: eventWithTime[]
         try {
+          const sortedChunks = [...data.recording.chunks].sort(
+            (a: { sequence?: number }, b: { sequence?: number }) => (a.sequence ?? 0) - (b.sequence ?? 0),
+          )
           const eventsRaw = await Promise.all(
-            data.recording.chunks.map((c: { url: string }) => fetch(c.url).then((r) => {
+            sortedChunks.map((c: { url: string }) => fetch(c.url).then((r) => {
               if (!r.ok) throw new Error(`chunk ${c.url} failed (${r.status})`)
               return r.json()
             })),
           )
           if (cancelled) return
-          events = eventsRaw.flat() as eventWithTime[]
+          events = mergeRecordingEvents(eventsRaw)
         } catch {
           if (!cancelled) setState('error')
           return
@@ -65,9 +69,10 @@ export function DomReplayPlayer({ sessionId, seekToIso }: { sessionId: string; s
         const { default: RrwebPlayer } = await import('rrweb-player')
         if (cancelled || !containerRef.current) return
         containerRef.current.innerHTML = ''
+        const width = containerRef.current.clientWidth || 800
         playerRef.current = new RrwebPlayer({
           target: containerRef.current,
-          props: { events, width: containerRef.current.clientWidth || 800, height: 500, autoPlay: false, mouseTail: true },
+          props: replayPlayerProps(events, width, 500),
         }) as unknown as PlayerInstance
         setState('ready')
       } catch {

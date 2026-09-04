@@ -69,7 +69,10 @@ export async function closeSession(
   const { error } = await supabase
     .from('sessions')
     .update({
-      status: outcome === 'abandoned' || outcome === 'timed_out' ? 'abandoned' : 'completed',
+      status:
+        outcome === 'abandoned' || outcome === 'timed_out' || outcome === 'force_closed'
+          ? 'abandoned'
+          : 'completed',
       ended_at: endedAt,
       duration: durationSeconds,
       outcome,

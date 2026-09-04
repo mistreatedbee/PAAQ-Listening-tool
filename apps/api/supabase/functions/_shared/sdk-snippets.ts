@@ -9,7 +9,7 @@
 
 export type Framework = 'nextjs' | 'react' | 'vue' | 'vanilla' | 'nodejs' | 'python'
 
-const SDK_VERSION = '1.2.6'
+const SDK_VERSION = '1.2.9'
 const PAAQ_BASE = 'https://mookyonwpovxscsbqwwl.supabase.co/functions/v1'
 
 export const FRAMEWORK_LABELS: Record<Framework, string> = {
@@ -48,15 +48,24 @@ function __paqRcStart(pa) {
   pa.__rc = R.record({
     emit: function (ev) {
       pa.__buf = pa.__buf || [] ; pa.__buf.push(ev)
-      if (ev.type === 2 || ev.type === 4) __paqRcFlush(pa, false)
-      else if (pa.__buf.length >= 200) __paqRcFlush(pa, true)
+      if (ev.type === 2) __paqRcFlush(pa, false)
+      else if (pa.__buf.length >= 400) __paqRcFlush(pa, true)
     },
     maskAllInputs: true,
     blockClass: 'paaq-block',
     maskTextClass: 'paaq-mask',
-    checkoutEveryNms: 15000,
+    inlineStylesheet: true,
+    collectFonts: true,
+    recordCanvas: true,
+    checkoutEveryNms: 180000,
+    sampling: { mousemove: 16, scroll: 80, mouseInteraction: true, input: 'last' },
   })
-  pa.__tl = setInterval(function(){ __paqRcFlush(pa, true) }, 10000)
+  pa.__tl = setInterval(function(){ __paqRcFlush(pa, true) }, 8000)
+}
+function __paqRcOnError(pa) {
+  __paqRcFlush(pa, false)
+  if (pa.__errT) clearTimeout(pa.__errT)
+  pa.__errT = setTimeout(function(){ __paqRcFlush(pa, false) }, 5000)
 }
 function __paqRcFlush(pa, keepalive) {
   if (!pa.sessionId || !(pa.__buf||[]).length) return
@@ -66,7 +75,8 @@ function __paqRcFlush(pa, keepalive) {
   var h
   try { h = (pa._headers || pa._h)() } catch(e) { return }
   fetch(pa.base + ('/session-recording-upload?' + qs.toString()), { method:'POST', headers:h, body:JSON.stringify(b), keepalive:(keepalive ?? true) })
-    .catch(function(){})
+    .then(function(r){ if (!r.ok) pa.__buf = b.concat(pa.__buf||[]) })
+    .catch(function(){ pa.__buf = b.concat(pa.__buf||[]) })
 }
 `
 // One line to slot into each web template's init() after sessionId is set.

@@ -4,10 +4,11 @@ import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { useConnectedApp } from '@/components/shell/connected-app-context'
 import {
-  latestForPlatform,
+  useSdkVersions,
+  latestForPlatformRemote,
   isSdkOutdated,
   buildSdkUpgradePrompt,
-} from '@/lib/sdk-versions'
+} from '@/lib/use-sdk-versions'
 import { Rocket, X, Copy, Check } from 'lucide-react'
 
 type Installation = {
@@ -19,6 +20,7 @@ type Installation = {
 
 export function SdkUpdateBanner() {
   const { app } = useConnectedApp()
+  const { versions } = useSdkVersions()
   const [outdated, setOutdated] = useState<Installation[]>([])
   const [dismissed, setDismissed] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -44,20 +46,20 @@ export function SdkUpdateBanner() {
       .order('last_seen', { ascending: false })
 
     const stale = (data ?? []).filter((inst) =>
-      isSdkOutdated(inst.sdk_version, latestForPlatform(inst.platform)),
+      isSdkOutdated(inst.sdk_version, latestForPlatformRemote(versions, inst.platform)),
     ) as Installation[]
     setOutdated(stale)
-  }, [])
+  }, [versions])
 
   useEffect(() => {
     if (app.id === '__loading__') return
     load(app.id)
-  }, [app.id, load])
+  }, [app.id, load, versions])
 
   if (dismissed || outdated.length === 0) return null
 
   const primary = outdated[0]
-  const latest = latestForPlatform(primary.platform)
+  const latest = latestForPlatformRemote(versions, primary.platform)
   const prompt = buildSdkUpgradePrompt(primary.platform, primary.sdk_version, latest)
 
   const copyPrompt = async () => {

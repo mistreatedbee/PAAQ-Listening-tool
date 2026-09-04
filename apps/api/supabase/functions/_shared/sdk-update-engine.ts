@@ -1,47 +1,44 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
-
-const LATEST: Record<string, string> = {
-  react: '1.2.7',
-  nextjs: '1.2.7',
-  vue: '1.2.7',
-  vanilla: '1.2.7',
-  web: '1.2.7',
-  nodejs: '1.2.6',
-  python: '1.0.0',
-  'react-native': '1.0.0',
-  ios: '1.0.0',
-  android: '1.0.0',
-}
-
-function parseVer(v: string): [number, number, number] {
-  const p = v.replace(/^v/i, '').split('.').map((n) => parseInt(n, 10) || 0)
-  return [p[0] ?? 0, p[1] ?? 0, p[2] ?? 0]
-}
-
-function isOlder(installed: string, latest: string): boolean {
-  const a = parseVer(installed)
-  const b = parseVer(latest)
-  if (a[0] !== b[0]) return a[0] < b[0]
-  if (a[1] !== b[1]) return a[1] < b[1]
-  return a[2] < b[2]
-}
-
-function latestFor(platform: string): string {
-  return LATEST[platform.toLowerCase()] ?? LATEST.web
-}
-
-function upgradePrompt(platform: string, current: string, latest: string): string {
-  const pkg = platform === 'nodejs' ? '@paaq/mcp-server' : '@paaq/web-sdk'
-  return `Copy this agent prompt: Upgrade PAAQ SDK ${platform} v${current} → v${latest}. Run npm install ${pkg}@${latest}, re-init with your dashboard SDK token, and verify X-SDK-Version is ${latest}.`
-}
+import {
+  isSdkOutdated,
+  buildSdkUpgradePrompt,
+  buildSdkReleaseMessage,
+  LATEST_SDK_VERSIONS,
+} from './sdk-versions.ts'
 
 export type SyncSdkUpdatesResult = { notified: number; outdated: number }
+
+/** Merge DB catalog over bundled defaults when the table exists. */
+export async function loadLatestVersions(
+  supabase: SupabaseClient,
+): Promise<Record<string, string>> {
+  const merged = { ...LATEST_SDK_VERSIONS }
+  const { data, error } = await supabase
+    .from('sdk_release_catalog')
+    .select('platform, latest_version')
+
+  if (error || !data?.length) return merged
+
+  for (const row of data) {
+    merged[row.platform] = row.latest_version
+  }
+  return merged
+}
+
+function latestFor(
+  versions: Record<string, string>,
+  platform: string,
+): string {
+  const key = platform.toLowerCase()
+  return versions[key] ?? versions.web
+}
 
 /** Create in-app notifications for SDK installations running behind latest. */
 export async function syncSdkUpdateNotifications(
   supabase: SupabaseClient,
   projectId: string,
 ): Promise<SyncSdkUpdatesResult> {
+  const versions = await loadLatestVersions(supabase)
   const recentCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
 
   const { data: installations } = await supabase
@@ -72,15 +69,15 @@ export async function syncSdkUpdateNotifications(
   const seenPlatforms = new Set<string>()
 
   for (const inst of installations ?? []) {
-    const latest = latestFor(inst.platform)
-    if (!isOlder(inst.sdk_version, latest)) continue
+    const latest = latestFor(versions, inst.platform)
+    if (!isSdkOutdated(inst.sdk_version, latest)) continue
     if (seenPlatforms.has(inst.platform)) continue
     seenPlatforms.add(inst.platform)
     outdated++
 
     if (existingPlatforms.has(inst.platform)) continue
 
-    const message = `SDK update available: ${inst.platform} v${inst.sdk_version} → v${latest}. ${upgradePrompt(inst.platform, inst.sdk_version, latest)}`
+    const message = `SDK update available: ${inst.platform} v${inst.sdk_version} → v${latest}. ${buildSdkUpgradePrompt(inst.platform, inst.sdk_version, latest)}`
 
     const { error } = await supabase.from('notifications').insert({
       project_id: projectId,
@@ -94,4 +91,84 @@ export async function syncSdkUpdateNotifications(
   }
 
   return { notified, outdated }
+}
+
+export type AnnounceSdkReleaseResult = {
+  projects: number
+  announced: number
+  catalog_updated: number
+}
+
+/** Broadcast a new SDK publish to every project and refresh the version catalog. */
+export async function announceSdkRelease(
+  supabase: SupabaseClient,
+  input: {
+    packageName: string
+    version: string
+    platforms: string[]
+    releaseNotes?: string
+  },
+): Promise<AnnounceSdkReleaseResult> {
+  const { packageName, version, platforms, releaseNotes } = input
+  let catalogUpdated = 0
+
+  for (const platform of platforms) {
+    const { error } = await supabase.from('sdk_release_catalog').upsert(
+      {
+        platform,
+        package_name: packageName,
+        latest_version: version,
+        release_notes: releaseNotes ?? null,
+        published_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'platform' },
+    )
+    if (!error) catalogUpdated++
+  }
+
+  const { data: projects } = await supabase.from('projects').select('id')
+  const message = buildSdkReleaseMessage(packageName, version, platforms, releaseNotes)
+
+  let announced = 0
+  for (const project of projects ?? []) {
+    const { data: prior } = await supabase
+      .from('sdk_release_announcements')
+      .select('id')
+      .eq('project_id', project.id)
+      .eq('package_name', packageName)
+      .eq('version', version)
+      .maybeSingle()
+
+    if (prior) continue
+
+    const { data: notification, error: notifyErr } = await supabase
+      .from('notifications')
+      .insert({
+        project_id: project.id,
+        type: 'sdk_update',
+        message,
+        severity: 'info',
+        read: false,
+      })
+      .select('id')
+      .single()
+
+    if (notifyErr || !notification) continue
+
+    await supabase.from('sdk_release_announcements').insert({
+      project_id: project.id,
+      package_name: packageName,
+      version,
+    })
+
+    await syncSdkUpdateNotifications(supabase, project.id)
+    announced++
+  }
+
+  return {
+    projects: projects?.length ?? 0,
+    announced,
+    catalog_updated: catalogUpdated,
+  }
 }
