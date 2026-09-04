@@ -24,8 +24,12 @@ export type SyncKnowledgeGraphResult = {
   registries?: SyncKnowledgeRegistriesResult
 }
 
-function nodeKey(type: string, id: string | null, label: string): string {
-  return `${type}:${id ?? label}`
+function resolveKey(type: string, label: string, refId: string | null = null): string {
+  const trimmed = label.trim()
+  if (!trimmed) return `${type}:`
+  // Deployments are versioned instances — disambiguate by id when present.
+  if (refId && type === 'deployment') return `${type}:${refId}`
+  return `${type}:${trimmed.toLowerCase()}`
 }
 
 function addNode(
@@ -35,20 +39,29 @@ function addNode(
   refId: string | null,
   description: string | null,
   metadata: Record<string, unknown> = {},
-) {
+): string {
   const trimmed = label.trim()
-  if (!trimmed) return
-  const key = nodeKey(type, refId, trimmed)
-  if (!map.has(key)) {
-    map.set(key, {
-      node_key: key,
-      node_type: type,
-      ref_id: refId,
-      label: trimmed.slice(0, 120),
-      description,
-      metadata,
-    })
+  if (!trimmed) return resolveKey(type, label, refId)
+  const key = resolveKey(type, trimmed, refId)
+  const prev = map.get(key)
+  if (prev) {
+    if (refId && !prev.ref_id) prev.ref_id = refId
+    if (description && (metadata.source === 'registry' || !prev.description)) {
+      prev.description = description
+    }
+    prev.metadata = { ...prev.metadata, ...metadata }
+    if (metadata.source === 'registry') prev.metadata.source = 'registry'
+    return key
   }
+  map.set(key, {
+    node_key: key,
+    node_type: type,
+    ref_id: refId,
+    label: trimmed.slice(0, 120),
+    description,
+    metadata,
+  })
+  return key
 }
 
 function addEdge(
@@ -116,94 +129,85 @@ export async function buildKnowledgeGraph(
   ])
 
   for (const f of features ?? []) {
-    addNode(nodeMap, 'feature', f.name, f.id, f.description ?? f.business_purpose, { criticality: f.criticality, source: 'registry' })
+    const featKey = addNode(nodeMap, 'feature', f.name, f.id, f.description ?? f.business_purpose, { criticality: f.criticality, source: 'registry' })
     for (const dep of (f.dependencies ?? []) as string[]) {
-      const depKey = findByName(nodeMap, 'feature', dep) ?? nodeKey('feature', null, dep)
-      if (!nodeMap.has(depKey)) addNode(nodeMap, 'feature', dep, null, null, { source: 'inferred' })
-      addEdge(edges, nodeMap, nodeKey('feature', f.id, f.name), depKey, 'depends-on')
+      const depKey = findByName(nodeMap, 'feature', dep) ?? addNode(nodeMap, 'feature', dep, null, null, { source: 'inferred' })
+      addEdge(edges, nodeMap, featKey, depKey, 'depends-on')
     }
     if (f.owning_team) {
-      const teamKey = nodeKey('team', null, f.owning_team)
-      addNode(nodeMap, 'team', f.owning_team, null, null, { source: 'registry' })
-      addEdge(edges, nodeMap, teamKey, nodeKey('feature', f.id, f.name), 'owns')
+      const teamKey = addNode(nodeMap, 'team', f.owning_team, null, null, { source: 'registry' })
+      addEdge(edges, nodeMap, teamKey, featKey, 'owns')
     }
   }
   sources.features = features?.length ?? 0
 
   for (const s of screens ?? []) {
-    addNode(nodeMap, 'screen', s.name, s.id, s.purpose, { source: 'registry' })
+    const screenKey = addNode(nodeMap, 'screen', s.name, s.id, s.purpose, { source: 'registry' })
     if (s.feature_id) {
       const feat = (features ?? []).find((f) => f.id === s.feature_id)
-      if (feat) addEdge(edges, nodeMap, nodeKey('screen', s.id, s.name), nodeKey('feature', feat.id, feat.name), 'part-of')
+      if (feat) addEdge(edges, nodeMap, screenKey, resolveKey('feature', feat.name, feat.id), 'part-of')
     }
     for (const dep of (s.dependencies ?? []) as string[]) {
       const tgt = findByName(nodeMap, 'api', dep) ?? findByName(nodeMap, 'service', dep)
-      if (tgt) addEdge(edges, nodeMap, nodeKey('screen', s.id, s.name), tgt, 'uses')
+      if (tgt) addEdge(edges, nodeMap, screenKey, tgt, 'uses')
     }
   }
   sources.screens = screens?.length ?? 0
 
   for (const a of apis ?? []) {
     const label = `${a.method} ${a.endpoint}`
-    addNode(nodeMap, 'api', label, a.id, a.purpose, { criticality: a.criticality, source: 'registry' })
+    const apiKey = addNode(nodeMap, 'api', label, a.id, a.purpose, { criticality: a.criticality, source: 'registry' })
     if (a.owning_service) {
-      const svcKey = nodeKey('service', null, a.owning_service)
-      addNode(nodeMap, 'service', a.owning_service, null, null, { source: 'inferred' })
-      addEdge(edges, nodeMap, nodeKey('api', a.id, label), svcKey, 'calls')
+      const svcKey = addNode(nodeMap, 'service', a.owning_service, null, null, { source: 'inferred' })
+      addEdge(edges, nodeMap, apiKey, svcKey, 'calls')
     }
     for (const dep of (a.dependencies ?? []) as string[]) {
-      const depKey = findByName(nodeMap, 'service', dep) ?? nodeKey('service', null, dep)
-      addNode(nodeMap, 'service', dep, null, null, { source: 'inferred' })
-      addEdge(edges, nodeMap, nodeKey('api', a.id, label), depKey, 'depends-on')
+      const depKey = findByName(nodeMap, 'service', dep) ?? addNode(nodeMap, 'service', dep, null, null, { source: 'inferred' })
+      addEdge(edges, nodeMap, apiKey, depKey, 'depends-on')
     }
   }
   sources.apis = apis?.length ?? 0
 
   for (const j of journeys ?? []) {
-    addNode(nodeMap, 'journey', j.name, j.id, j.description ?? j.business_purpose, { criticality: j.criticality, source: 'registry' })
+    const journeyKey = addNode(nodeMap, 'journey', j.name, j.id, j.description ?? j.business_purpose, { criticality: j.criticality, source: 'registry' })
     const steps = (j.steps ?? []) as { screen?: string; action?: string }[]
     for (const step of steps) {
       if (!step.screen) continue
-      const screenKey = nodeKey('screen', null, step.screen)
-      addNode(nodeMap, 'screen', step.screen, null, step.action ?? null, { source: 'journey' })
-      addEdge(edges, nodeMap, nodeKey('journey', j.id, j.name), screenKey, 'includes', step.action ?? 'step')
+      const screenKey = addNode(nodeMap, 'screen', step.screen, null, step.action ?? null, { source: 'journey' })
+      addEdge(edges, nodeMap, journeyKey, screenKey, 'includes', step.action ?? 'step')
     }
   }
   sources.journeys = journeys?.length ?? 0
 
   for (const s of services ?? []) {
-    addNode(nodeMap, 'service', s.name, s.id, s.description, { service_type: s.service_type, source: 'registry' })
+    const svcKey = addNode(nodeMap, 'service', s.name, s.id, s.description, { service_type: s.service_type, source: 'registry' })
     for (const dep of (s.dependencies ?? []) as string[]) {
-      const depKey = findByName(nodeMap, 'service', dep) ?? nodeKey('service', null, dep)
-      addNode(nodeMap, 'service', dep, null, null, { source: 'inferred' })
-      addEdge(edges, nodeMap, nodeKey('service', s.id, s.name), depKey, 'depends-on')
+      const depKey = findByName(nodeMap, 'service', dep) ?? addNode(nodeMap, 'service', dep, null, null, { source: 'inferred' })
+      addEdge(edges, nodeMap, svcKey, depKey, 'depends-on')
     }
   }
   sources.services = services?.length ?? 0
 
   for (const d of deployments ?? []) {
     const label = `${d.version} (${d.environment})`
-    addNode(nodeMap, 'deployment', label, d.id, d.release_notes, { status: d.status, source: 'registry' })
+    const deployKey = addNode(nodeMap, 'deployment', label, d.id, d.release_notes, { status: d.status, source: 'registry' })
     for (const feat of (d.changed_features ?? []) as string[]) {
       const featName = feat.split('/').pop()?.replace(/\.[^.]+$/, '') ?? feat
-      const featKey = findByName(nodeMap, 'feature', featName) ?? nodeKey('feature', null, featName)
-      addNode(nodeMap, 'feature', featName, null, `Changed in ${d.version}`, { source: 'deployment' })
-      addEdge(edges, nodeMap, nodeKey('deployment', d.id, label), featKey, 'deployed-in')
+      const featKey = findByName(nodeMap, 'feature', featName) ?? addNode(nodeMap, 'feature', featName, null, `Changed in ${d.version}`, { source: 'deployment' })
+      addEdge(edges, nodeMap, deployKey, featKey, 'deployed-in')
     }
     for (const svc of (d.changed_services ?? []) as string[]) {
-      const svcKey = findByName(nodeMap, 'service', svc) ?? nodeKey('service', null, svc)
-      addNode(nodeMap, 'service', svc, null, null, { source: 'deployment' })
-      addEdge(edges, nodeMap, nodeKey('deployment', d.id, label), svcKey, 'deployed-in')
+      const svcKey = findByName(nodeMap, 'service', svc) ?? addNode(nodeMap, 'service', svc, null, null, { source: 'deployment' })
+      addEdge(edges, nodeMap, deployKey, svcKey, 'deployed-in')
     }
   }
   sources.deployments = deployments?.length ?? 0
 
   for (const t of teams ?? []) {
-    addNode(nodeMap, 'team', t.name, t.id, t.description, { source: 'registry' })
+    const teamKey = addNode(nodeMap, 'team', t.name, t.id, t.description, { source: 'registry' })
     for (const feat of (t.owned_features ?? []) as string[]) {
-      const featKey = findByName(nodeMap, 'feature', feat) ?? nodeKey('feature', null, feat)
-      addNode(nodeMap, 'feature', feat, null, null, { source: 'team' })
-      addEdge(edges, nodeMap, nodeKey('team', t.id, t.name), featKey, 'owns')
+      const featKey = findByName(nodeMap, 'feature', feat) ?? addNode(nodeMap, 'feature', feat, null, null, { source: 'team' })
+      addEdge(edges, nodeMap, teamKey, featKey, 'owns')
     }
   }
   sources.teams = teams?.length ?? 0
@@ -213,7 +217,7 @@ export async function buildKnowledgeGraph(
   }
   sources.documents = docs?.length ?? 0
 
-  // Live telemetry — feature health from analyze
+  // Live telemetry — merge health metadata into existing registry nodes (no duplicates).
   for (const fh of featureHealth ?? []) {
     addNode(nodeMap, 'feature', fh.feature_name, null, `Health ${Math.round((fh.health_score ?? 0) * 100)}%`, {
       health_score: fh.health_score,
@@ -224,7 +228,7 @@ export async function buildKnowledgeGraph(
   }
   sources.telemetry_features = featureHealth?.length ?? 0
 
-  // Live screens from events + session pages
+  // Live screens — registry already holds discovered screens; merge only.
   const screenNames = new Set<string>()
   for (const e of events ?? []) {
     if (e.screen_name) screenNames.add(String(e.screen_name))
@@ -237,20 +241,19 @@ export async function buildKnowledgeGraph(
   }
   sources.telemetry_screens = screenNames.size
 
-  // User journeys from analyze
+  // User journeys from analyze — merge with registry journeys by name.
   for (const uj of userJourneys ?? []) {
     const name = uj.journey_name ?? 'User journey'
-    addNode(nodeMap, 'journey', name, uj.id, null, { source: 'telemetry' })
+    const journeyKey = addNode(nodeMap, 'journey', name, uj.id, null, { source: 'telemetry' })
     const steps = (uj.steps ?? []) as { screen?: string }[]
     for (const step of steps) {
       if (!step.screen) continue
-      const screenKey = nodeKey('screen', null, step.screen)
-      addNode(nodeMap, 'screen', step.screen, null, null, { source: 'telemetry' })
-      addEdge(edges, nodeMap, nodeKey('journey', uj.id, name), screenKey, 'includes')
+      const screenKey = addNode(nodeMap, 'screen', step.screen, null, null, { source: 'telemetry' })
+      addEdge(edges, nodeMap, journeyKey, screenKey, 'includes')
     }
     if (uj.drop_off_step) {
       const dropKey = findByName(nodeMap, 'screen', uj.drop_off_step)
-      if (dropKey) addEdge(edges, nodeMap, nodeKey('journey', uj.id, name), dropKey, 'part-of', 'drop-off')
+      if (dropKey) addEdge(edges, nodeMap, journeyKey, dropKey, 'part-of', 'drop-off')
     }
   }
   sources.telemetry_journeys = userJourneys?.length ?? 0
@@ -262,8 +265,7 @@ export async function buildKnowledgeGraph(
     errorScreens.set(String(err.screen), (errorScreens.get(String(err.screen)) ?? 0) + 1)
   }
   for (const [screen, count] of errorScreens) {
-    const screenKey = nodeKey('screen', null, screen)
-    addNode(nodeMap, 'screen', screen, null, `${count} errors captured`, { error_count: count, source: 'telemetry' })
+    const screenKey = addNode(nodeMap, 'screen', screen, null, `${count} errors captured`, { error_count: count, source: 'telemetry' })
     const featKey = findByName(nodeMap, 'feature', screen)
     if (featKey) addEdge(edges, nodeMap, screenKey, featKey, 'part-of', 'errors')
   }

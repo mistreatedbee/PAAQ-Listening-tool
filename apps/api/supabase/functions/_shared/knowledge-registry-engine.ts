@@ -71,8 +71,82 @@ function extractApisFromText(text: string): { endpoint: string; method: string }
   return found
 }
 
+function normScreenPath(path: string): string {
+  let s = path.trim()
+  if (!s) return s
+  if (!s.startsWith('/')) s = `/${s}`
+  if (s.length > 1 && s.endsWith('/')) s = s.slice(0, -1)
+  return s
+}
+
+function normEndpoint(endpoint: string): string {
+  let s = endpoint.trim().split('?')[0]
+  if (!s.startsWith('/')) s = `/${s}`
+  if (s.length > 1 && s.endsWith('/')) s = s.slice(0, -1)
+  return s
+}
+
 function apiKey(endpoint: string, method: string): string {
-  return `${method.toUpperCase()} ${endpoint}`
+  return `${method.toUpperCase()} ${normEndpoint(endpoint)}`
+}
+
+/** Remove duplicate auto-discovered registry rows, keeping the oldest per identity key. */
+async function dedupeAutoDiscovered(
+  supabase: SupabaseClient,
+  projectId: string,
+): Promise<number> {
+  let removed = 0
+
+  const dedupe = async (
+    table: string,
+    rows: { id: string; created_at: string }[],
+    keyOf: (row: Record<string, unknown>) => string,
+    isAuto: (row: Record<string, unknown>) => boolean,
+  ) => {
+    const groups = new Map<string, Record<string, unknown>[]>()
+    for (const row of rows) {
+      if (!isAuto(row)) continue
+      const key = keyOf(row)
+      const list = groups.get(key) ?? []
+      list.push(row)
+      groups.set(key, list)
+    }
+    const deleteIds: string[] = []
+    for (const group of groups.values()) {
+      if (group.length <= 1) continue
+      group.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
+      for (const dup of group.slice(1)) deleteIds.push(String(dup.id))
+    }
+    if (deleteIds.length > 0) {
+      const { error } = await supabase.from(table).delete().in('id', deleteIds)
+      if (!error) removed += deleteIds.length
+    }
+  }
+
+  const [
+    { data: features },
+    { data: screens },
+    { data: apis },
+    { data: journeys },
+    { data: services },
+    { data: docs },
+  ] = await Promise.all([
+    supabase.from('feature_registry').select('id, name, tags, created_at').eq('project_id', projectId),
+    supabase.from('screen_registry').select('id, name, purpose, created_at').eq('project_id', projectId),
+    supabase.from('api_registry').select('id, endpoint, method, tags, created_at').eq('project_id', projectId),
+    supabase.from('journey_registry').select('id, name, tags, created_at').eq('project_id', projectId),
+    supabase.from('service_registry').select('id, name, tags, created_at').eq('project_id', projectId),
+    supabase.from('knowledge_documents').select('id, title, tags, created_at').eq('project_id', projectId),
+  ])
+
+  await dedupe('feature_registry', features ?? [], (r) => norm(String(r.name)), (r) => hasAutoTag(r.tags as string[]))
+  await dedupe('screen_registry', screens ?? [], (r) => norm(normScreenPath(String(r.name))), (r) => isAutoScreen(r.purpose as string))
+  await dedupe('api_registry', apis ?? [], (r) => apiKey(String(r.endpoint), String(r.method)), (r) => hasAutoTag(r.tags as string[]))
+  await dedupe('journey_registry', journeys ?? [], (r) => norm(String(r.name)), (r) => hasAutoTag(r.tags as string[]))
+  await dedupe('service_registry', services ?? [], (r) => norm(String(r.name)), (r) => hasAutoTag(r.tags as string[]))
+  await dedupe('knowledge_documents', docs ?? [], (r) => norm(String(r.title)), (r) => hasAutoTag(r.tags as string[]))
+
+  return removed
 }
 
 /** Upsert application knowledge registries from telemetry, AI analysis, and DB introspection. */
@@ -129,7 +203,7 @@ export async function syncKnowledgeRegistries(
   ])
 
   const featureByName = new Map((existingFeatures ?? []).map((f) => [norm(f.name), f]))
-  const screenByName = new Map((existingScreens ?? []).map((s) => [norm(s.name), s as { id: string; name: string; purpose: string | null }]))
+  const screenByName = new Map((existingScreens ?? []).map((s) => [norm(normScreenPath(s.name)), s as { id: string; name: string; purpose: string | null }]))
   const apiByKey = new Map((existingApis ?? []).map((a) => [apiKey(a.endpoint, a.method), a]))
   const journeyByName = new Map((existingJourneys ?? []).map((j) => [norm(j.name), j]))
   const serviceByName = new Map((existingServices ?? []).map((s) => [norm(s.name), s]))
@@ -181,7 +255,7 @@ export async function syncKnowledgeRegistries(
   }
 
   for (const name of screenNames) {
-    const trimmed = name.trim()
+    const trimmed = normScreenPath(name)
     if (!trimmed) continue
     const key = norm(trimmed)
     const existing = screenByName.get(key)
@@ -294,7 +368,8 @@ export async function syncKnowledgeRegistries(
   }
 
   for (const [, api] of apiCandidates) {
-    const k = apiKey(api.endpoint, api.method)
+    const normalizedEndpoint = normEndpoint(api.endpoint)
+    const k = apiKey(normalizedEndpoint, api.method)
     const existing = apiByKey.get(k)
     const row = {
       purpose: api.purpose,
@@ -310,7 +385,7 @@ export async function syncKnowledgeRegistries(
       const { data, error } = await supabase.from('api_registry').insert({
         tenant_id: tenantId,
         project_id: projectId,
-        endpoint: api.endpoint.slice(0, 500),
+        endpoint: normalizedEndpoint.slice(0, 500),
         method: api.method,
         requires_auth: true,
         ...row,
@@ -401,6 +476,9 @@ export async function syncKnowledgeRegistries(
     }
   }
   sources.database_connectors = dbConnectors?.length ?? 0
+
+  const deduped = await dedupeAutoDiscovered(supabase, projectId)
+  sources.deduped = deduped
 
   const [
     { count: featureCount },

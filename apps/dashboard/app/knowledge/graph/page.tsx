@@ -118,8 +118,8 @@ export default function KnowledgeGraphPage() {
   useEffect(() => {
     if (app.id === '__loading__') return
     setLoading(true)
-    syncAndLoad(app.id)
-  }, [app.id, syncAndLoad])
+    void loadGraph(app.id, size.width, size.height).finally(() => setLoading(false))
+  }, [app.id, loadGraph, size.width, size.height])
 
   useEffect(() => {
     if (nodes.length === 0) return
