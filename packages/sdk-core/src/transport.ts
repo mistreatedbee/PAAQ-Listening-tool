@@ -103,7 +103,12 @@ export class PaaqTransport {
     }
   }
 
-  async endSession(sessionId: string, durationSeconds?: number, outcome = 'completed'): Promise<void> {
+  async endSession(
+    sessionId: string,
+    durationSeconds?: number,
+    outcome = 'completed',
+    options: { keepalive?: boolean } = {},
+  ): Promise<void> {
     try {
       await this.fetchImpl(this.url(PAAQ_ENDPOINTS.sessions), {
         method: 'POST',
@@ -114,6 +119,7 @@ export class PaaqTransport {
           duration: durationSeconds,
           outcome,
         }),
+        keepalive: options.keepalive ?? false,
       })
     } catch {
       // fire-and-forget
@@ -157,6 +163,36 @@ export class PaaqTransport {
       })
     } catch {
       // fire-and-forget
+    }
+  }
+
+  async uploadSessionRecording(
+    sessionId: string,
+    batch: unknown[],
+    options: { sequence: number; capturedAt: string; keepalive?: boolean } ,
+  ): Promise<boolean> {
+    const params = new URLSearchParams({
+      session_id: sessionId,
+      kind: 'dom',
+      sequence: String(options.sequence),
+      captured_at: options.capturedAt,
+    })
+    try {
+      const creds = this.credentials
+      if (!creds) return false
+      const res = await this.fetchImpl(this.url(`${PAAQ_ENDPOINTS.sessionRecordingUpload}?${params}`), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${creds.sdkToken}`,
+          'X-Project-ID': creds.projectId,
+        },
+        body: JSON.stringify(batch),
+        keepalive: options.keepalive ?? true,
+      })
+      return res.ok
+    } catch {
+      return false
     }
   }
 }

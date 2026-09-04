@@ -9,7 +9,7 @@
 
 export type Framework = 'nextjs' | 'react' | 'vue' | 'vanilla' | 'nodejs' | 'python'
 
-const SDK_VERSION = '1.2.9'
+const SDK_VERSION = '1.3.0'
 const PAAQ_BASE = 'https://mookyonwpovxscsbqwwl.supabase.co/functions/v1'
 
 export const FRAMEWORK_LABELS: Record<Framework, string> = {

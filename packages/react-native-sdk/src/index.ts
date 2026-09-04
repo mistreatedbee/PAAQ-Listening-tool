@@ -12,7 +12,7 @@ import {
   type PaaqEnvironment,
 } from '@paaq/sdk-core'
 
-const SDK_VERSION = '1.0.0'
+const SDK_VERSION = '1.0.1'
 const DEVICE_ID_KEY = '@paaq:device_id'
 const BACKGROUND_GRACE_MS = 30_000
 const SCREENSHOT_INTERVAL_MS = 5_000

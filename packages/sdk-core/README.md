@@ -4,7 +4,7 @@ One transport contract for **every surface** PAAQ connects to:
 
 | Surface | Package | Uses sdk-core |
 |---------|---------|---------------|
-| Web (React, Next, Vue, Vanilla) | `@paaq/web-sdk` | Types + protocol (transport migration in progress) |
+| Web (React, Next, Vue, Vanilla) | `@paaq/web-sdk` | Yes — HTTP, batching, headers |
 | Mobile app (React Native) | `@paaq/react-native-sdk` | Yes — HTTP, batching, headers |
 | Node / Express backend | `@paaq/server-sdk` | Yes — HTTP, batching, headers |
 | Database (Postgres, MySQL, MongoDB, …) | Dashboard `db-connector` | Same schema types + engines list |

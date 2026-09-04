@@ -10,7 +10,7 @@ import {
   type PaaqConfig,
 } from '@paaq/sdk-core'
 
-const SDK_VERSION = '1.0.1'
+const SDK_VERSION = '1.0.2'
 const HEARTBEAT_INTERVAL_SECONDS = HEARTBEAT_INTERVAL_MS / 1000
 
 type MinimalRequest = { method?: string; path?: string; url?: string }

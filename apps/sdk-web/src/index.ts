@@ -1,47 +1,32 @@
 import { record } from 'rrweb'
+import {
+  createCredentials,
+  DEFAULT_BASE_URL,
+  EventQueue,
+  normalizeConfig,
+  PaaqTransport,
+  type ErrorPayload,
+  type InitResult,
+  type PaaqConfig,
+  type PaaqEnvironment,
+} from '@paaq/sdk-core'
 
-const BASE_URL = 'https://mookyonwpovxscsbqwwl.supabase.co/functions/v1'
+const BASE_URL = DEFAULT_BASE_URL
 // Was hardcoded '1.0.0' since the very first release and never updated
 // across every version bump since — every X-SDK-Version header sent by
 // every install of this SDK has been wrong the entire time, which made
 // "is a customer actually running the new build" impossible to answer
 // from server-side logs alone. Now kept in lockstep with package.json.
-const SDK_VERSION = '1.2.9'
+const SDK_VERSION = '1.3.0'
 
-type ErrorPayload = {
-  error_type: string
-  message: string
-  stack_trace?: string | null
-  screen?: string | null
-  severity?: 'fatal' | 'error' | 'warning' | 'info'
-  context?: Record<string, unknown> | null
-  session_id?: string | null
-}
+const transport = new PaaqTransport()
+const queue = new EventQueue()
 
-type EventPayload = {
-  event_name: string
-  session_id: string | null
-  user_id?: string | null
-  properties: Record<string, unknown>
-  timestamp: string
-}
+export type { PaaqConfig, InitResult }
 
-export type PaaqConfig = {
-  batchSize: number
-  syncIntervalSeconds: number
-}
-
-export type InitResult = {
-  ok: boolean
-  sessionId?: string
-  deviceId?: string
-  config?: PaaqConfig
-  error?: string
-}
-
-let _sdkToken = ''
-let _projectKey = ''
 let _platform = 'react'
+let _environment: PaaqEnvironment =
+  typeof process !== 'undefined' && process.env?.NODE_ENV === 'production' ? 'production' : 'development'
 let _sessionId: string | null = null
 let _currentUserId: string | null = null
 // Set by identify() whenever it resolves a real user_id but no session
@@ -52,8 +37,7 @@ let _pendingIdentifyUserId: string | null = null
 let _sessionStartedAt = 0
 let _sessionEnded = false
 let _hadFatalError = false
-let _queue: EventPayload[] = []
-let _config: PaaqConfig = { batchSize: 50, syncIntervalSeconds: 30 }
+let _config: PaaqConfig = normalizeConfig()
 let _flushTimer: ReturnType<typeof setInterval> | null = null
 // Page-level listeners (click, errors, console, visible UI messages) must
 // only be installed once. init() runs again for every new session on the
@@ -124,18 +108,8 @@ function collectDeviceMetadata(): DeviceMetadata {
   }
 }
 
-function buildHeaders() {
-  return {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${_sdkToken}`,
-    'X-Project-ID': _projectKey,
-    'X-SDK-Version': SDK_VERSION,
-    'X-Platform': _platform,
-    'X-Environment':
-      typeof process !== 'undefined' && process.env?.NODE_ENV === 'production'
-        ? 'production'
-        : 'development',
-  }
+function isConfigured(): boolean {
+  return Boolean(transport.getCredentials()?.sdkToken)
 }
 
 function getDeviceId(): string {
@@ -156,27 +130,24 @@ async function init(
   projectKey: string,
   options: { platform?: string; appVersion?: string } = {},
 ): Promise<InitResult> {
-  _sdkToken = sdkToken
-  _projectKey = projectKey
   _platform = options.platform ?? 'react'
+  transport.setCredentials(createCredentials(sdkToken, projectKey, _platform, SDK_VERSION, _environment))
 
   try {
-    const res = await fetch(`${BASE_URL}/sdk-init`, {
-      method: 'POST',
-      headers: buildHeaders(),
-      body: JSON.stringify({
-        deviceId: getDeviceId(),
-        appVersion: options.appVersion,
-        deviceMetadata: collectDeviceMetadata(),
-      }),
+    const data = await transport.sdkInit({
+      deviceId: getDeviceId(),
+      appVersion: options.appVersion,
+      deviceMetadata: collectDeviceMetadata(),
     })
-    const data: InitResult = await res.json()
     if (data.ok && data.sessionId) {
       _sessionId = data.sessionId
       _sessionStartedAt = Date.now()
       _sessionEnded = false
       _hadFatalError = false
-      if (data.config) _config = data.config
+      if (data.config) {
+        _config = normalizeConfig(data.config)
+        queue.setConfig(_config)
+      }
       scheduleFlush()
       installPageListeners()
       installDomRecording()
@@ -215,14 +186,13 @@ let _lastSignalAt = 0
 function track(eventName: string, properties: Record<string, unknown> = {}) {
   _lastSignalAt = Date.now()
   _perfEventCount++
-  _queue.push({
+  queue.enqueue({
     event_name: eventName,
     session_id: _sessionId,
     user_id: _currentUserId,
     properties,
-    timestamp: new Date().toISOString(),
   })
-  if (_queue.length >= _config.batchSize) void flush()
+  if (queue.shouldFlush()) void flush()
 }
 
 // Resolves/creates the user via the `/users` endpoint (keyed on the caller's
@@ -232,27 +202,19 @@ function track(eventName: string, properties: Record<string, unknown> = {}) {
 async function identify(userId: string, traits: Record<string, unknown> = {}): Promise<void> {
   track('$identify', { userId, ...traits })
 
-  if (!_sdkToken) return
+  if (!isConfigured()) return
   try {
     const email = typeof traits.email === 'string' ? traits.email : undefined
-    const res = await fetch(`${BASE_URL}/users`, {
-      method: 'POST',
-      headers: buildHeaders(),
-      body: JSON.stringify({ external_user_id: userId, email }),
-    })
-    const data: { ok?: boolean; user_id?: string; error?: string } = await res.json().catch(() => ({}))
-    if (!data.ok || !data.user_id) {
-      console.warn('[paaq] identify() failed to resolve a user', data.error ?? res.status)
+    const data = await transport.resolveUser(userId, email)
+    if (!data.ok || !data.userId) {
+      console.warn('[paaq] identify() failed to resolve a user', data.error)
       return
     }
 
-    _currentUserId = data.user_id
-    _pendingIdentifyUserId = data.user_id
+    _currentUserId = data.userId
+    _pendingIdentifyUserId = data.userId
     await linkSessionToUser()
   } catch (err) {
-    // fire-and-forget — a failed identify just leaves the session unlinked,
-    // it never blocks tracking — but it's now at least visible in devtools
-    // instead of a silent, undiagnosable "why is this session Anonymous."
     console.warn('[paaq] identify() failed', err)
   }
 }
@@ -265,24 +227,13 @@ async function linkSessionToUser(): Promise<void> {
   if (!_sessionId || !_pendingIdentifyUserId) return
   const userId = _pendingIdentifyUserId
   try {
-    const res = await fetch(`${BASE_URL}/sessions`, {
-      method: 'POST',
-      headers: buildHeaders(),
-      body: JSON.stringify({ action: 'identify', session_id: _sessionId, user_id: userId }),
-    })
-    // A non-throwing fetch is not the same as a successful link — this
-    // previously cleared _pendingIdentifyUserId on ANY response, including a
-    // real server-side failure, silently giving up on linking the session
-    // forever with no way to tell from the outside that it had happened.
-    if (!res.ok) {
-      console.warn(`[paaq] failed to link session to user (${res.status}) — will retry on next identify/session`)
+    const ok = await transport.linkSessionToUser(_sessionId, userId)
+    if (!ok) {
+      console.warn('[paaq] failed to link session to user — will retry on next identify/session')
       return
     }
     _pendingIdentifyUserId = null
   } catch (err) {
-    // Network-level failure — leave _pendingIdentifyUserId set so the next
-    // init() (new session) or identify() call retries it; log it so a
-    // persistently-unlinked session is debuggable instead of a silent mystery.
     console.warn('[paaq] failed to link session to user', err)
   }
 }
@@ -295,43 +246,25 @@ function page(pageName?: string, properties: Record<string, unknown> = {}) {
 }
 
 async function flush(): Promise<void> {
-  if (_queue.length === 0 || !_sdkToken) return
-  const batch = _queue.splice(0)
-  try {
-    await fetch(`${BASE_URL}/events`, {
-      method: 'POST',
-      headers: buildHeaders(),
-      body: JSON.stringify(batch),
-    })
-  } catch {
-    // fire-and-forget — silently discard on network failure
-  }
+  if (!isConfigured()) return
+  const batch = queue.drain()
+  await transport.postEvents(batch)
 }
 
 async function sendError(payload: ErrorPayload): Promise<void> {
-  if (!_sdkToken) return
+  if (!isConfigured()) return
   _perfErrorCount++
-  // Land the user's last click/interaction on the server before the error
-  // timestamp so the replay clip can start from that action.
   await flush()
   void captureErrorRecordingWindow()
-  try {
-    const context: Record<string, unknown> = {
-      ...(payload.context && typeof payload.context === 'object' ? payload.context : {}),
-      ...(_lastClick ? { lastClick: _lastClick } : {}),
-    }
-    await fetch(`${BASE_URL}/errors`, {
-      method: 'POST',
-      headers: buildHeaders(),
-      body: JSON.stringify({
-        ...payload,
-        session_id: payload.session_id ?? _sessionId,
-        context: Object.keys(context).length > 0 ? context : null,
-      }),
-    })
-  } catch {
-    // fire-and-forget
+  const context: Record<string, unknown> = {
+    ...(payload.context && typeof payload.context === 'object' ? payload.context : {}),
+    ...(_lastClick ? { lastClick: _lastClick } : {}),
   }
+  await transport.postError({
+    ...payload,
+    session_id: payload.session_id ?? _sessionId,
+    context: Object.keys(context).length > 0 ? context : null,
+  })
 }
 
 function trackError(
@@ -441,7 +374,7 @@ function installPerfMonitoring(): void {
 }
 
 async function flushPerf(): Promise<void> {
-  if (!_sdkToken || !_projectKey) return
+  if (!isConfigured()) return
   const metrics: PerfMetric[] = []
 
   if (_responseTimes.length > 0) {
@@ -475,15 +408,7 @@ async function flushPerf(): Promise<void> {
   }
 
   if (metrics.length === 0) return
-  try {
-    await fetch(`${BASE_URL}/performance`, {
-      method: 'POST',
-      headers: buildHeaders(),
-      body: JSON.stringify(metrics),
-    })
-  } catch {
-    // fire-and-forget — matches flush()/sendError()
-  }
+  await transport.postPerformance(metrics)
 }
 
 function installGlobalHandlers(): void {
@@ -783,27 +708,14 @@ function endOnce(outcome: string): void {
 }
 
 async function endSession(outcome: string): Promise<void> {
-  if (!_sessionId || !_sdkToken || _sessionEnded) return
+  if (!_sessionId || !isConfigured() || _sessionEnded) return
   _sessionEnded = true
   await flush()
   void flushPerf()
   await flushRecording({ keepalive: true })
   teardownDomRecording()
   const durationSeconds = _sessionStartedAt ? Math.round((Date.now() - _sessionStartedAt) / 1000) : undefined
-  const payload = JSON.stringify({ action: 'end', session_id: _sessionId, duration: durationSeconds, outcome })
-  // sendBeacon cannot send custom headers, so the sessions endpoint would reject
-  // it with 401. fetch+keepalive is the spec-correct replacement: it sends all
-  // headers and is guaranteed to complete even when the page is unloading.
-  try {
-    await fetch(`${BASE_URL}/sessions`, {
-      method: 'POST',
-      headers: buildHeaders(),
-      body: payload,
-      keepalive: true,
-    })
-  } catch {
-    // fire-and-forget — session-sweep-cron closes stale sessions as a fallback
-  }
+  await transport.endSession(_sessionId, durationSeconds, outcome, { keepalive: true })
 }
 
 // ── Double click tracking ───────────────────────────────────────────────
@@ -990,34 +902,18 @@ async function flushRecording(opts: { keepalive?: boolean } = {}): Promise<void>
 }
 
 async function flushRecordingOnce(opts: { keepalive?: boolean } = {}): Promise<void> {
-  if (_recordingBuffer.length === 0 || !_sdkToken || !_sessionId) return
+  if (_recordingBuffer.length === 0 || !isConfigured() || !_sessionId) return
   const batch = _recordingBuffer.splice(0)
   const sequence = _recordingSequence++
-  const params = new URLSearchParams({
-    session_id: _sessionId,
-    kind: 'dom',
-    sequence: String(sequence),
-    captured_at: new Date().toISOString(),
-  })
   const keepalive = opts.keepalive ?? true
   for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const res = await fetch(`${BASE_URL}/session-recording-upload?${params}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${_sdkToken}`,
-          'X-Project-ID': _projectKey,
-        },
-        body: JSON.stringify(batch),
-        keepalive,
-      })
-      if (res.ok) return
-    } catch {
-      // retry
-    }
+    const ok = await transport.uploadSessionRecording(_sessionId, batch, {
+      sequence,
+      capturedAt: new Date().toISOString(),
+      keepalive,
+    })
+    if (ok) return
   }
-  // Restore events so a transient failure does not leave permanent gaps in replay.
   _recordingBuffer.unshift(...batch)
 }
 

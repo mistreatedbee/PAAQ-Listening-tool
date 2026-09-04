@@ -1,6 +1,6 @@
 {
   "name": "@paaq/web-sdk",
-  "version": "1.2.9",
+  "version": "1.3.0",
   "description": "PAAQ Intelligence SDK for React, Next.js, Vue, and any web app",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -16,7 +16,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "build": "tsup src/index.ts --format cjs,esm --dts --external @paaq/sdk-core",
     "dev": "tsup src/index.ts --format esm --dts --watch",
     "prepublishOnly": "npm run build"
   },
@@ -39,6 +39,7 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "@paaq/sdk-core": "file:../../packages/sdk-core",
     "rrweb": "^2.1.1"
   },
   "devDependencies": {

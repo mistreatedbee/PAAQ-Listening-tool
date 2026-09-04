@@ -2,16 +2,16 @@
   "$schema": "./sdk-versions.schema.json",
   "updatedAt": "2026-09-04",
   "platforms": {
-    "react": { "version": "1.2.9", "package": "@paaq/web-sdk" },
-    "nextjs": { "version": "1.2.9", "package": "@paaq/web-sdk" },
-    "vue": { "version": "1.2.9", "package": "@paaq/web-sdk" },
-    "vanilla": { "version": "1.2.9", "package": "@paaq/web-sdk" },
-    "web": { "version": "1.2.9", "package": "@paaq/web-sdk" },
-    "nodejs": { "version": "1.0.1", "package": "@paaq/server-sdk" },
+    "react": { "version": "1.3.0", "package": "@paaq/web-sdk" },
+    "nextjs": { "version": "1.3.0", "package": "@paaq/web-sdk" },
+    "vue": { "version": "1.3.0", "package": "@paaq/web-sdk" },
+    "vanilla": { "version": "1.3.0", "package": "@paaq/web-sdk" },
+    "web": { "version": "1.3.0", "package": "@paaq/web-sdk" },
+    "nodejs": { "version": "1.0.2", "package": "@paaq/server-sdk" },
     "python": { "version": "1.0.0", "package": "paaq-server-sdk" },
-    "react-native": { "version": "1.0.0", "package": "@paaq/react-native-sdk" },
-    "ios": { "version": "1.0.0", "package": "@paaq/react-native-sdk" },
-    "android": { "version": "1.0.0", "package": "@paaq/react-native-sdk" },
+    "react-native": { "version": "1.0.1", "package": "@paaq/react-native-sdk" },
+    "ios": { "version": "1.0.1", "package": "@paaq/react-native-sdk" },
+    "android": { "version": "1.0.1", "package": "@paaq/react-native-sdk" },
     "flutter": { "version": "1.0.0", "package": "paaq_intelligence" },
     "postgres": { "version": "1.0.0", "package": "@paaq/sdk-core" },
     "mysql": { "version": "1.0.0", "package": "@paaq/sdk-core" },
@@ -31,7 +31,7 @@
     },
     "@paaq/web-sdk": {
       "path": "apps/sdk-web",
-      "version": "1.2.9",
+      "version": "1.3.0",
       "platforms": ["react", "nextjs", "vue", "vanilla", "web"],
       "build": "npm run build",
       "sourceVersionConst": "apps/sdk-web/src/index.ts"
@@ -43,14 +43,14 @@
     },
     "@paaq/server-sdk": {
       "path": "packages/server-sdk",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "platforms": ["nodejs"],
       "build": "npm run build",
       "sourceVersionConst": "packages/server-sdk/src/index.ts"
     },
     "@paaq/react-native-sdk": {
       "path": "packages/react-native-sdk",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "platforms": ["react-native", "ios", "android"],
       "build": "npm run build",
       "sourceVersionConst": "packages/react-native-sdk/src/index.ts"
