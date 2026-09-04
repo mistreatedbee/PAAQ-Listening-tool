@@ -14,29 +14,9 @@ import { execSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { loadSdkReleaseEnv, ROOT } from './load-env.mjs'
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-
-function loadEnvFile(rel) {
-  const file = path.join(ROOT, rel)
-  if (!fs.existsSync(file)) return
-  for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#')) continue
-    const eq = trimmed.indexOf('=')
-    if (eq < 0) continue
-    const key = trimmed.slice(0, eq)
-    let val = trimmed.slice(eq + 1)
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-      val = val.slice(1, -1)
-    }
-    if (!process.env[key]) process.env[key] = val
-  }
-}
-
-loadEnvFile('apps/dashboard/.env.local')
-loadEnvFile('apps/dashboard/.env.release.local')
-loadEnvFile('.env.local')
+loadSdkReleaseEnv()
 
 const ALIASES = {
   web: '@paaq/web-sdk',

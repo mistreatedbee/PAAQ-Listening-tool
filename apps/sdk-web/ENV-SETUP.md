@@ -33,11 +33,17 @@ Both files are **gitignored**. Never commit secrets.
 
 ### Quick setup
 
-1. Open Vercel → copy `REPO_CONNECTOR_INTERNAL_SECRET` (Production).
-2. Paste into:
-   - `/.env.local` → `REPO_CONNECTOR_INTERNAL_SECRET=...`
-   - `apps/dashboard/.env.local` → same line (already has a blank slot).
-3. Test announce (no republish):
+1. **Delete** `apps/dashboard/.env.release.local` if it exists with `[SENSITIVE]` placeholders (breaks announce).
+2. Open Vercel → copy `REPO_CONNECTOR_INTERNAL_SECRET` (**Production**).
+3. Paste into **`/.env.local`**:
+   ```env
+   REPO_CONNECTOR_INTERNAL_SECRET=your-production-value
+   ```
+4. Sync secret to Supabase (edge functions cache secrets until redeploy):
+   ```bash
+   npm run sdk:sync-secret
+   ```
+5. Test announce:
    ```bash
    npm run sdk:announce
    ```

@@ -15,6 +15,7 @@
     "sdk:pack": "npm run sdk:sync-versions && npm run sdk:build && npm pack --prefix apps/sdk-web",
     "sdk:release": "node scripts/release-sdk.mjs web",
     "sdk:release:dry-run": "node scripts/release-sdk.mjs web --dry-run",
-    "sdk:announce": "node scripts/announce-sdk-release.mjs web"
+    "sdk:announce": "node scripts/announce-sdk-release.mjs web",
+    "sdk:sync-secret": "node scripts/sync-repo-connector-secret.mjs"
   }
 }

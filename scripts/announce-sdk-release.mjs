@@ -11,29 +11,9 @@
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { loadSdkReleaseEnv, ROOT } from './load-env.mjs'
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-
-function loadEnvFile(rel) {
-  const file = path.join(ROOT, rel)
-  if (!fs.existsSync(file)) return
-  for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#')) continue
-    const eq = trimmed.indexOf('=')
-    if (eq < 0) continue
-    const key = trimmed.slice(0, eq)
-    let val = trimmed.slice(eq + 1)
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-      val = val.slice(1, -1)
-    }
-    if (!process.env[key]) process.env[key] = val
-  }
-}
-
-loadEnvFile('apps/dashboard/.env.local')
-loadEnvFile('apps/dashboard/.env.release.local')
-loadEnvFile('.env.local')
+loadSdkReleaseEnv()
 
 const catalog = JSON.parse(fs.readFileSync(path.join(ROOT, 'packages/sdk-versions.json'), 'utf8'))
 
@@ -70,14 +50,15 @@ version = version ?? pkg.version
 const platforms = pkg.platforms ?? []
 
 const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL
-const secret = process.env.REPO_CONNECTOR_INTERNAL_SECRET
+const secret = process.env.REPO_CONNECTOR_INTERNAL_SECRET?.trim()
 const anonKey =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY
 
 if (!supabaseUrl || !secret) {
   console.error(
-    'Missing SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) and REPO_CONNECTOR_INTERNAL_SECRET.\n' +
-      'Tip: vercel env pull apps/dashboard/.env.release.local --environment=production',
+    'Missing SUPABASE_URL and REPO_CONNECTOR_INTERNAL_SECRET.\n' +
+      'Paste Production REPO_CONNECTOR_INTERNAL_SECRET from Vercel into /.env.local\n' +
+      '(ignore apps/dashboard/.env.release.local if it contains [SENSITIVE] placeholders)',
   )
   process.exit(1)
 }
@@ -108,7 +89,16 @@ const res = await fetch(`${supabaseUrl}/functions/v1/announce-sdk-release`, {
 
 const body = await res.json().catch(() => ({}))
 if (!res.ok) {
-  console.error('announce-sdk-release failed:', body)
+  if (res.status === 401) {
+    console.error(
+      'announce-sdk-release failed: Unauthorized — REPO_CONNECTOR_INTERNAL_SECRET does not match Supabase.\n' +
+        '1. Copy Production value from Vercel into /.env.local\n' +
+        '2. Sync to Supabase: npm run sdk:sync-secret\n' +
+        '3. Retry: npm run sdk:announce',
+    )
+  } else {
+    console.error('announce-sdk-release failed:', body)
+  }
   process.exit(1)
 }
 
