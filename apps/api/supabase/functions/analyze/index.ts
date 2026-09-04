@@ -6,6 +6,7 @@ import {
   fallbackInsightsFromTelemetry,
 } from '../_shared/insights-parse.ts'
 import { syncEmergingRisks } from '../_shared/emerging-risks-engine.ts'
+import { syncKnowledgeGraph } from '../_shared/knowledge-graph-engine.ts'
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -344,10 +345,14 @@ Rules: 3-5 insights; use real names/numbers from data; skip empty sections; keep
   }
 
   let emergingRisks = { detected: 0, upserted: 0, resolved: 0 }
+  let knowledgeGraph = { nodes: 0, edges: 0, sources: {} as Record<string, number> }
   if (projectId) {
     try {
       emergingRisks = await syncEmergingRisks(supabase, projectId)
     } catch { /* non-fatal — analysis results already saved */ }
+    try {
+      knowledgeGraph = await syncKnowledgeGraph(supabase, projectId)
+    } catch { /* non-fatal */ }
   }
 
   // Auto-build product memory from the AI insights just generated so the knowledge
@@ -375,6 +380,8 @@ Rules: 3-5 insights; use real names/numbers from data; skip empty sections; keep
     anomalies: anomalyRows.length,
     insights: insightRows.length,
     emerging_risks: emergingRisks.detected,
+    knowledge_graph_nodes: knowledgeGraph.nodes,
+    knowledge_graph_edges: knowledgeGraph.edges,
   })
 })
 
