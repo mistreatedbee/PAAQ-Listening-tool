@@ -1,6 +1,6 @@
 {
   "name": "@paaq/sdk",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "PAAQ Intelligence SDK — one package for web, Node.js, and React Native",
   "main": "dist/web.js",
   "module": "dist/web.mjs",
@@ -56,7 +56,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@paaq/sdk-core": "file:../sdk-core",
+    "@paaq/sdk-core": "^1.0.0",
     "rrweb": "^2.1.1"
   },
   "peerDependencies": {
@@ -66,9 +66,10 @@
     "react-native-view-shot": ">=3.8.0"
   },
   "peerDependenciesMeta": {
-    "react-native-view-shot": {
-      "optional": true
-    }
+    "react": { "optional": true },
+    "react-native": { "optional": true },
+    "@react-native-async-storage/async-storage": { "optional": true },
+    "react-native-view-shot": { "optional": true }
   },
   "devDependencies": {
     "@types/react": "^18.2.0",

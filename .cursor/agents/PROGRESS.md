@@ -1,5 +1,17 @@
 # PAAQ Platform Progress
 
+## Latest Work (session 2026-09-04 — unified SDK + knowledge platform)
+
+- SHIPPED (main): **Knowledge auto-discovery** — registries sync from telemetry, AI, investigations, DB introspection (`sync-knowledge-registries`, wired into analyze + db-connector).
+- SHIPPED (main): **Knowledge graph** — deduped nodes (55→38), Executive/Product/Technical views, inferred relationships, readable labels.
+- SHIPPED (main): **`@paaq/sdk-core`** — shared transport, batching, headers, protocol for all JS surfaces.
+- SHIPPED (main): **Unified `@paaq/sdk@1.4.1`** on npm — one package for web + Node + React Native via conditional exports; single `PAAQ.initialize({ sdkToken, projectId })` API.
+- SHIPPED (main): Dashboard onboarding/setup/apps snippets updated to `@paaq/sdk`.
+- FIX (local, publish pending OTP): **`@paaq/sdk@1.4.2`** — React Native peer deps marked optional so web/React 18 projects (e.g. SafeCloudAfrica) don't get ERESOLVE from react-native@0.87 wanting react@19. User must run `npm publish` in `packages/sdk` with 2FA.
+- AGENT DOCS: Created `.cursor/agents/AGENT-PROMPT.md` — canonical agent system prompt (SDK, knowledge, AI, secrets, troubleshooting). `RUNNING-CHECKLIST.md` updated to read it first.
+- npm LIVE (verified): `@paaq/sdk-core@1.0.0`, `@paaq/web-sdk@1.3.0`, `@paaq/server-sdk@1.0.2`, `@paaq/react-native-sdk@1.0.1`, `@paaq/sdk@1.4.1`.
+- STILL BLOCKED: `@paaq/sdk@1.4.2` publish (OTP), PyPI `paaq-server-sdk`, npm `@paaq/mcp-server` + `@paaq/cli`.
+
 ## State
 - Mode: autonomous
 - Goal: 1000 active users
