@@ -1,6 +1,6 @@
 {
   "name": "@paaq/sdk",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "PAAQ Intelligence SDK — one package for web, Node.js, and React Native",
   "main": "dist/web.js",
   "module": "dist/web.mjs",
